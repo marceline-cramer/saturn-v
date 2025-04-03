@@ -29,6 +29,9 @@ pub enum ConstraintKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Relation<R> {
+    /// The relation's type.
+    pub ty: Vec<Type>,
+
     /// The custom relation data that this relation stores to.
     pub store: R,
 
@@ -50,6 +53,9 @@ pub struct Rule<R> {
 
     /// The lookups for custom relation types loaded by the filter.
     pub loaded: Vec<R>,
+
+    /// The type of each variable.
+    pub vars: Vec<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -72,7 +78,7 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn to_doc(&self) -> RcDoc<()> {
+    pub fn to_doc(&self) -> RcDoc<'static, ()> {
         use Expr::*;
         match self {
             Variable(idx) => RcDoc::text("(")
@@ -90,7 +96,8 @@ impl Expr {
                 .append(RcDoc::space())
                 .append(relation.to_string())
                 .append(
-                    RcDoc::intersperse(query.iter().map(|q| q.to_doc()), RcDoc::line())
+                    RcDoc::line()
+                        .append(QueryTerm::to_doc(query.iter()))
                         .nest(4)
                         .group(),
                 )
@@ -134,7 +141,7 @@ pub enum BinaryOpKind {
 }
 
 impl BinaryOpKind {
-    pub fn to_doc(&self) -> RcDoc<()> {
+    pub fn to_doc(&self) -> RcDoc<'static, ()> {
         use BinaryOpKind::*;
         let kind = match self {
             Add => "Add",
@@ -158,7 +165,7 @@ pub enum UnaryOpKind {
 }
 
 impl UnaryOpKind {
-    pub fn to_doc(&self) -> RcDoc<()> {
+    pub fn to_doc(&self) -> RcDoc<'static, ()> {
         use UnaryOpKind::*;
         let kind = match self {
             Not => "Not",
@@ -176,17 +183,20 @@ pub enum QueryTerm {
 }
 
 impl QueryTerm {
-    pub fn to_doc(&self) -> RcDoc<()> {
+    pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> RcDoc<'static, ()> {
         use QueryTerm::*;
-        let (kind, val) = match self {
-            Variable(idx) => ("QueryVariable", RcDoc::text(idx.to_string())),
-            Value(val) => ("QueryValue", val.to_doc()),
+        let (kind, val) = match terms.next() {
+            Some(Variable(idx)) => ("QueryVariable", RcDoc::text(idx.to_string())),
+            Some(Value(val)) => ("QueryValue", val.to_doc()),
+            None => return RcDoc::text("(QueryNil)"),
         };
 
         RcDoc::text("(")
             .append(kind)
             .append(RcDoc::space())
             .append(val)
+            .append(RcDoc::line())
+            .append(Self::to_doc(terms))
             .append(")")
     }
 }
@@ -201,7 +211,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn to_doc(&self) -> RcDoc<()> {
+    pub fn to_doc(&self) -> RcDoc<'static, ()> {
         use Value::*;
         let (kind, val) = match self {
             Boolean(val) => ("Boolean", val.to_string()),
@@ -217,6 +227,26 @@ impl Value {
             .append(val)
             .append(")")
     }
+
+    pub fn ty(&self) -> Type {
+        use Value::*;
+        match self {
+            Boolean(_) => Type::Boolean,
+            Integer(_) => Type::Integer,
+            Real(_) => Type::Real,
+            Symbol(_) => Type::Symbol,
+            String(_) => Type::String,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Type {
+    Boolean,
+    Integer,
+    Real,
+    Symbol,
+    String,
 }
 
 #[cfg(test)]
@@ -235,9 +265,8 @@ pub mod tests {
             }),
         };
 
-        let mut out = Vec::new();
-        expr.to_doc().render(40, &mut out).unwrap();
-        let out = String::from_utf8(out).unwrap();
+        let mut out = String::new();
+        expr.to_doc().render_fmt(40, &mut out).unwrap();
         println!("{out}");
     }
 }
