@@ -1,0 +1,13 @@
+[workspace]
+members = ["ir"]
+
+[workspace.dependencies]
+ordered-float = "4"
+pretty = "0.12"
+
+[package]
+name = "saturn-v"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]

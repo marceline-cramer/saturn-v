@@ -1,0 +1,8 @@
+[package]
+name = "saturn-v-ir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ordered-float.workspace = true
+pretty.workspace = true
