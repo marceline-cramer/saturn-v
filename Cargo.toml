@@ -1,9 +1,15 @@
 [workspace]
-members = ["ir"]
+members = ["ir", "lower"]
 
 [workspace.dependencies]
+chumsky = "0.9"
+indexmap = "2.8"
 ordered-float = "4"
 pretty = "0.12"
+
+# internal workspace members
+saturn-v-ir.path = "ir"
+saturn-v-lower.path = "lower"
 
 [package]
 name = "saturn-v"

@@ -1,0 +1,227 @@
+(sort VarSet (Set i64))
+
+(datatype ValueKind
+	(Boolean bool)
+	(Integer i64)
+	(Real f64))
+
+(datatype Query
+	(QueryValue ValueKind Query)
+	(QueryVariable i64 Query)
+	(QueryNil))
+
+(function query-vars (Query) VarSet :merge (set-union old new))
+(set (query-vars (QueryNil)) (set-empty))
+
+(rule
+	((= q (QueryValue _ rest)) (= vars (query-vars rest)))
+	((set (query-vars q) vars))
+	:name "query-vars for QueryValue")
+
+(rule
+	((= q (QueryVariable var rest)) (= vars (query-vars rest)))
+	((set (query-vars q) (set-insert vars var)))
+	:name "query-vars for QueryVariable")
+
+(datatype UnaryOpKind
+	(Negate)
+	(Not))
+
+(datatype BinaryOpKind
+	(Add)
+	(Mul)
+	(Div)
+	(Concat)
+	(And)
+	(Or)
+	(Eq)
+	(Lt)
+	(Le))
+
+(datatype Expr
+	(Variable i64)
+	(Value ValueKind)
+	(Load i64 Query :cost 1000000)
+	(UnaryOp UnaryOpKind Expr :cost 1)
+	(BinaryOp BinaryOpKind Expr Expr :cost 1))
+
+(function expr-vars (Expr) VarSet :merge (set-union old new))
+(rule ((= e (Variable var))) ((set (expr-vars e) (set-insert (set-empty) var))) :name "expr-vars for Variable")
+(rule ((= e (Value _))) ((set (expr-vars e) (set-empty))) :name "expr-vars for Value")
+(rule ((= e (Load _ q)) (= vars (query-vars q))) ((set (expr-vars e) vars)) :name "expr-vars for Load")
+(rule ((= e (UnaryOp _ inner)) (= vars (expr-vars inner))) ((set (expr-vars e) vars)) :name "expr-vars for UnaryOp")
+
+(rule
+	((= e (BinaryOp _ lhs rhs)) (= lhs_vars (expr-vars lhs)) (= rhs_vars (expr-vars rhs)))
+	((set (expr-vars e) (set-union lhs_vars rhs_vars)))
+	:name "expr-vars for BinaryOp")
+
+; Shorthand
+(let True (Value (Boolean true)))
+(let False (Value (Boolean false)))
+
+; Implementation of arithmetic
+(rewrite (BinaryOp (Add) (Value (Integer a)) (Value (Integer b))) (Value (Integer (+ a b))))
+(rewrite (BinaryOp (Mul) (Value (Integer a)) (Value (Integer b))) (Value (Integer (* a b))))
+(rewrite (BinaryOp (Div) (Value (Integer a)) (Value (Integer b))) (Value (Integer (/ a b))))
+
+; Arithmetic identities
+(let zero (Value (Integer 0)))
+(let one (Value (Integer 1)))
+(rewrite (BinaryOp (Add) a zero) a)
+(rewrite (BinaryOp (Mul) a one) a)
+(rewrite (BinaryOp (Mul) a zero) zero)
+
+; And logic
+(rewrite (BinaryOp (And) True True) True)
+(rewrite (BinaryOp (And) False _) False)
+
+; Or logic
+(rewrite (BinaryOp (Or) False False) False)
+(rewrite (BinaryOp (Or) True _) True)
+
+; Eq logic
+(rewrite (BinaryOp (Eq) a a) True)
+
+; Inequality logic
+(birewrite (BinaryOp (Lt) a b) (UnaryOp (Not) (BinaryOp (Lt) b a)))
+(birewrite (BinaryOp (Le) a b) (UnaryOp (Not) (BinaryOp (Le) b a)))
+(birewrite
+	(BinaryOp (Or) (BinaryOp (Eq) a b) (BinaryOp (Lt) a b))
+	(BinaryOp (Le) a b))
+
+; Transitivity of equality
+(rule
+	((= e (BinaryOp (And) (BinaryOp (Eq) a b) (BinaryOp (Eq) b c))))
+	((union e (BinaryOp (And) e (BinaryOp (Eq) a c))))
+	:name "transitivity of equality")
+
+; Not logic
+(rewrite (UnaryOp (Not) (UnaryOp (Not) a)) a)
+(rewrite (UnaryOp (Not) True) False)
+(rewrite (UnaryOp (Not) False) True)
+
+; Negate logic
+(rewrite (UnaryOp (Negate) (UnaryOp (Negate) a)) a)
+(rewrite (UnaryOp (Negate) (Value (Integer x))) (Value (Integer (- 0 x))))
+(rewrite (UnaryOp (Negate) (Value (Real x)))    (Value (Real (- 0.0 x))))
+
+; Associativity
+(relation associative (BinaryOpKind))
+(set (associative (And)))
+(set (associative (Or)))
+(set (associative (Add)))
+(set (associative (Mul)))
+
+(rule
+	((= e (BinaryOp op a (BinaryOp op b c)))
+	 (associative op))
+	((union e (BinaryOp op (BinaryOp op a b) c)))
+	:name "operator associativity")
+
+; Commutativity
+(relation commutative (BinaryOpKind))
+(set (commutative (And)))
+(set (commutative (Or)))
+(set (commutative (Eq)))
+
+(rule
+	((= e (BinaryOp op a b))
+	 (commutative op))
+	((union e (BinaryOp op b a)))
+	:name "operator commutativity")
+
+; Distributive rules
+(birewrite (BinaryOp (And) a (BinaryOp (Or) b c)) (BinaryOp (Or) (BinaryOp (And) a b) (BinaryOp (And) a c)))
+(birewrite (BinaryOp (Mul) a (BinaryOp (Add) b c)) (BinaryOp (Add) (BinaryOp (Mul) a b) (BinaryOp (Mul) a c)))
+
+; De Morgan's laws
+(birewrite
+	(UnaryOp (Not) (BinaryOp (And) a b))
+	(BinaryOp (Or) (UnaryOp (Not) a) (UnaryOp (Not) b)))
+
+(birewrite
+	(UnaryOp (Not) (BinaryOp (Or) a b))
+	(BinaryOp (And) (UnaryOp (Not) a) (UnaryOp (Not) b)))
+
+; Negation of addition negates terms
+(birewrite
+	(UnaryOp (Negate) (BinaryOp (Add) a b))
+	(BinaryOp (Add) (UnaryOp (Negate) a) (UnaryOp (Negate) b)))
+
+; Negation of multiplication cancels out
+(birewrite
+	(BinaryOp (Mul) (UnaryOp (Negate) a) (UnaryOp (Negate) b))
+	(BinaryOp (Mul) a b))
+
+; Instruction data type
+(datatype Instr
+	(Noop)
+	(Sink VarSet Instr :cost 10000000)
+	(Filter Expr Instr)
+	(FromQuery i64 Query)
+	(Let i64 Expr Instr)
+	(Merge Instr Instr)
+	(Join Instr Instr :cost 100))
+
+; Properties of joins
+(rewrite (Join a b) (Join b a))
+(rewrite (Join a (Join b c)) (Join (Join a b) c))
+(rewrite (Join a (Noop)) a)
+(rewrite (Join (Filter e lhs) rhs) (Filter e (Join lhs rhs)))
+
+; Two filters in series are equivalent to Boolean and
+(birewrite (Filter a (Filter b c)) (Filter (BinaryOp (And) a b) c))
+
+; A Boolean OR is equivalent to concatenation
+(birewrite
+	(Filter (BinaryOp (Or) lhs rhs) rest)
+	(Merge (Filter lhs rest) (Filter rhs rest)))
+
+; Asserted relations can be loaded regardless of available variables
+(rule
+	((= i (Filter (Load r q) rest))
+	 (= vars (query-vars q)))
+	((union i (Join rest (FromQuery r q))))
+	:name "load queries")
+
+; Calculate the set of variables that are available in each instruction subtree
+(function instr-vars (Instr) VarSet :merge (set-union old new))
+(set (instr-vars (Noop)) (set-empty))
+(rule ((= i (Filter _ rest)) (= vars (instr-vars rest))) ((set (instr-vars i) vars)) :name "instr-vars for Filter")
+(rule ((= i (FromQuery _ q)) (= vars (query-vars q))) ((set (instr-vars i) vars)) :name "instr-vars for FromQuery")
+(rule ((= i (Let var _ rest)) (= vars (instr-vars rest))) ((set (instr-vars i) (set-insert vars var))) :name "instr-vars for Let")
+
+(rule
+	((= i (Join lhs rhs))
+	 (= lhs_vars (instr-vars lhs))
+	 (= rhs_vars (instr-vars rhs)))
+	((set (instr-vars i) (set-union lhs_vars rhs_vars)))
+	:name "instr-vars for Join")
+
+(rule
+	((= i (Merge lhs rhs))
+	 (= lhs_vars (instr-vars lhs))
+	 (= rhs_vars (instr-vars rhs)))
+	((set (instr-vars i) (set-intersect lhs_vars rhs_vars)))
+	:name "instr-vars for Merge")
+
+; Empty sinks are no-ops
+(rewrite (Sink (set-empty) rest) rest)
+
+; Providing variables removes it from the sink
+(rule
+	((= i (Sink needed rest))
+	 (= provided (instr-vars rest))
+	 (= remaining (set-diff needed provided)))
+	((union i (Sink remaining rest)))
+	:name "provide variables to sink")
+
+; An assertion of equality can assign and provide if all variables are available
+(rule
+	((= i (Filter (BinaryOp (Eq) (Variable var) rhs) rest))
+	 (= needed (expr-vars rhs))
+	 (= available (instr-vars rest))
+	 (= 0 (set-length (set-diff needed available))))
+	((union i (Let var rhs rest)))
+	:name "equality to let instruction")

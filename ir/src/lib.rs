@@ -1,7 +1,21 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
 use pretty::RcDoc;
+use strum::EnumString;
+
+pub mod sexp;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstructionKind {
+    Noop,
+    Sink(HashSet<i64>, Box<Self>),
+    Filter(Expr, Box<Self>),
+    FromQuery(i64, Vec<QueryTerm>),
+    Let(i64, Expr, Box<Self>),
+    Merge(Box<Self>, Box<Self>),
+    Join(Box<Self>, Box<Self>),
+}
 
 pub struct Program<R> {
     pub constraints: Vec<Constraint<R>>,
@@ -127,7 +141,7 @@ impl Expr {
 
 /// Redundant operations (Sub, Neq, Gt, Ge) are not included. Use unary ops to
 /// evaluate those.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumString)]
 pub enum BinaryOpKind {
     Add,
     Mul,
@@ -158,7 +172,8 @@ impl BinaryOpKind {
         RcDoc::text("(").append(kind).append(")")
     }
 }
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumString)]
 pub enum UnaryOpKind {
     Not,
     Negate,

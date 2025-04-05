@@ -1,10 +1,12 @@
 [package]
-name = "saturn-v-ir"
+name = "saturn-v-lower"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 chumsky.workspace = true
+egglog = "0.4"
+indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
-strum = { version = "0.27", features = ["derive"] }
+saturn-v-ir.workspace = true
