@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 use chumsky::prelude::*;
 
@@ -72,7 +72,7 @@ impl Expr {
     pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         recursive(|expr| {
             // recurse helper
-            let expr = expr.map(Box::new);
+            let expr = expr.map(Arc::new);
 
             // variable
             let variable = Token::expect_item("Variable")

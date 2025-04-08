@@ -7,4 +7,5 @@ edition = "2021"
 chumsky.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
+serde.workspace = true
 strum = { version = "0.27", features = ["derive"] }

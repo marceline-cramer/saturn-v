@@ -1,0 +1,14 @@
+[package]
+name = "saturn-v-eval"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+differential-dataflow = "0.14"
+flume = "0.11"
+futures-util = "0.3"
+saturn-v-ir.workspace = true
+serde.workspace = true
+smallvec = { version = "1.15", features = ["serde"] }
+timely = "0.20"
+tokio = { version = "1.42", features = ["full"] }

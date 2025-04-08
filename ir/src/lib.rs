@@ -1,7 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use ordered_float::OrderedFloat;
 use pretty::RcDoc;
+use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
 pub mod sexp;
@@ -36,7 +40,7 @@ pub struct Constraint<R> {
     pub kind: ConstraintKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum ConstraintKind {
     // TODO
 }
@@ -72,7 +76,7 @@ pub struct Rule<R> {
     pub vars: Vec<Type>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Expr {
     Variable(usize),
     Value(Value),
@@ -82,12 +86,12 @@ pub enum Expr {
     },
     UnaryOp {
         op: UnaryOpKind,
-        term: Box<Expr>,
+        term: Arc<Expr>,
     },
     BinaryOp {
         op: BinaryOpKind,
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
+        lhs: Arc<Expr>,
+        rhs: Arc<Expr>,
     },
 }
 
@@ -141,7 +145,9 @@ impl Expr {
 
 /// Redundant operations (Sub, Neq, Gt, Ge) are not included. Use unary ops to
 /// evaluate those.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumString)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 pub enum BinaryOpKind {
     Add,
     Mul,
@@ -173,7 +179,9 @@ impl BinaryOpKind {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, EnumString)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 pub enum UnaryOpKind {
     Not,
     Negate,
@@ -191,7 +199,7 @@ impl UnaryOpKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum QueryTerm {
     Variable(usize),
     Value(Value),
@@ -216,7 +224,7 @@ impl QueryTerm {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Value {
     Boolean(bool),
     Integer(i64),
@@ -255,7 +263,7 @@ impl Value {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum Type {
     Boolean,
     Integer,
@@ -272,11 +280,11 @@ pub mod tests {
     fn basic_pretty_print() {
         let expr = Expr::BinaryOp {
             op: BinaryOpKind::Eq,
-            lhs: Box::new(Expr::Variable(0)),
-            rhs: Box::new(Expr::BinaryOp {
+            lhs: Arc::new(Expr::Variable(0)),
+            rhs: Arc::new(Expr::BinaryOp {
                 op: BinaryOpKind::Add,
-                lhs: Box::new(Expr::Variable(1)),
-                rhs: Box::new(Expr::Value(Value::Integer(1))),
+                lhs: Arc::new(Expr::Variable(1)),
+                rhs: Arc::new(Expr::Value(Value::Integer(1))),
             }),
         };
 

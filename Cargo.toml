@@ -1,13 +1,15 @@
 [workspace]
-members = ["ir", "lower"]
+members = [ "eval", "ir", "lower" ]
 
 [workspace.dependencies]
 chumsky = "0.9"
 indexmap = "2.8"
-ordered-float = "4"
+ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
+serde = { version = "1", features = ["derive"] }
 
 # internal workspace members
+saturn-v-eval.path = "eval"
 saturn-v-ir.path = "ir"
 saturn-v-lower.path = "lower"
 

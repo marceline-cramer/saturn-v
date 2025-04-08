@@ -91,6 +91,8 @@ pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
 
 #[cfg(test)]
 pub mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     use chumsky::prelude::*;
@@ -131,17 +133,17 @@ pub mod tests {
     fn basic_pretty_print() {
         let filter = Expr::BinaryOp {
             op: BinaryOpKind::And,
-            lhs: Box::new(Expr::Load {
+            lhs: Arc::new(Expr::Load {
                 relation: 0,
                 query: vec![QueryTerm::Variable(1)],
             }),
-            rhs: Box::new(Expr::BinaryOp {
+            rhs: Arc::new(Expr::BinaryOp {
                 op: BinaryOpKind::Eq,
-                lhs: Box::new(Expr::Variable(0)),
-                rhs: Box::new(Expr::BinaryOp {
+                lhs: Arc::new(Expr::Variable(0)),
+                rhs: Arc::new(Expr::BinaryOp {
                     op: BinaryOpKind::Add,
-                    lhs: Box::new(Expr::Variable(1)),
-                    rhs: Box::new(Expr::Value(Value::Integer(1))),
+                    lhs: Arc::new(Expr::Variable(1)),
+                    rhs: Arc::new(Expr::Value(Value::Integer(1))),
                 }),
             }),
         };
@@ -160,11 +162,11 @@ pub mod tests {
     fn relational_or() {
         let filter = Expr::BinaryOp {
             op: BinaryOpKind::Or,
-            lhs: Box::new(Expr::Load {
+            lhs: Arc::new(Expr::Load {
                 relation: 0,
                 query: vec![QueryTerm::Variable(0)],
             }),
-            rhs: Box::new(Expr::Load {
+            rhs: Arc::new(Expr::Load {
                 relation: 1,
                 query: vec![QueryTerm::Variable(0)],
             }),
