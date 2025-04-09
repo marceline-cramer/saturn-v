@@ -1,5 +1,5 @@
 [workspace]
-members = [ "eval", "ir", "lower" ]
+members = [ "check", "eval", "ir", "lower" ]
 
 [workspace.dependencies]
 chumsky = "0.9"
@@ -9,6 +9,7 @@ pretty = "0.12"
 serde = { version = "1", features = ["derive", "rc"] }
 
 # internal workspace members
+saturn-v-check.path = "check"
 saturn-v-eval.path = "eval"
 saturn-v-ir.path = "ir"
 saturn-v-lower.path = "lower"

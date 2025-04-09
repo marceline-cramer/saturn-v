@@ -1,0 +1,9 @@
+[package]
+name = "saturn-v-check"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+saturn-v-ir.workspace = true
+z3 = "0.12"
+z3-sys = "0.8"
