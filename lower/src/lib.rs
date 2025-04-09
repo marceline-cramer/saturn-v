@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use egglog::EGraph;
 use indexmap::IndexSet;
 use pretty::RcDoc;
-use saturn_v_ir::Rule;
+use saturn_v_ir::{sexp::Sexp, InstructionKind, Rule};
 
 pub type RelationTable<R> = IndexSet<R>;
 
@@ -19,60 +21,24 @@ pub fn init_lower_egraph() -> EGraph {
     graph
 }
 
-/// Defines the egglog representation of a rule's filter.
-pub fn define_rule<R>(name: &str, rule: &Rule<R>) -> String {
-    let filter = RcDoc::text("(")
-        .append("let")
-        .append(RcDoc::space())
-        .append(format!("{name}_filter"))
-        .append(RcDoc::line().append(rule.filter.to_doc()).nest(4).group())
-        .append(")");
-
-    let mut out = String::new();
-    filter.render_fmt(FORMAT_WIDTH, &mut out).unwrap();
-    out
-}
-
+/// Defines the egglog representation to check a rule.
 pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
-    let vars = rule
-        .vars
-        .iter()
-        .enumerate()
-        .map(|(idx, _ty)| idx.to_string());
-
-    let vars = RcDoc::<()>::text("(")
-        .append("set-of")
-        .append(
-            RcDoc::line()
-                .append(RcDoc::intersperse(vars, RcDoc::line()))
-                .nest(4)
-                .group(),
-        )
-        .append(")");
-
-    let filter = RcDoc::text("(")
-        .append("Filter")
-        .append(RcDoc::space())
-        .append(format!("{name}_filter"))
-        .append(RcDoc::space())
-        .append("(Noop)")
-        .append(")");
-
-    let sink = RcDoc::text("(")
-        .append("Sink")
-        .append(RcDoc::space())
-        .append(vars)
-        .append(RcDoc::space())
-        .append(filter)
-        .append(")");
+    let instr = InstructionKind::Sink(
+        HashSet::from_iter(0..(rule.vars.len() as i64)),
+        Box::new(InstructionKind::Filter(
+            rule.filter.clone(),
+            Box::new(InstructionKind::Noop),
+        )),
+    );
 
     let assignment = RcDoc::text("(")
         .append("let")
         .append(RcDoc::space())
-        .append(name)
-        .append(RcDoc::space())
-        .append(sink)
-        .append(")");
+        .append(name.to_string())
+        .append(RcDoc::line())
+        .append(instr.to_doc())
+        .append(")")
+        .group();
 
     let run = RcDoc::text("(run 1000000)")
         .append(RcDoc::hardline())
@@ -100,14 +66,10 @@ pub mod tests {
 
     fn test_rule(rule: Rule<()>) -> InstructionKind {
         let name = "test_rule";
-        let definition = define_rule(name, &rule);
         let extract = extract_rule(name, &rule);
-        println!("{definition}");
         println!("{extract}");
-
-        let full = format!("{definition}{extract}");
         let mut egg = init_lower_egraph();
-        let msgs = egg.parse_and_run_program(None, &full).unwrap();
+        let msgs = egg.parse_and_run_program(None, &extract).unwrap();
 
         let output = &msgs[0];
 

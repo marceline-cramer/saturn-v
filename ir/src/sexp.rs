@@ -4,8 +4,74 @@ use chumsky::prelude::*;
 
 use crate::*;
 
-impl InstructionKind {
-    pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+pub trait Sexp: Sized {
+    fn to_doc(&self) -> RcDoc<'static, ()>;
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
+}
+
+impl Sexp for InstructionKind {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        use InstructionKind::*;
+        match self {
+            Noop => RcDoc::text("(Noop)"),
+            Sink(vars, rest) => RcDoc::text("(Sink ")
+                .append(
+                    RcDoc::text("(set-of")
+                        .append(
+                            RcDoc::line()
+                                .append(RcDoc::intersperse(
+                                    vars.iter().map(ToString::to_string),
+                                    RcDoc::line(),
+                                ))
+                                .nest(4)
+                                .group(),
+                        )
+                        .append(")"),
+                )
+                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
+                .append(")"),
+            Filter(expr, rest) => RcDoc::text("(Filter ")
+                .append(RcDoc::line().append(expr.to_doc()).nest(4).group())
+                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
+                .append(")"),
+            FromQuery(relation, terms) => RcDoc::text("(FromQuery ")
+                .append(relation.to_string())
+                .append(
+                    RcDoc::line()
+                        .append(QueryTerm::to_doc(terms.iter()))
+                        .nest(4)
+                        .group(),
+                )
+                .append(")"),
+            Let(var, expr, rest) => RcDoc::text("(Let ")
+                .append(var.to_string())
+                .append(RcDoc::line().append(expr.to_doc()).nest(4).group())
+                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
+                .append(")"),
+            Merge(lhs, rhs) => RcDoc::text("(Merge ")
+                .append(
+                    RcDoc::line()
+                        .append(lhs.to_doc())
+                        .append(RcDoc::line())
+                        .append(rhs.to_doc())
+                        .nest(4)
+                        .group(),
+                )
+                .append(")"),
+            Join(lhs, rhs) => RcDoc::text("(Join ")
+                .append(
+                    RcDoc::line()
+                        .append(lhs.to_doc())
+                        .append(RcDoc::line())
+                        .append(rhs.to_doc())
+                        .nest(4)
+                        .group(),
+                )
+                .append(")"),
+        }
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         use InstructionKind::*;
         recursive(|instr| {
             // recurse helper
@@ -68,8 +134,54 @@ impl InstructionKind {
     }
 }
 
-impl Expr {
-    pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+impl Sexp for Expr {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        use Expr::*;
+        match self {
+            Variable(idx) => RcDoc::text("(")
+                .append("Variable")
+                .append(RcDoc::space())
+                .append(idx.to_string())
+                .append(")"),
+            Value(val) => RcDoc::text("(")
+                .append("Value")
+                .append(RcDoc::space())
+                .append(val.to_doc())
+                .append(")"),
+            Load { relation, query } => RcDoc::text("(")
+                .append("Load")
+                .append(RcDoc::space())
+                .append(relation.to_string())
+                .append(
+                    RcDoc::line()
+                        .append(QueryTerm::to_doc(query.iter()))
+                        .nest(4)
+                        .group(),
+                )
+                .append(")"),
+            UnaryOp { op, term } => RcDoc::text("(")
+                .append("UnaryOp")
+                .append(RcDoc::space())
+                .append(op.to_doc())
+                .append(RcDoc::line().append(term.to_doc()).nest(4).group())
+                .append(")"),
+            BinaryOp { op, lhs, rhs } => RcDoc::text("(")
+                .append("BinaryOp")
+                .append(RcDoc::space())
+                .append(op.to_doc())
+                .append(
+                    RcDoc::line()
+                        .append(lhs.to_doc())
+                        .append(RcDoc::line())
+                        .append(rhs.to_doc())
+                        .nest(4)
+                        .group(),
+                )
+                .append(")"),
+        }
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         recursive(|expr| {
             // recurse helper
             let expr = expr.map(Arc::new);
@@ -117,8 +229,25 @@ impl Expr {
     }
 }
 
-impl BinaryOpKind {
-    pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+impl Sexp for BinaryOpKind {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        use BinaryOpKind::*;
+        let kind = match self {
+            Add => "Add",
+            Mul => "Mul",
+            Div => "Div",
+            Concat => "Concat",
+            And => "And",
+            Or => "Or",
+            Eq => "Eq",
+            Lt => "Lt",
+            Le => "Le",
+        };
+
+        RcDoc::text("(").append(kind).append(")")
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         Token::item()
             .try_map(|item, span| match item.parse() {
                 Ok(op) => Ok(op),
@@ -128,8 +257,18 @@ impl BinaryOpKind {
     }
 }
 
-impl UnaryOpKind {
-    pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+impl Sexp for UnaryOpKind {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        use UnaryOpKind::*;
+        let kind = match self {
+            Not => "Not",
+            Negate => "Negate",
+        };
+
+        RcDoc::text("(").append(kind).append(")")
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         Token::item()
             .try_map(|item, span| match item.parse() {
                 Ok(op) => Ok(op),
@@ -140,6 +279,23 @@ impl UnaryOpKind {
 }
 
 impl QueryTerm {
+    pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> RcDoc<'static, ()> {
+        use QueryTerm::*;
+        let (kind, val) = match terms.next() {
+            Some(Variable(idx)) => ("QueryVariable", RcDoc::text(idx.to_string())),
+            Some(Value(val)) => ("QueryValue", val.to_doc()),
+            None => return RcDoc::text("(QueryNil)"),
+        };
+
+        RcDoc::text("(")
+            .append(kind)
+            .append(RcDoc::space())
+            .append(val)
+            .append(RcDoc::line())
+            .append(Self::to_doc(terms))
+            .append(")")
+    }
+
     pub fn parser() -> impl Parser<Token, Vec<Self>, Error = Simple<Token>> {
         recursive(|query| {
             let value = Token::expect_item("QueryValue")
@@ -174,8 +330,25 @@ impl QueryTerm {
     }
 }
 
-impl Value {
-    pub fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+impl Sexp for Value {
+    fn to_doc(&self) -> RcDoc<'static, ()> {
+        use Value::*;
+        let (kind, val) = match self {
+            Boolean(val) => ("Boolean", val.to_string()),
+            Integer(val) => ("Integer", val.to_string()),
+            Real(val) => ("Real", val.to_string()),
+            Symbol(val) => ("Symbol", format!("{val:?}")),
+            String(val) => ("String", format!("{val:?}")),
+        };
+
+        RcDoc::text("(")
+            .append(kind)
+            .append(RcDoc::space())
+            .append(val)
+            .append(")")
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
         let boolean = Token::expect_item("Boolean")
             .ignore_then(Token::item())
             .try_map(|item, span| match item.as_str() {

@@ -97,52 +97,6 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        use Expr::*;
-        match self {
-            Variable(idx) => RcDoc::text("(")
-                .append("Variable")
-                .append(RcDoc::space())
-                .append(idx.to_string())
-                .append(")"),
-            Value(val) => RcDoc::text("(")
-                .append("Value")
-                .append(RcDoc::space())
-                .append(val.to_doc())
-                .append(")"),
-            Load { relation, query } => RcDoc::text("(")
-                .append("Load")
-                .append(RcDoc::space())
-                .append(relation.to_string())
-                .append(
-                    RcDoc::line()
-                        .append(QueryTerm::to_doc(query.iter()))
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
-            UnaryOp { op, term } => RcDoc::text("(")
-                .append("UnaryOp")
-                .append(RcDoc::space())
-                .append(op.to_doc())
-                .append(RcDoc::line().append(term.to_doc()).nest(4).group())
-                .append(")"),
-            BinaryOp { op, lhs, rhs } => RcDoc::text("(")
-                .append("BinaryOp")
-                .append(RcDoc::space())
-                .append(op.to_doc())
-                .append(
-                    RcDoc::line()
-                        .append(lhs.to_doc())
-                        .append(RcDoc::line())
-                        .append(rhs.to_doc())
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
-        }
-    }
-
     pub fn map_variables(self, map: &IndexSet<usize>) -> Self {
         use Expr::*;
         match self {
@@ -178,25 +132,6 @@ pub enum BinaryOpKind {
     Le,
 }
 
-impl BinaryOpKind {
-    pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        use BinaryOpKind::*;
-        let kind = match self {
-            Add => "Add",
-            Mul => "Mul",
-            Div => "Div",
-            Concat => "Concat",
-            And => "And",
-            Or => "Or",
-            Eq => "Eq",
-            Lt => "Lt",
-            Le => "Le",
-        };
-
-        RcDoc::text("(").append(kind).append(")")
-    }
-}
-
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
 )]
@@ -205,41 +140,10 @@ pub enum UnaryOpKind {
     Negate,
 }
 
-impl UnaryOpKind {
-    pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        use UnaryOpKind::*;
-        let kind = match self {
-            Not => "Not",
-            Negate => "Negate",
-        };
-
-        RcDoc::text("(").append(kind).append(")")
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum QueryTerm {
     Variable(usize),
     Value(Value),
-}
-
-impl QueryTerm {
-    pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> RcDoc<'static, ()> {
-        use QueryTerm::*;
-        let (kind, val) = match terms.next() {
-            Some(Variable(idx)) => ("QueryVariable", RcDoc::text(idx.to_string())),
-            Some(Value(val)) => ("QueryValue", val.to_doc()),
-            None => return RcDoc::text("(QueryNil)"),
-        };
-
-        RcDoc::text("(")
-            .append(kind)
-            .append(RcDoc::space())
-            .append(val)
-            .append(RcDoc::line())
-            .append(Self::to_doc(terms))
-            .append(")")
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -252,23 +156,6 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn to_doc(&self) -> RcDoc<'static, ()> {
-        use Value::*;
-        let (kind, val) = match self {
-            Boolean(val) => ("Boolean", val.to_string()),
-            Integer(val) => ("Integer", val.to_string()),
-            Real(val) => ("Real", val.to_string()),
-            Symbol(val) => ("Symbol", format!("{val:?}")),
-            String(val) => ("String", format!("{val:?}")),
-        };
-
-        RcDoc::text("(")
-            .append(kind)
-            .append(RcDoc::space())
-            .append(val)
-            .append(")")
-    }
-
     pub fn ty(&self) -> Type {
         use Value::*;
         match self {
@@ -293,6 +180,8 @@ pub enum Type {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+
+    use sexp::Sexp;
 
     #[test]
     fn basic_pretty_print() {
