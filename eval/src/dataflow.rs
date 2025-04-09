@@ -13,18 +13,13 @@ use crate::{
 
 pub fn backend(
     worker: &mut Worker<Allocator>,
-    relations_in: &InputRouter<Relation>,
-    facts_in: &InputRouter<Fact>,
-    nodes_in: &InputRouter<Node>,
-    variables_out: &OutputRouter<Condition>,
-    clauses_out: &OutputRouter<Clause>,
-    facts_out: &OutputRouter<Fact>,
+    routers: &DataflowRouters,
 ) -> (impl PumpInput, impl PumpOutput) {
     worker.dataflow(|scope| {
         // enter inputs into context
-        let mut relations_in = relations_in.add_sink();
-        let mut facts_in = facts_in.add_sink();
-        let mut nodes_in = nodes_in.add_sink();
+        let mut relations_in = routers.relations_in.add_sink();
+        let mut facts_in = routers.facts_in.add_sink();
+        let mut nodes_in = routers.nodes_in.add_sink();
 
         let relations = relations_in.to_collection(scope).map(Key::pair);
 
@@ -194,13 +189,24 @@ pub fn backend(
         let variables = clauses.flat_map(Clause::into_conditions).distinct();
 
         // return inputs and outputs
-        let outputs = variables_out
+        let outputs = routers
+            .variables_out
             .add_source(&variables)
-            .and(clauses_out.add_source(&clauses))
-            .and(facts_out.add_source(&facts));
+            .and(routers.clauses_out.add_source(&clauses))
+            .and(routers.facts_out.add_source(&facts));
 
         (inputs, outputs)
     })
+}
+
+#[derive(Clone, Default)]
+pub struct DataflowRouters {
+    pub relations_in: InputRouter<Relation>,
+    pub facts_in: InputRouter<Fact>,
+    pub nodes_in: InputRouter<Node>,
+    pub variables_out: OutputRouter<Condition>,
+    pub clauses_out: OutputRouter<Clause>,
+    pub facts_out: OutputRouter<Fact>,
 }
 
 pub fn join_slice(
@@ -286,7 +292,8 @@ pub fn decision(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(Cla
     let clause = Clause::Decision {
         terms: input
             .iter()
-            .map(|(cond, _diff)| cond.clone().clone())
+            .cloned()
+            .map(|(cond, _diff)| cond.clone())
             .collect(),
         out: Condition {
             kind: ConditionKind::Relation(fact.relation),
@@ -301,7 +308,8 @@ pub fn conditional(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(
     let clause = Clause::Or {
         terms: input
             .iter()
-            .map(|(cond, _diff)| cond.clone().clone())
+            .cloned()
+            .map(|(cond, _diff)| cond.clone())
             .collect(),
         out: Condition {
             kind: ConditionKind::Relation(fact.relation),

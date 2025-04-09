@@ -3,9 +3,10 @@ use std::sync::Arc;
 use saturn_v_ir::{Expr, InstructionKind, QueryTerm, Value};
 
 use crate::{
+    dataflow::DataflowRouters,
     load::Loader,
     types::{Fact, Relation},
-    utils::{run_pumps, InputRouter, Key, OutputRouter, OutputSink},
+    utils::{run_pumps, Key, OutputSink},
 };
 
 fn relations(num: u64) -> Vec<Relation> {
@@ -30,31 +31,13 @@ fn relation_key(idx: u64) -> Key<Relation> {
 
 fn run(loader: Loader) -> OutputSink<Fact> {
     let config = timely::Config::thread();
-
-    let relations_in = InputRouter::default();
-    let facts_in = InputRouter::default();
-    let nodes_in = InputRouter::default();
-    let variables_out = OutputRouter::default();
-    let clauses_out = OutputRouter::default();
-    let facts_out = OutputRouter::default();
+    let routers = DataflowRouters::default();
 
     let workers = timely::execute(config, {
         let handle = tokio::runtime::Handle::current();
-        let relations_in = relations_in.clone();
-        let facts_in = facts_in.clone();
-        let nodes_in = nodes_in.clone();
-        let facts_out = facts_out.clone();
+        let routers = routers.clone();
         move |worker| {
-            let (input, output) = crate::dataflow::backend(
-                worker,
-                &relations_in,
-                &facts_in,
-                &nodes_in,
-                &variables_out,
-                &clauses_out,
-                &facts_out,
-            );
-
+            let (input, output) = crate::dataflow::backend(worker, &routers);
             run_pumps(worker, handle.clone(), input, output);
         }
     })
@@ -62,17 +45,17 @@ fn run(loader: Loader) -> OutputSink<Fact> {
 
     std::thread::spawn(move || drop(workers));
 
-    let mut facts = facts_in.into_source();
+    let mut facts = routers.facts_in.into_source();
     for fact in loader.facts {
         facts.insert(fact);
     }
 
-    let mut relations = relations_in.into_source();
+    let mut relations = routers.relations_in.into_source();
     for fact in loader.relations {
         relations.insert(fact);
     }
 
-    let mut nodes = nodes_in.into_source();
+    let mut nodes = routers.nodes_in.into_source();
     for fact in loader.nodes {
         nodes.insert(fact);
     }
@@ -83,7 +66,7 @@ fn run(loader: Loader) -> OutputSink<Fact> {
     relations.forget();
     nodes.forget();
 
-    facts_out.into_sink()
+    routers.facts_out.into_sink()
 }
 
 #[tokio::test]
