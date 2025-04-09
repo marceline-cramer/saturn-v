@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 chumsky.workspace = true
+indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
 serde.workspace = true

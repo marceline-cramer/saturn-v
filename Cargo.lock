@@ -1182,6 +1182,7 @@ dependencies = [
  "differential-dataflow",
  "flume",
  "futures-util",
+ "indexmap",
  "saturn-v-ir",
  "serde",
  "smallvec",
@@ -1194,6 +1195,7 @@ name = "saturn-v-ir"
 version = "0.1.0"
 dependencies = [
  "chumsky",
+ "indexmap",
  "ordered-float 4.6.0",
  "pretty",
  "serde",

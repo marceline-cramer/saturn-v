@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use indexmap::IndexSet;
 use ordered_float::OrderedFloat;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
@@ -139,6 +140,23 @@ impl Expr {
                         .group(),
                 )
                 .append(")"),
+        }
+    }
+
+    pub fn map_variables(self, map: &IndexSet<usize>) -> Self {
+        use Expr::*;
+        match self {
+            Variable(idx) => Variable(map.get_index_of(&idx).unwrap()),
+            UnaryOp { op, term } => UnaryOp {
+                op,
+                term: (*term).clone().map_variables(map).into(),
+            },
+            BinaryOp { op, lhs, rhs } => BinaryOp {
+                op,
+                lhs: (*lhs).clone().map_variables(map).into(),
+                rhs: (*rhs).clone().map_variables(map).into(),
+            },
+            other => other,
         }
     }
 }

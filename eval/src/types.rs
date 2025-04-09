@@ -1,4 +1,4 @@
-use saturn_v_ir::{ConstraintKind, Expr, Value};
+use saturn_v_ir::{ConstraintKind, Expr, QueryTerm, Value};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -78,6 +78,14 @@ pub enum ConditionKind {
 
 pub type IndexList = SmallVec<[usize; 8]>;
 
+/// The terms of a query.
+///
+/// Terms can either be constrained by a value or bound to variables.
+pub type Query = SmallVec<[Option<Value>; 4]>;
+
+/// The head of a relation store operation.
+pub type StoreHead = SmallVec<[QueryTerm; 4]>;
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Node {
     /// Joins two nodes together.
@@ -92,9 +100,18 @@ pub enum Node {
         num: usize,
     },
 
+    /// Merges two nodes together.
+    Merge {
+        /// The left-hand node to merge.
+        lhs: Key<Node>,
+
+        /// The right-hand node to merge.
+        rhs: Key<Node>,
+    },
+
     /// Projects (rearranges) a node's terms.
     ///
-    /// Can also unload nodes.
+    /// Can also drop variables.
     Project {
         /// The node to project.
         src: Key<Node>,
@@ -124,7 +141,10 @@ pub enum Node {
     /// Loads node contents from a relation.
     LoadRelation {
         /// The key of the relation to load.
-        resource: Key<Relation>,
+        relation: Key<Relation>,
+
+        /// A query to constrain the loading by.
+        query: Query,
     },
 
     /// Stores a node's contents into a relation.
@@ -135,8 +155,8 @@ pub enum Node {
         /// The relation to store into.
         dst: Key<Relation>,
 
-        /// The map from destination terms to source terms.
-        map: IndexList,
+        /// The map from destination variables or values to relation elements.
+        head: StoreHead,
     },
 
     /// Stores a node's contents as a constraint.
@@ -163,6 +183,20 @@ impl Node {
     pub fn join_rhs(self) -> Option<(Key<Node>, usize)> {
         match self {
             Node::Join { rhs, num, .. } => Some((rhs, num)),
+            _ => None,
+        }
+    }
+
+    pub fn merge_lhs(self) -> Option<Key<Node>> {
+        match self {
+            Node::Merge { lhs, .. } => Some(lhs),
+            _ => None,
+        }
+    }
+
+    pub fn merge_rhs(self) -> Option<Key<Node>> {
+        match self {
+            Node::Merge { rhs, .. } => Some(rhs),
             _ => None,
         }
     }
@@ -195,23 +229,23 @@ impl Node {
         }
     }
 
-    pub fn load_relation(self) -> Option<Key<Relation>> {
+    pub fn load_relation(self) -> Option<(Key<Relation>, Query)> {
         match self {
-            Node::LoadRelation { resource } => Some(resource),
+            Node::LoadRelation { relation, query } => Some((relation, query)),
             _ => None,
         }
     }
 
-    pub fn store_relation(self) -> Option<(Key<Node>, (Key<Relation>, IndexList))> {
+    pub fn store_relation(self) -> Option<(Key<Node>, (Key<Relation>, StoreHead))> {
         match self {
-            Node::StoreRelation { src, dst, map } => Some((src, (dst, map))),
+            Node::StoreRelation { src, dst, head } => Some((src, (dst, head))),
             _ => None,
         }
     }
 
     pub fn constraint(self) -> Option<(Key<Node>, (IndexList, ConstraintKind))> {
         match self {
-            Node::Constraint { src, unify, kind } => Some((src, (unify, kind))),
+            Node::Constraint { src, head, kind } => Some((src, (head, kind))),
             _ => None,
         }
     }

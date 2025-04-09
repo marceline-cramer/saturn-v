@@ -36,9 +36,10 @@ pub fn run_pumps(
     // begin the event loop
     let mut time = 0;
     let mut behind = false;
+    let mut disconnected = false;
     input.advance_to(time);
 
-    loop {
+    while behind || !disconnected {
         // if there's a flush pending, advance dataflow
         if input.take_flush() {
             time += 1;
@@ -47,10 +48,11 @@ pub fn run_pumps(
         }
 
         // drain any pending updates
+        use TryRecvResult::*;
         match input.try_recv() {
-            Some(true) => continue, // event processed, check for flush
-            Some(false) => break,   // sink disconnected, abort
-            None => {}              // no pending events, continue
+            Dirty => continue,                   // event processed, check for flush
+            Disconnected => disconnected = true, // sink disconnected, abort
+            Empty => {}                          // no pending events, continue
         }
 
         // if output is behind input, poll dataflow step
@@ -67,11 +69,15 @@ pub fn run_pumps(
         }
 
         // otherwise wait for new input
-        match handle.block_on(input.recv()) {
-            true => continue, // update received, handle events
-            false => break,   // source disconnected, abort
+        if !handle.block_on(input.recv()) {
+            // if false is returned, all inputs are disconnected
+            disconnected = true
         }
     }
+
+    // ensure the output is flushed before exiting
+    eprintln!("disconnected");
+    output.flush();
 }
 
 #[derive(Clone)]
@@ -108,7 +114,7 @@ impl<T: Data> InputRouter<T> {
 pub trait PumpInput: Sized {
     async fn recv(&mut self) -> bool;
 
-    fn try_recv(&mut self) -> Option<bool>;
+    fn try_recv(&mut self) -> TryRecvResult;
 
     fn take_flush(&mut self) -> bool;
 
@@ -119,19 +125,31 @@ pub trait PumpInput: Sized {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TryRecvResult {
+    Empty,
+    Dirty,
+    Disconnected,
+}
+
 impl<L: PumpInput, R: PumpInput> PumpInput for (L, R) {
     async fn recv(&mut self) -> bool {
         use futures_util::future::{select, Either};
         let left = Box::pin(self.0.recv());
         let right = Box::pin(self.1.recv());
         match select(left, right).await {
-            Either::Left((result, _fut)) => result,
-            Either::Right((result, _fut)) => result,
+            Either::Left((result, other)) => result || other.await,
+            Either::Right((result, other)) => result || other.await,
         }
     }
 
-    fn try_recv(&mut self) -> Option<bool> {
-        self.0.try_recv().or_else(|| self.1.try_recv())
+    fn try_recv(&mut self) -> TryRecvResult {
+        use TryRecvResult::*;
+        match self.0.try_recv() {
+            Empty => self.1.try_recv(),
+            Dirty => Dirty,
+            Disconnected => Disconnected,
+        }
     }
 
     fn take_flush(&mut self) -> bool {
@@ -175,18 +193,18 @@ impl<T: Data> PumpInput for InputSink<T> {
         }
     }
 
-    fn try_recv(&mut self) -> Option<bool> {
+    fn try_recv(&mut self) -> TryRecvResult {
         match self.rx.try_recv() {
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => Some(false),
+            Err(TryRecvError::Empty) => TryRecvResult::Empty,
+            Err(TryRecvError::Disconnected) => TryRecvResult::Disconnected,
             Ok(Update::Flush) => {
                 self.flush = true;
-                Some(true)
+                TryRecvResult::Dirty
             }
             Ok(Update::Push(item, add)) => {
                 let delta = if add { 1 } else { -1 };
                 self.input.update(item, delta);
-                Some(true)
+                TryRecvResult::Dirty
             }
         }
     }
@@ -248,6 +266,10 @@ impl<T: Clone + Eq + Hash> InputSource<T> {
 
     pub fn flush(&self) {
         let _ = self.tx.send(Update::Flush);
+    }
+
+    pub fn forget(&mut self) {
+        self.items.clear();
     }
 }
 
@@ -317,7 +339,6 @@ impl<T> OutputRouter<T> {
     pub fn into_sink(self) -> OutputSink<T> {
         OutputSink {
             rx: self.rx,
-            checked_in: 0,
             backlog: vec![],
         }
     }
@@ -360,7 +381,7 @@ pub struct OutputSource<T> {
     trace: Box<dyn DynTrace<T>>,
 }
 
-impl<T> PumpOutput for OutputSource<T> {
+impl<T: std::fmt::Debug> PumpOutput for OutputSource<T> {
     fn advance_to(&mut self, time: Time) {
         self.trace.advance_to(time);
     }
@@ -384,7 +405,6 @@ impl<T> PumpOutput for OutputSource<T> {
 /// A receiver for items outputted by a dataflow.
 pub struct OutputSink<T> {
     rx: Receiver<Update<T>>,
-    checked_in: usize,
     backlog: Vec<(T, bool)>,
 }
 
@@ -393,18 +413,13 @@ impl<T: Debug> OutputSink<T> {
     ///
     /// Cancel-safe.
     pub async fn next_batch(&mut self) -> Option<Vec<(T, bool)>> {
-        // adjust by one because each output router (and its update sender) is
-        // held by the worker constructor until worker terminates
-        while self.checked_in < self.rx.sender_count() - 1 {
+        loop {
             let msg = self.rx.recv_async().await.ok()?;
             match msg {
                 Update::Push(item, add) => self.backlog.push((item, add)),
-                Update::Flush => self.checked_in += 1,
+                Update::Flush => return Some(std::mem::take(&mut self.backlog)),
             }
         }
-
-        self.checked_in = 0;
-        Some(std::mem::take(&mut self.backlog))
     }
 }
 

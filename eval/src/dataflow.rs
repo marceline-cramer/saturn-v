@@ -1,8 +1,13 @@
+use std::fmt::Debug;
+
 use differential_dataflow::operators::{iterate::Variable, Join, Reduce, Threshold};
+use saturn_v_ir::{BinaryOpKind, Expr, QueryTerm, UnaryOpKind, Value};
 use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::Worker};
 
 use crate::{
-    types::{Clause, Condition, ConditionKind, Fact, IndexList, Node, Relation, Tuple, Values},
+    types::{
+        Clause, Condition, ConditionKind, Fact, IndexList, Node, Relation, StoreHead, Tuple, Values,
+    },
     utils::*,
 };
 
@@ -67,6 +72,22 @@ pub fn backend(
             let join = joined.map(key);
             let join_clauses = joined.flat_map(value);
 
+            // extract left and right sides of merge operation
+            let merge_lhs = nodes
+                .flat_map(map_value(Node::merge_lhs))
+                .map(swap)
+                .join(&tuples)
+                .map(value);
+
+            let merge_rhs = nodes
+                .flat_map(map_value(Node::merge_rhs))
+                .map(swap)
+                .join(&tuples)
+                .map(value);
+
+            // merge sides
+            let merge = merge_lhs.concat(&merge_rhs);
+
             // project operation
             let project_src = nodes.flat_map(map_value(Node::project_src)).map(swap);
             let project_map = nodes.flat_map(map_value(Node::project_map));
@@ -78,18 +99,45 @@ pub fn backend(
                 .join(&project_map)
                 .map(project);
 
+            // filter nodes
+            let filter = nodes
+                .flat_map(map_value(Node::filter))
+                .map(|(dst, (src, expr))| (src, (dst, expr)))
+                .join(&tuples)
+                .map(value)
+                .filter(filter)
+                .map(|((dst, _expr), tuple)| (dst, tuple));
+
+            // push nodes
+            let push = nodes
+                .flat_map(map_value(Node::push))
+                .map(|(dst, (src, expr))| (src, (dst, expr)))
+                .join(&tuples)
+                .map(value)
+                .map(push);
+
             // load relation operation
             let load = nodes
                 .flat_map(map_value(Node::load_relation))
                 .map(swap)
+                .map(|((rel, _query), node)| (rel, node)) // TODO: hack
+                .inspect(inspect("load input"))
                 .join(&facts)
                 .join(&relations)
                 .map(value)
                 .map(load);
 
             // combine all operations into new tuples
-            let new_tuples = join.concat(&project).concat(&load).distinct();
-            tuples.set_concat(&new_tuples);
+            let new_tuples = join
+                .concat(&merge)
+                .concat(&project)
+                .concat(&filter)
+                .concat(&push)
+                .concat(&load)
+                .distinct()
+                .inspect(inspect("stored"));
+
+            tuples.set_concat(&new_tuples).inspect(inspect("tuples"));
 
             // store new tuples to corresponding relations
             let stored = nodes
@@ -106,9 +154,19 @@ pub fn backend(
 
             // return outputs of all extended collections
             (
-                facts.set_concat(&store).leave().map(value),
-                clauses.set_concat(&join_clauses).leave(),
-                implies.set_concat(&new_implies).leave(),
+                facts
+                    .set_concat(&store)
+                    .inspect(inspect("facts"))
+                    .leave()
+                    .map(value),
+                clauses
+                    .set_concat(&join_clauses)
+                    .inspect(inspect("clauses"))
+                    .leave(),
+                implies
+                    .set_concat(&new_implies)
+                    .inspect(inspect("implies"))
+                    .leave(),
             )
         });
 
@@ -209,9 +267,16 @@ pub fn load(((node, fact), relation): ((Key<Node>, Fact), Relation)) -> (Key<Nod
 }
 
 pub fn store(
-    ((relation, map), tuple): ((Key<Relation>, IndexList), Tuple),
+    ((relation, head), tuple): ((Key<Relation>, StoreHead), Tuple),
 ) -> ((Key<Relation>, Fact), Option<(Fact, Condition)>) {
-    let values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
+    let values = head
+        .into_iter()
+        .map(|term| match term {
+            QueryTerm::Value(val) => val,
+            QueryTerm::Variable(idx) => tuple.values[idx].clone(),
+        })
+        .collect();
+
     let fact = Fact { relation, values };
     let implies = tuple.condition.map(|cond| (fact.clone(), cond));
     ((relation, fact), implies)
@@ -245,4 +310,76 @@ pub fn conditional(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(
     };
 
     output.push((clause, 1));
+}
+
+pub fn inspect<T: Debug, D: Debug>(name: &str) -> impl for<'a> Fn(&'a (T, D, Diff)) {
+    let name = name.to_string();
+    move |update| {
+        eprintln!("{name}: {update:?}");
+    }
+}
+
+pub fn filter(((_dst, expr), tuple): &((Key<Node>, Expr), Tuple)) -> bool {
+    match eval_expr(&tuple.values, expr) {
+        Value::Boolean(test) => test,
+        other => panic!("unexpected filter value: {other:?}"),
+    }
+}
+
+pub fn push(((dst, expr), mut tuple): ((Key<Node>, Expr), Tuple)) -> (Key<Node>, Tuple) {
+    tuple.values.push(eval_expr(&tuple.values, &expr));
+    (dst, tuple)
+}
+
+pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
+    match expr {
+        Expr::Variable(idx) => vals.get(*idx).expect("invalid variable index").clone(),
+        Expr::Value(val) => val.clone(),
+        Expr::Load { .. } => unreachable!("eval expressions cannot load relations"),
+        Expr::UnaryOp { op, term } => match (op, eval_expr(vals, term)) {
+            (UnaryOpKind::Not, Value::Boolean(val)) => Value::Boolean(!val),
+            (UnaryOpKind::Negate, Value::Integer(val)) => Value::Integer(-val),
+            (UnaryOpKind::Negate, Value::Real(val)) => Value::Real(-val),
+            other => panic!("invalid unary op: {other:?}"),
+        },
+        Expr::BinaryOp { op, lhs, rhs } => match (op, eval_expr(vals, lhs), eval_expr(vals, rhs)) {
+            // integer arithmetic
+            (BinaryOpKind::Add, Value::Integer(lhs), Value::Integer(rhs)) => {
+                Value::Integer(lhs + rhs)
+            }
+            (BinaryOpKind::Mul, Value::Integer(lhs), Value::Integer(rhs)) => {
+                Value::Integer(lhs * rhs)
+            }
+            (BinaryOpKind::Div, Value::Integer(lhs), Value::Integer(rhs)) => {
+                Value::Integer(lhs / rhs)
+            }
+
+            // real arithmetic
+            (BinaryOpKind::Add, Value::Real(lhs), Value::Real(rhs)) => Value::Real(lhs + rhs),
+            (BinaryOpKind::Mul, Value::Real(lhs), Value::Real(rhs)) => Value::Real(lhs * rhs),
+            (BinaryOpKind::Div, Value::Real(lhs), Value::Real(rhs)) => Value::Real(lhs / rhs),
+
+            // string operators
+            (BinaryOpKind::Concat, Value::String(mut lhs), Value::String(rhs)) => {
+                lhs.push_str(&rhs);
+                Value::String(lhs)
+            }
+
+            // logical operators
+            (BinaryOpKind::And, Value::Boolean(lhs), Value::Boolean(rhs)) => {
+                Value::Boolean(lhs && rhs)
+            }
+            (BinaryOpKind::Or, Value::Boolean(lhs), Value::Boolean(rhs)) => {
+                Value::Boolean(lhs || rhs)
+            }
+
+            // comparisons
+            (BinaryOpKind::Eq, lhs, rhs) if lhs.ty() == rhs.ty() => Value::Boolean(lhs == rhs),
+            (BinaryOpKind::Lt, lhs, rhs) if lhs.ty() == rhs.ty() => Value::Boolean(lhs < rhs),
+            (BinaryOpKind::Le, lhs, rhs) if lhs.ty() == rhs.ty() => Value::Boolean(lhs <= rhs),
+
+            // everything else is invalid
+            other => panic!("invalid binary op: {other:?}"),
+        },
+    }
 }
