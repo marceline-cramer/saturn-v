@@ -149,11 +149,7 @@ pub fn backend(
 
             // return outputs of all extended collections
             (
-                facts
-                    .set_concat(&store)
-                    .inspect(inspect("facts"))
-                    .leave()
-                    .map(value),
+                facts.set_concat(&store).inspect(inspect("facts")).leave(),
                 clauses
                     .set_concat(&join_clauses)
                     .inspect(inspect("clauses"))
@@ -171,29 +167,43 @@ pub fn backend(
         // for a decision to be true, one of their dependents must also be true
         let decisions = implies
             .semijoin(&relations.filter(|(_key, rel)| rel.is_decision).map(key))
-            .map(value)
-            .reduce(decision)
             .map(value);
 
         // conditional relations are collective ORs of their dependent conditions
         let conditional = implies
             .semijoin(&relations.filter(|(_key, rel)| rel.is_conditional).map(key))
-            .map(value)
-            .reduce(conditional)
             .map(value);
 
+        // filter output facts from all facts
+        let outputs = facts
+            .semijoin(&relations.filter(|(_key, rel)| rel.is_output).map(key))
+            .map(value)
+            .distinct();
+
         // extend clauses
-        let clauses = clauses.concatenate([decisions, conditional]).distinct();
+        let clauses = clauses
+            .concat(&decisions.reduce(decision_clause).map(value))
+            .concat(&conditional.reduce(conditional_clause).map(value))
+            .distinct();
 
         // track instances of all condition variables
-        let variables = clauses.flat_map(Clause::into_conditions).distinct();
+        let conditions = clauses
+            .flat_map(Clause::into_conditions)
+            .concat(
+                &decisions
+                    .concat(&conditional)
+                    .map(key)
+                    .concat(&outputs)
+                    .map(Into::into),
+            )
+            .distinct();
 
         // return inputs and outputs
         let outputs = routers
-            .variables_out
-            .add_source(&variables)
+            .conditions_out
+            .add_source(&conditions)
             .and(routers.clauses_out.add_source(&clauses))
-            .and(routers.facts_out.add_source(&facts));
+            .and(routers.outputs_out.add_source(&outputs));
 
         (inputs, outputs)
     })
@@ -204,9 +214,9 @@ pub struct DataflowRouters {
     pub relations_in: InputRouter<Relation>,
     pub facts_in: InputRouter<Fact>,
     pub nodes_in: InputRouter<Node>,
-    pub variables_out: OutputRouter<Condition>,
+    pub conditions_out: OutputRouter<Condition>,
     pub clauses_out: OutputRouter<Clause>,
-    pub facts_out: OutputRouter<Fact>,
+    pub outputs_out: OutputRouter<Fact>,
 }
 
 pub fn join_slice(
@@ -288,7 +298,11 @@ pub fn store(
     ((relation, fact), implies)
 }
 
-pub fn decision(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(Clause, Diff)>) {
+pub fn decision_clause(
+    fact: &Fact,
+    input: &[(&Condition, Diff)],
+    output: &mut Vec<(Clause, Diff)>,
+) {
     let clause = Clause::Decision {
         terms: input
             .iter()
@@ -304,7 +318,11 @@ pub fn decision(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(Cla
     output.push((clause, 1));
 }
 
-pub fn conditional(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(Clause, Diff)>) {
+pub fn conditional_clause(
+    fact: &Fact,
+    input: &[(&Condition, Diff)],
+    output: &mut Vec<(Clause, Diff)>,
+) {
     let clause = Clause::Or {
         terms: input
             .iter()
@@ -323,7 +341,7 @@ pub fn conditional(fact: &Fact, input: &[(&Condition, Diff)], output: &mut Vec<(
 pub fn inspect<T: Debug, D: Debug>(name: &str) -> impl for<'a> Fn(&'a (T, D, Diff)) {
     let name = name.to_string();
     move |update| {
-        eprintln!("{name}: {update:?}");
+        // eprintln!("{name}: {update:?}");
     }
 }
 

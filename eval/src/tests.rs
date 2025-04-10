@@ -1,35 +1,16 @@
 use std::sync::Arc;
 
-use saturn_v_ir::{Expr, InstructionKind, QueryTerm, Value};
+use saturn_v_ir::{BinaryOpKind, Expr, InstructionKind, QueryTerm, Value};
 
 use crate::{
     dataflow::DataflowRouters,
     load::Loader,
+    solve::Solver,
     types::{Fact, Relation},
-    utils::{run_pumps, Key, OutputSink},
+    utils::{run_pumps, Key},
 };
 
-fn relations(num: u64) -> Vec<Relation> {
-    (0..num)
-        .map(|idx| Relation {
-            discriminant: idx,
-            is_decision: false,
-            is_conditional: false,
-            is_output: false,
-        })
-        .collect()
-}
-
-fn relation_key(idx: u64) -> Key<Relation> {
-    Key::new(&Relation {
-        discriminant: idx,
-        is_decision: false,
-        is_conditional: false,
-        is_output: false,
-    })
-}
-
-fn run(loader: Loader) -> OutputSink<Fact> {
+async fn run(loader: Loader) {
     let config = timely::Config::thread();
     let routers = DataflowRouters::default();
 
@@ -66,37 +47,88 @@ fn run(loader: Loader) -> OutputSink<Fact> {
     relations.forget();
     nodes.forget();
 
-    routers.facts_out.into_sink()
+    let (output_tx, output_rx) = flume::unbounded();
+
+    let mut solver = Solver::new(
+        routers.conditions_out.into_sink(),
+        routers.clauses_out.into_sink(),
+        routers.outputs_out.into_sink(),
+        output_tx,
+    );
+
+    assert_eq!(solver.step().await, Some(true), "unsat or timeout");
+    solver.update_outputs();
+
+    let mut batch = Vec::new();
+    while let Ok(crate::utils::Update::Push(output, true)) = output_rx.recv() {
+        batch.push(output);
+    }
+
+    eprintln!("outputs: {batch:#?}");
 }
 
 #[tokio::test]
 async fn test_basic() {
-    let mut loader = Loader::new(relations(2));
+    let relations = vec![
+        Relation {
+            discriminant: 0,
+            is_decision: false,
+            is_conditional: false,
+            is_output: false,
+        },
+        Relation {
+            discriminant: 1,
+            is_decision: true,
+            is_conditional: false,
+            is_output: true,
+        },
+    ];
 
-    for i in 1..=100 {
-        loader.add_fact(Fact {
-            relation: relation_key(0),
-            values: vec![Value::Integer(i)].into(),
-        });
-    }
+    let relation_keys: Vec<_> = relations.iter().map(Key::new).collect();
+
+    let mut loader = Loader::new(relations);
+
+    loader.add_fact(Fact {
+        relation: relation_keys[0],
+        values: vec![Value::Integer(1)].into(),
+    });
 
     loader.store_relation(
-        1,
+        0,
         vec![QueryTerm::Variable(0)],
         &InstructionKind::Let(
             0,
             Expr::BinaryOp {
-                op: saturn_v_ir::BinaryOpKind::Mul,
+                op: saturn_v_ir::BinaryOpKind::Add,
                 lhs: Arc::new(Expr::Variable(1)),
-                rhs: Arc::new(Expr::Variable(1)),
+                rhs: Arc::new(Expr::Value(Value::Integer(1))),
             },
-            Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(1)])),
+            Box::new(InstructionKind::Filter(
+                Expr::BinaryOp {
+                    op: BinaryOpKind::Lt,
+                    lhs: Arc::new(Expr::Variable(1)),
+                    rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                },
+                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(1)])),
+            )),
         ),
     );
 
-    let mut facts_rx = run(loader);
-    eprintln!(
-        "batch of output facts: {:#?}",
-        facts_rx.next_batch().await.unwrap()
+    loader.store_relation(
+        1,
+        vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
+        &InstructionKind::Filter(
+            Expr::BinaryOp {
+                op: BinaryOpKind::Lt,
+                lhs: Arc::new(Expr::Variable(0)),
+                rhs: Arc::new(Expr::Variable(1)),
+            },
+            Box::new(InstructionKind::Join(
+                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(0)])),
+                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(1)])),
+            )),
+        ),
     );
+
+    run(loader).await;
 }
