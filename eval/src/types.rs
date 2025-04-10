@@ -70,6 +70,15 @@ pub struct Condition {
     pub values: Values,
 }
 
+impl From<Fact> for Condition {
+    fn from(fact: Fact) -> Self {
+        Self {
+            kind: ConditionKind::Relation(fact.relation),
+            values: fact.values,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum ConditionKind {
     Node(Key<Node>),
