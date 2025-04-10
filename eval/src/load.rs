@@ -108,50 +108,49 @@ impl Loader {
 
                 // track variables in each segment of the join
                 let mut joined = IndexSet::new(); // variable map in common
-                let mut lhs_in = Vec::new(); // all projected left-hand variables
-                let mut rhs_in = Vec::new(); // all projected right-hand variables
-                let mut lhs_out = IndexSet::new(); // all post-join left-hand variables
-                let mut rhs_out = IndexSet::new(); // all post-join right-hand variables
+                let mut lhs_proj = Vec::new(); // all projected left-hand variables
+                let mut rhs_proj = Vec::new(); // all projected right-hand variables
 
                 // add joined indices in order from the left-hand side
                 for (lhs_idx, lhs) in lhs_map.iter().enumerate() {
                     if let Some(rhs_idx) = rhs_map.get_index_of(lhs) {
                         joined.insert(*lhs);
-                        lhs_in.push(lhs_idx);
-                        rhs_in.push(rhs_idx);
-                    } else {
-                        lhs_out.insert(*lhs);
+                        lhs_proj.push(lhs_idx);
+                        rhs_proj.push(rhs_idx);
+                    }
+                }
+
+                // save the number of common variables
+                let num = joined.len();
+
+                // add unjoined indices from the left-hand side
+                for (lhs_idx, lhs) in lhs_map.iter().enumerate() {
+                    if !rhs_map.contains(lhs) {
+                        joined.insert(*lhs);
+                        lhs_proj.push(lhs_idx);
                     }
                 }
 
                 // add unjoined indices from the right-hand side
-                for rhs in rhs_map.iter() {
+                for (rhs_idx, rhs) in rhs_map.iter().enumerate() {
                     if !lhs_map.contains(rhs) {
-                        rhs_out.insert(*rhs);
+                        joined.insert(*rhs);
+                        rhs_proj.push(rhs_idx);
                     }
                 }
-
-                // concatenate post-join variables to join map
-                joined.extend(lhs_out.iter().copied());
-                joined.extend(rhs_out.iter().copied());
-
-                // add pre-join variables to projection maps
-                lhs_in.extend(lhs_out);
-                rhs_in.extend(rhs_out);
 
                 // create the projection nodes
                 let (lhs, lhs_node) = Key::pair(Node::Project {
                     src: lhs,
-                    map: lhs_in.into(),
+                    map: lhs_proj.into(),
                 });
 
                 let (rhs, rhs_node) = Key::pair(Node::Project {
                     src: rhs,
-                    map: rhs_in.into(),
+                    map: rhs_proj.into(),
                 });
 
                 // create the join node
-                let num = joined.len();
                 let (dst, node) = Key::pair(Node::Join { lhs, rhs, num });
                 self.nodes.extend([lhs_node, rhs_node, node]);
                 (dst, joined)
