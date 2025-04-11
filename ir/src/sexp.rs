@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, str::FromStr, sync::Arc};
 
 use chumsky::prelude::*;
 
@@ -18,10 +18,7 @@ impl Sexp for HashSet<i64> {
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        Token::expect_item("set-of")
-            .ignore_then(Token::integer().repeated())
-            .delimited_by(just(Token::LParen), just(Token::RParen))
-            .map(Self::from_iter)
+        parse_list("set-of", Token::integer().repeated()).map(Self::from_iter)
     }
 }
 
@@ -53,53 +50,41 @@ impl Sexp for Instruction {
             let instr = instr.map(Box::new);
 
             // noop
-            let noop = Token::expect_item("Noop").to(Noop);
+            let noop = parse_tag("Noop").to(Noop);
 
             // sink
-            let sink = Token::expect_item("Sink")
-                .ignore_then(HashSet::parser())
-                .then(instr.clone())
+            let sink = parse_list("Sink", HashSet::parser().then(instr.clone()))
                 .map(|(vars, rest)| Sink(vars, rest));
 
             // filter
-            let filter = Token::expect_item("Filter")
-                .ignore_then(Expr::parser())
-                .then(instr.clone())
+            let filter = parse_list("Filter", Expr::parser().then(instr.clone()))
                 .map(|(expr, rest)| Filter(expr, rest));
 
             // from query
-            let from_query = Token::expect_item("FromQuery")
-                .ignore_then(Token::integer())
-                .then(QueryTerm::parser())
+            let from_query = parse_list("FromQuery", Token::integer().then(QueryTerm::parser()))
                 .map(|(r, q)| FromQuery(r, q));
 
             // let
-            let let_ = Token::expect_item("Let")
-                .ignore_then(Token::integer())
-                .then(Expr::parser())
-                .then(instr.clone())
-                .map(|((var, expr), rest)| Let(var, expr, rest));
+            let let_ = parse_list(
+                "Let",
+                Token::integer().then(Expr::parser()).then(instr.clone()),
+            )
+            .map(|((var, expr), rest)| Let(var, expr, rest));
 
             // merge
-            let merge = Token::expect_item("Merge")
-                .ignore_then(instr.clone())
-                .then(instr.clone())
+            let merge = parse_list("Merge", instr.clone().then(instr.clone()))
                 .map(|(lhs, rhs)| Merge(lhs, rhs));
 
             // join
-            let join = Token::expect_item("Join")
-                .ignore_then(instr.clone())
-                .then(instr.clone())
+            let join = parse_list("Join", instr.clone().then(instr.clone()))
                 .map(|(lhs, rhs)| Join(lhs, rhs));
 
-            // all instructions are delimited by parens
             noop.or(sink)
                 .or(filter)
                 .or(from_query)
                 .or(let_)
                 .or(merge)
                 .or(join)
-                .delimited_by(just(Token::LParen), just(Token::RParen))
         })
     }
 }
@@ -129,44 +114,33 @@ impl Sexp for Expr {
             let expr = expr.map(Arc::new);
 
             // variable
-            let variable = Token::expect_item("Variable")
-                .ignore_then(Token::integer())
-                .map(|var| Expr::Variable(var as _)); // TODO hack?
+            // TODO typecast hack?
+            let variable =
+                parse_list("Variable", Token::integer()).map(|var| Expr::Variable(var as _));
 
             // value
-            let value = Token::expect_item("Value")
-                .ignore_then(Value::parser())
-                .map(Expr::Value);
+            let value = parse_list("Value", Value::parser()).map(Expr::Value);
 
             // load
-            let load = Token::expect_item("Load")
-                .ignore_then(Token::integer())
-                .then(QueryTerm::parser())
-                .map(|(relation, query)| Expr::Load {
+            let load = parse_list("Load", Token::integer().then(QueryTerm::parser())).map(
+                |(relation, query)| Expr::Load {
                     relation: relation as _, // TODO hack?
                     query,
-                });
+                },
+            );
 
             // unary op
-            let unary_op = Token::expect_item("UnaryOp")
-                .ignore_then(UnaryOpKind::parser())
-                .then(expr.clone())
+            let unary_op = parse_list("UnaryOp", UnaryOpKind::parser().then(expr.clone()))
                 .map(|(op, term)| Expr::UnaryOp { op, term });
 
             // binary op
-            let binary_op = Token::expect_item("BinaryOp")
-                .ignore_then(BinaryOpKind::parser())
-                .then(expr.clone())
-                .then(expr.clone())
-                .map(|((op, lhs), rhs)| Expr::BinaryOp { op, lhs, rhs });
+            let binary_op = parse_list(
+                "BinaryOp",
+                BinaryOpKind::parser().then(expr.clone()).then(expr),
+            )
+            .map(|((op, lhs), rhs)| Expr::BinaryOp { op, lhs, rhs });
 
-            // all expressions are delimited by parens
-            variable
-                .or(value)
-                .or(load)
-                .or(unary_op)
-                .or(binary_op)
-                .delimited_by(just(Token::LParen), just(Token::RParen))
+            variable.or(value).or(load).or(unary_op).or(binary_op)
         })
     }
 }
@@ -190,12 +164,7 @@ impl Sexp for BinaryOpKind {
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        Token::item()
-            .try_map(|item, span| match item.parse() {
-                Ok(op) => Ok(op),
-                Err(_) => Err(Simple::custom(span, "unrecognized binary operator")),
-            })
-            .delimited_by(just(Token::LParen), just(Token::RParen))
+        parse_tag_variant()
     }
 }
 
@@ -211,12 +180,7 @@ impl Sexp for UnaryOpKind {
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        Token::item()
-            .try_map(|item, span| match item.parse() {
-                Ok(op) => Ok(op),
-                Err(_) => Err(Simple::custom(span, "unrecognized unary operator")),
-            })
-            .delimited_by(just(Token::LParen), just(Token::RParen))
+        parse_tag_variant()
     }
 }
 
@@ -240,29 +204,22 @@ impl QueryTerm {
 
     pub fn parser() -> impl Parser<Token, Vec<Self>, Error = Simple<Token>> {
         recursive(|query| {
-            let value = Token::expect_item("QueryValue")
-                .ignore_then(Value::parser())
-                .then(query.clone())
-                .map(|(val, mut rest): (Value, Vec<Self>)| {
+            let value = parse_list("QueryValue", Value::parser().then(query.clone())).map(
+                |(val, mut rest): (Value, Vec<Self>)| {
                     rest.push(QueryTerm::Value(val));
                     rest
-                });
+                },
+            );
 
-            let variable = Token::expect_item("QueryVariable")
-                .ignore_then(Token::integer())
-                .then(query)
-                .map(|(var, mut rest)| {
+            let variable =
+                parse_list("QueryVariable", Token::integer().then(query)).map(|(var, mut rest)| {
                     rest.push(QueryTerm::Variable(var as _)); // TODO: cast?
                     rest
                 });
 
-            let nil = Token::expect_item("QueryNil").to(vec![]);
+            let nil = parse_tag("QueryNil").to(vec![]);
 
-            // all query terms are delimited by parens
-            value
-                .or(variable)
-                .or(nil)
-                .delimited_by(just(Token::LParen), just(Token::RParen))
+            value.or(variable).or(nil)
         })
         // we push new terms into the back, so reverse
         .map(|mut terms| {
@@ -287,21 +244,16 @@ impl Sexp for Value {
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        let boolean = Token::expect_item("Boolean")
-            .ignore_then(Token::item())
-            .try_map(|item, span| match item.as_str() {
+        let boolean =
+            parse_list("Boolean", Token::item()).try_map(|item, span| match item.as_str() {
                 "True" => Ok(Value::Boolean(true)),
                 "False" => Ok(Value::Boolean(false)),
                 _ => Err(Simple::custom(span, "expected `True` or `False`")),
             });
 
-        let integer = Token::expect_item("Integer")
-            .ignore_then(Token::integer())
-            .map(Value::Integer);
+        let integer = parse_list("Integer", Token::integer()).map(Value::Integer);
 
-        boolean
-            .or(integer)
-            .delimited_by(just(Token::LParen), just(Token::RParen))
+        boolean.or(integer)
     }
 }
 
@@ -408,4 +360,31 @@ pub fn doc_inline_list<T: ToString>(items: impl IntoIterator<Item = T>) -> Doc {
 /// Wraps a document in parentheses.
 pub fn doc_list(inner: Doc) -> Doc {
     Doc::text("(").append(inner).append(")")
+}
+
+/// Parse a paren-delimited list annotated with a given tag.
+pub fn parse_list<T>(
+    tag: &'static str,
+    items: impl Parser<Token, T, Error = Simple<Token>>,
+) -> impl Parser<Token, T, Error = Simple<Token>> {
+    Token::expect_item(tag)
+        .ignore_then(items)
+        .delimited_by(just(Token::LParen), just(Token::RParen))
+}
+
+/// Parse a unit-length tagged list.
+pub fn parse_tag(tag: &'static str) -> impl Parser<Token, (), Error = Simple<Token>> {
+    Token::expect_item(tag)
+        .ignored()
+        .delimited_by(just(Token::LParen), just(Token::RParen))
+}
+
+/// Parse the tag in a unit-length tagged list.
+pub fn parse_tag_variant<T: FromStr>() -> impl Parser<Token, T, Error = Simple<Token>> {
+    Token::item()
+        .try_map(|item, span| match item.parse() {
+            Ok(op) => Ok(op),
+            Err(_) => Err(Simple::custom(span, "unrecognized variant")),
+        })
+        .delimited_by(just(Token::LParen), just(Token::RParen))
 }
