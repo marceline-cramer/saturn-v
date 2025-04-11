@@ -12,7 +12,7 @@ use strum::EnumString;
 pub mod sexp;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InstructionKind {
+pub enum Instruction {
     Noop,
     Sink(HashSet<i64>, Box<Self>),
     Filter(Expr, Box<Self>),

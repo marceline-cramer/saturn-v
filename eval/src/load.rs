@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use indexmap::IndexSet;
-use saturn_v_ir::{InstructionKind, QueryTerm};
+use saturn_v_ir::{Instruction, QueryTerm};
 
 use crate::{
     types::{Fact, Node, Query, Relation},
@@ -30,12 +30,7 @@ impl Loader {
         self.facts.insert(fact);
     }
 
-    pub fn store_relation(
-        &mut self,
-        relation: usize,
-        head: Vec<QueryTerm>,
-        instr: &InstructionKind,
-    ) {
+    pub fn store_relation(&mut self, relation: usize, head: Vec<QueryTerm>, instr: &Instruction) {
         let dst = Key::new(self.relations.get_index(relation).unwrap());
         let (src, map) = self.add_instruction(instr);
 
@@ -50,8 +45,8 @@ impl Loader {
         self.nodes.insert(Node::StoreRelation { src, dst, head });
     }
 
-    pub fn add_instruction(&mut self, instr: &InstructionKind) -> (Key<Node>, VariableMap) {
-        use InstructionKind::*;
+    pub fn add_instruction(&mut self, instr: &Instruction) -> (Key<Node>, VariableMap) {
+        use Instruction::*;
         match instr {
             Noop => unreachable!("cannot load noops"),
             Sink(_, _) => unreachable!("cannot load sinks"),

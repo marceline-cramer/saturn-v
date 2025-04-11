@@ -9,9 +9,9 @@ pub trait Sexp: Sized {
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
 }
 
-impl Sexp for InstructionKind {
+impl Sexp for Instruction {
     fn to_doc(&self) -> RcDoc<'static, ()> {
-        use InstructionKind::*;
+        use Instruction::*;
         match self {
             Noop => RcDoc::text("(Noop)"),
             Sink(vars, rest) => RcDoc::text("(Sink ")
@@ -72,7 +72,7 @@ impl Sexp for InstructionKind {
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        use InstructionKind::*;
+        use Instruction::*;
         recursive(|instr| {
             // recurse helper
             let instr = instr.map(Box::new);

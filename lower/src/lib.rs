@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use egglog::EGraph;
 use indexmap::IndexSet;
 use pretty::RcDoc;
-use saturn_v_ir::{sexp::Sexp, InstructionKind, Rule};
+use saturn_v_ir::{sexp::Sexp, Instruction, Rule};
 
 pub type RelationTable<R> = IndexSet<R>;
 
@@ -23,11 +23,11 @@ pub fn init_lower_egraph() -> EGraph {
 
 /// Defines the egglog representation to check a rule.
 pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
-    let instr = InstructionKind::Sink(
+    let instr = Instruction::Sink(
         HashSet::from_iter(0..(rule.vars.len() as i64)),
-        Box::new(InstructionKind::Filter(
+        Box::new(Instruction::Filter(
             rule.filter.clone(),
-            Box::new(InstructionKind::Noop),
+            Box::new(Instruction::Noop),
         )),
     );
 
@@ -64,7 +64,7 @@ pub mod tests {
     use chumsky::prelude::*;
     use saturn_v_ir::{sexp::Token, *};
 
-    fn test_rule(rule: Rule<()>) -> InstructionKind {
+    fn test_rule(rule: Rule<()>) -> Instruction {
         let name = "test_rule";
         let extract = extract_rule(name, &rule);
         println!("{extract}");
@@ -86,7 +86,7 @@ pub mod tests {
                 .map(|(idx, tok)| (tok, idx..idx)),
         );
 
-        InstructionKind::parser()
+        Instruction::parser()
             .parse(stream)
             .expect("failed to parse")
     }

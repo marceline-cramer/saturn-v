@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use saturn_v_ir::{BinaryOpKind, Expr, InstructionKind, QueryTerm, Value};
+use saturn_v_ir::{BinaryOpKind, Expr, Instruction, QueryTerm, Value};
 
 use crate::{
     dataflow::DataflowRouters,
@@ -96,20 +96,20 @@ async fn test_basic() {
     loader.store_relation(
         0,
         vec![QueryTerm::Variable(0)],
-        &InstructionKind::Let(
+        &Instruction::Let(
             0,
             Expr::BinaryOp {
                 op: saturn_v_ir::BinaryOpKind::Add,
                 lhs: Arc::new(Expr::Variable(1)),
                 rhs: Arc::new(Expr::Value(Value::Integer(1))),
             },
-            Box::new(InstructionKind::Filter(
+            Box::new(Instruction::Filter(
                 Expr::BinaryOp {
                     op: BinaryOpKind::Lt,
                     lhs: Arc::new(Expr::Variable(1)),
                     rhs: Arc::new(Expr::Value(Value::Integer(100))),
                 },
-                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(1)])),
+                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
             )),
         ),
     );
@@ -117,15 +117,15 @@ async fn test_basic() {
     loader.store_relation(
         1,
         vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
-        &InstructionKind::Filter(
+        &Instruction::Filter(
             Expr::BinaryOp {
                 op: BinaryOpKind::Lt,
                 lhs: Arc::new(Expr::Variable(0)),
                 rhs: Arc::new(Expr::Variable(1)),
             },
-            Box::new(InstructionKind::Join(
-                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(0)])),
-                Box::new(InstructionKind::FromQuery(0, vec![QueryTerm::Variable(1)])),
+            Box::new(Instruction::Join(
+                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(0)])),
+                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
             )),
         ),
     );
