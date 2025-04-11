@@ -2,8 +2,10 @@ use std::collections::HashSet;
 
 use egglog::EGraph;
 use indexmap::IndexSet;
-use pretty::RcDoc;
-use saturn_v_ir::{sexp::Sexp, Instruction, Rule};
+use saturn_v_ir::{
+    sexp::{self, Doc, Sexp},
+    Instruction, Rule,
+};
 
 pub type RelationTable<R> = IndexSet<R>;
 
@@ -31,23 +33,19 @@ pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
         )),
     );
 
-    let assignment = RcDoc::text("(")
-        .append("let")
-        .append(RcDoc::space())
-        .append(name.to_string())
-        .append(RcDoc::line())
-        .append(instr.to_doc())
-        .append(")")
-        .group();
+    let assignment = sexp::doc_indent(
+        sexp::doc_pair("let", Doc::text(name.to_string())),
+        instr.to_doc(),
+    );
 
-    let run = RcDoc::text("(run 1000000)")
-        .append(RcDoc::hardline())
+    let run = Doc::text("(run 1000000)")
+        .append(Doc::hardline())
         .append(format!("(query-extract {name})"));
 
     let mut out = String::new();
 
     assignment
-        .append(RcDoc::hardline())
+        .append(Doc::hardline())
         .append(run)
         .render_fmt(FORMAT_WIDTH, &mut out)
         .unwrap();

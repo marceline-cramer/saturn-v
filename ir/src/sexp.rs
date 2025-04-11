@@ -4,70 +4,45 @@ use chumsky::prelude::*;
 
 use crate::*;
 
+pub type Doc = RcDoc<'static, ()>;
+
 pub trait Sexp: Sized {
-    fn to_doc(&self) -> RcDoc<'static, ()>;
+    fn to_doc(&self) -> Doc;
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
 }
 
+impl Sexp for HashSet<i64> {
+    fn to_doc(&self) -> Doc {
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
+        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        Token::expect_item("set-of")
+            .ignore_then(Token::integer().repeated())
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+            .map(Self::from_iter)
+    }
+}
+
 impl Sexp for Instruction {
-    fn to_doc(&self) -> RcDoc<'static, ()> {
+    fn to_doc(&self) -> Doc {
         use Instruction::*;
         match self {
-            Noop => RcDoc::text("(Noop)"),
-            Sink(vars, rest) => RcDoc::text("(Sink ")
-                .append(
-                    RcDoc::text("(set-of")
-                        .append(
-                            RcDoc::line()
-                                .append(RcDoc::intersperse(
-                                    vars.iter().map(ToString::to_string),
-                                    RcDoc::line(),
-                                ))
-                                .nest(4)
-                                .group(),
-                        )
-                        .append(")"),
-                )
-                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
-                .append(")"),
-            Filter(expr, rest) => RcDoc::text("(Filter ")
-                .append(RcDoc::line().append(expr.to_doc()).nest(4).group())
-                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
-                .append(")"),
-            FromQuery(relation, terms) => RcDoc::text("(FromQuery ")
-                .append(relation.to_string())
-                .append(
-                    RcDoc::line()
-                        .append(QueryTerm::to_doc(terms.iter()))
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
-            Let(var, expr, rest) => RcDoc::text("(Let ")
-                .append(var.to_string())
-                .append(RcDoc::line().append(expr.to_doc()).nest(4).group())
-                .append(RcDoc::line().append(rest.to_doc()).nest(4).group())
-                .append(")"),
-            Merge(lhs, rhs) => RcDoc::text("(Merge ")
-                .append(
-                    RcDoc::line()
-                        .append(lhs.to_doc())
-                        .append(RcDoc::line())
-                        .append(rhs.to_doc())
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
-            Join(lhs, rhs) => RcDoc::text("(Join ")
-                .append(
-                    RcDoc::line()
-                        .append(lhs.to_doc())
-                        .append(RcDoc::line())
-                        .append(rhs.to_doc())
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
+            Noop => doc_list(Doc::text("Noop")),
+            Sink(vars, rest) => doc_indent(doc_pair("Sink", vars.to_doc()), rest.to_doc()),
+            Filter(expr, rest) => doc_indent_two(Doc::text("Filter"), expr.to_doc(), rest.to_doc()),
+            FromQuery(relation, terms) => doc_indent(
+                doc_pair("FromQuery", Doc::text(relation.to_string())),
+                QueryTerm::to_doc(terms.iter()),
+            ),
+            Let(var, expr, rest) => doc_indent_two(
+                doc_pair("Let", Doc::text(var.to_string())),
+                expr.to_doc(),
+                rest.to_doc(),
+            ),
+            Merge(lhs, rhs) => doc_indent_two(Doc::text("Merge"), lhs.to_doc(), rhs.to_doc()),
+            Join(lhs, rhs) => doc_indent_two(Doc::text("Join"), lhs.to_doc(), rhs.to_doc()),
         }
     }
 
@@ -82,12 +57,7 @@ impl Sexp for Instruction {
 
             // sink
             let sink = Token::expect_item("Sink")
-                .ignore_then(
-                    Token::expect_item("set-of")
-                        .ignore_then(Token::integer().repeated())
-                        .delimited_by(just(Token::LParen), just(Token::RParen))
-                        .map(HashSet::from_iter),
-                )
+                .ignore_then(HashSet::parser())
                 .then(instr.clone())
                 .map(|(vars, rest)| Sink(vars, rest));
 
@@ -135,49 +105,21 @@ impl Sexp for Instruction {
 }
 
 impl Sexp for Expr {
-    fn to_doc(&self) -> RcDoc<'static, ()> {
+    fn to_doc(&self) -> Doc {
         use Expr::*;
         match self {
-            Variable(idx) => RcDoc::text("(")
-                .append("Variable")
-                .append(RcDoc::space())
-                .append(idx.to_string())
-                .append(")"),
-            Value(val) => RcDoc::text("(")
-                .append("Value")
-                .append(RcDoc::space())
-                .append(val.to_doc())
-                .append(")"),
-            Load { relation, query } => RcDoc::text("(")
-                .append("Load")
-                .append(RcDoc::space())
-                .append(relation.to_string())
-                .append(
-                    RcDoc::line()
-                        .append(QueryTerm::to_doc(query.iter()))
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
-            UnaryOp { op, term } => RcDoc::text("(")
-                .append("UnaryOp")
-                .append(RcDoc::space())
-                .append(op.to_doc())
-                .append(RcDoc::line().append(term.to_doc()).nest(4).group())
-                .append(")"),
-            BinaryOp { op, lhs, rhs } => RcDoc::text("(")
-                .append("BinaryOp")
-                .append(RcDoc::space())
-                .append(op.to_doc())
-                .append(
-                    RcDoc::line()
-                        .append(lhs.to_doc())
-                        .append(RcDoc::line())
-                        .append(rhs.to_doc())
-                        .nest(4)
-                        .group(),
-                )
-                .append(")"),
+            Variable(idx) => doc_list(doc_pair("Variable", Doc::text(idx.to_string()))),
+            Value(val) => doc_list(doc_pair("Value", val.to_doc())),
+            Load { relation, query } => doc_indent(
+                doc_pair("Load", Doc::text(relation.to_string())),
+                QueryTerm::to_doc(query.iter()),
+            ),
+            UnaryOp { op, term } => doc_indent(doc_pair("UnaryOp", op.to_doc()), term.to_doc()),
+            BinaryOp { op, lhs, rhs } => doc_indent_two(
+                doc_pair("BinaryOp", op.to_doc()),
+                lhs.to_doc(),
+                rhs.to_doc(),
+            ),
         }
     }
 
@@ -230,7 +172,7 @@ impl Sexp for Expr {
 }
 
 impl Sexp for BinaryOpKind {
-    fn to_doc(&self) -> RcDoc<'static, ()> {
+    fn to_doc(&self) -> Doc {
         use BinaryOpKind::*;
         let kind = match self {
             Add => "Add",
@@ -244,7 +186,7 @@ impl Sexp for BinaryOpKind {
             Le => "Le",
         };
 
-        RcDoc::text("(").append(kind).append(")")
+        doc_list(Doc::text(kind))
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
@@ -258,14 +200,14 @@ impl Sexp for BinaryOpKind {
 }
 
 impl Sexp for UnaryOpKind {
-    fn to_doc(&self) -> RcDoc<'static, ()> {
+    fn to_doc(&self) -> Doc {
         use UnaryOpKind::*;
         let kind = match self {
             Not => "Not",
             Negate => "Negate",
         };
 
-        RcDoc::text("(").append(kind).append(")")
+        doc_list(Doc::text(kind))
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
@@ -279,21 +221,21 @@ impl Sexp for UnaryOpKind {
 }
 
 impl QueryTerm {
-    pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> RcDoc<'static, ()> {
+    pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> Doc {
         use QueryTerm::*;
         let (kind, val) = match terms.next() {
-            Some(Variable(idx)) => ("QueryVariable", RcDoc::text(idx.to_string())),
+            Some(Variable(idx)) => ("QueryVariable", Doc::text(idx.to_string())),
             Some(Value(val)) => ("QueryValue", val.to_doc()),
-            None => return RcDoc::text("(QueryNil)"),
+            None => return Doc::text("(QueryNil)"),
         };
 
-        RcDoc::text("(")
-            .append(kind)
-            .append(RcDoc::space())
-            .append(val)
-            .append(RcDoc::line())
-            .append(Self::to_doc(terms))
-            .append(")")
+        doc_list(
+            Doc::text(kind)
+                .append(Doc::space())
+                .append(val)
+                .append(Doc::line())
+                .append(Self::to_doc(terms)),
+        )
     }
 
     pub fn parser() -> impl Parser<Token, Vec<Self>, Error = Simple<Token>> {
@@ -331,7 +273,7 @@ impl QueryTerm {
 }
 
 impl Sexp for Value {
-    fn to_doc(&self) -> RcDoc<'static, ()> {
+    fn to_doc(&self) -> Doc {
         use Value::*;
         let (kind, val) = match self {
             Boolean(val) => ("Boolean", val.to_string()),
@@ -341,11 +283,7 @@ impl Sexp for Value {
             String(val) => ("String", format!("{val:?}")),
         };
 
-        RcDoc::text("(")
-            .append(kind)
-            .append(RcDoc::space())
-            .append(val)
-            .append(")")
+        doc_inline_list([kind, &val])
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
@@ -431,4 +369,43 @@ impl Token {
             Token::Item(val) => val.to_string(),
         }
     }
+}
+
+/// Creates a paren-surrounded list with two children with smart indentation.
+pub fn doc_indent_two(head: Doc, item1: Doc, item2: Doc) -> Doc {
+    doc_list(
+        head.append(
+            Doc::line()
+                .append(item1)
+                .append(Doc::line())
+                .append(item2)
+                .nest(2)
+                .group(),
+        ),
+    )
+}
+
+/// Creates a paren-surrounded list with a single child with smart indentation.
+pub fn doc_indent(head: Doc, item: Doc) -> Doc {
+    doc_list(head.append(Doc::line().append(item).nest(2).group()))
+}
+
+/// Helper to create a document representing "<text> <kind>".
+pub fn doc_pair(text: &str, kind: Doc) -> Doc {
+    Doc::text(text.to_string())
+        .append(Doc::space())
+        .append(kind)
+}
+
+/// Creates a list of documents separated by spaces and surrounded by parentheses.
+pub fn doc_inline_list<T: ToString>(items: impl IntoIterator<Item = T>) -> Doc {
+    doc_list(Doc::intersperse(
+        items.into_iter().map(|item| Doc::text(item.to_string())),
+        Doc::space(),
+    ))
+}
+
+/// Wraps a document in parentheses.
+pub fn doc_list(inner: Doc) -> Doc {
+    Doc::text("(").append(inner).append(")")
 }
