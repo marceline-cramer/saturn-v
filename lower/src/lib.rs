@@ -23,14 +23,11 @@ pub fn init_lower_egraph() -> EGraph {
     graph
 }
 
-/// Defines the egglog representation to check a rule.
+/// Defines the egglog representation to lower a rule.
 pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
     let instr = Instruction::Sink(
         HashSet::from_iter(0..(rule.vars.len() as i64)),
-        Box::new(Instruction::Filter(
-            rule.filter.clone(),
-            Box::new(Instruction::Noop),
-        )),
+        Box::new(rule.instructions.clone()),
     );
 
     let assignment = sexp::doc_indent(
@@ -89,6 +86,17 @@ pub mod tests {
             .expect("failed to parse")
     }
 
+    fn filter_to_instructions(filter: Expr) -> Instruction {
+        Instruction::Sink(
+            filter
+                .variable_deps()
+                .iter()
+                .map(|idx| *idx as i64)
+                .collect(),
+            Box::new(Instruction::Filter(filter, Box::new(Instruction::Noop))),
+        )
+    }
+
     #[test]
     fn basic_pretty_print() {
         let filter = Expr::BinaryOp {
@@ -109,7 +117,7 @@ pub mod tests {
         };
 
         let rule = Rule::<()> {
-            filter,
+            instructions: filter_to_instructions(filter),
             head: vec![QueryTerm::Variable(0)],
             loaded: vec![()],
             vars: vec![Type::Integer, Type::Integer],
@@ -133,7 +141,7 @@ pub mod tests {
         };
 
         let rule = Rule::<()> {
-            filter,
+            instructions: filter_to_instructions(filter),
             head: vec![QueryTerm::Variable(0)],
             loaded: vec![(), ()],
             vars: vec![Type::Integer],

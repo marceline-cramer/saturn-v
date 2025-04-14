@@ -10,26 +10,17 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 
 pub mod sexp;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Instruction {
-    Noop,
-    Sink(HashSet<i64>, Box<Self>),
-    Filter(Expr, Box<Self>),
-    FromQuery(i64, Vec<QueryTerm>),
-    Let(i64, Expr, Box<Self>),
-    Merge(Box<Self>, Box<Self>),
-    Join(Box<Self>, Box<Self>),
-}
+pub mod validate;
 
 pub struct Program<R> {
-    pub constraints: Vec<Constraint<R>>,
     pub relations: HashMap<R, Relation<R>>,
+    pub constraints: Vec<Constraint<R>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Constraint<R> {
-    /// The desugared body of this rule.
-    pub filter: Expr,
+    /// The desugared instructions in this constraint.
+    pub instructions: Instruction,
 
     /// The variables to group this constraint over.
     pub head: Vec<usize>,
@@ -37,16 +28,28 @@ pub struct Constraint<R> {
     /// The lookups for custom relation types loaded by the filter.
     pub loaded: Vec<R>,
 
+    /// The type of each variable.
+    pub vars: Vec<Type>,
+
+    /// What weight this constraint has.
+    pub weight: ConstraintWeight,
+
     /// The kind of constraint that this is.
     pub kind: ConstraintKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum ConstraintKind {
-    // TODO
+pub enum ConstraintWeight {
+    Hard,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum ConstraintKind {
+    /// For every group, at least one element must be true.
+    Any,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Relation<R> {
     /// The relation's type.
     pub ty: Vec<Type>,
@@ -57,24 +60,38 @@ pub struct Relation<R> {
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,
 
+    /// A list of facts initially stored by this relation.
+    pub facts: Vec<Vec<Value>>,
+
     /// Whether or not this relation is a decision.
     pub is_decision: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rule<R> {
-    /// The desugared body of this rule.
-    pub filter: Expr,
+    /// The desugared instructions for this rule.
+    pub instructions: Instruction,
 
     /// Maps from the variables in the filter to query terms to store in the
     /// relation this rule is for.
     pub head: Vec<QueryTerm>,
 
-    /// The lookups for custom relation types loaded by the filter.
+    /// The lookups for custom relation types loaded by the instructions.
     pub loaded: Vec<R>,
 
     /// The type of each variable.
     pub vars: Vec<Type>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub enum Instruction {
+    Noop,
+    Sink(HashSet<i64>, Box<Self>),
+    Filter(Expr, Box<Self>),
+    FromQuery(i64, Vec<QueryTerm>),
+    Let(i64, Expr, Box<Self>),
+    Merge(Box<Self>, Box<Self>),
+    Join(Box<Self>, Box<Self>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -130,6 +147,27 @@ pub enum BinaryOpKind {
     Eq,
     Lt,
     Le,
+}
+
+impl BinaryOpKind {
+    pub fn category(&self) -> BinaryOpCategory {
+        use BinaryOpCategory::*;
+        use BinaryOpKind::*;
+        match self {
+            Add | Mul | Div => Arithmetic,
+            Concat => String,
+            And | Or => Logical,
+            Eq | Lt | Le => Comparison,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BinaryOpCategory {
+    Arithmetic,
+    String,
+    Logical,
+    Comparison,
 }
 
 #[derive(
