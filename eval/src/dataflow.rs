@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use differential_dataflow::operators::{iterate::Variable, Join, Reduce, Threshold};
-use saturn_v_ir::{BinaryOpKind, Expr, QueryTerm, UnaryOpKind, Value};
+use saturn_v_ir::*;
 use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::Worker};
 
 use crate::{
@@ -32,7 +32,7 @@ pub fn backend(
         let inputs = relations_in.and(facts_in).and(nodes_in);
 
         // generate the semantics
-        let (facts, clauses, implies) = scope.iterative::<u32, _, _>(|scope| {
+        let (tuples, facts, clauses, implies) = scope.iterative::<u32, _, _>(|scope| {
             // enter inputs into iterative scope
             let relations = relations.enter(scope);
             let facts = facts.enter(scope);
@@ -132,8 +132,6 @@ pub fn backend(
                 .distinct()
                 .inspect(inspect("stored"));
 
-            tuples.set_concat(&new_tuples).inspect(inspect("tuples"));
-
             // store new tuples to corresponding relations
             let stored = nodes
                 .map(value)
@@ -149,6 +147,10 @@ pub fn backend(
 
             // return outputs of all extended collections
             (
+                tuples
+                    .set_concat(&new_tuples)
+                    .inspect(inspect("tuples"))
+                    .leave(),
                 facts.set_concat(&store).inspect(inspect("facts")).leave(),
                 clauses
                     .set_concat(&join_clauses)
@@ -180,10 +182,22 @@ pub fn backend(
             .map(value)
             .distinct();
 
+        // collect constraint groups into clauses
+        let constraint_type = nodes.flat_map(map_value(Node::constraint_type));
+
+        let constraints = nodes
+            .flat_map(map_value(Node::constraint_src))
+            .map(|(dst, (src, map))| (src, (dst, map)))
+            .join_map(&tuples, constraint_map)
+            .reduce(constraint_reduce)
+            .map(|((dst, _head), group)| (dst, group))
+            .join_map(&constraint_type, constraint_clause);
+
         // extend clauses
         let clauses = clauses
             .concat(&decisions.reduce(decision_clause).map(value))
             .concat(&conditional.reduce(conditional_clause).map(value))
+            .concat(&constraints)
             .distinct();
 
         // track instances of all condition variables
@@ -407,5 +421,44 @@ pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
             // everything else is invalid
             other => panic!("invalid binary op: {other:?}"),
         },
+    }
+}
+
+pub fn constraint_map(
+    _src: &Key<Node>,
+    (dst, map): &(Key<Node>, IndexList),
+    tuple: &Tuple,
+) -> ((Key<Node>, Values), Option<Condition>) {
+    let key = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
+    ((*dst, key), tuple.condition.clone())
+}
+
+pub fn constraint_reduce(
+    _key: &(Key<Node>, Values),
+    input: &[(&Option<Condition>, Diff)],
+    output: &mut Vec<(Vec<Condition>, Diff)>,
+) {
+    let mut terms = Vec::new();
+
+    for (cond, _diff) in input {
+        if let Some(cond) = cond.clone() {
+            terms.push(cond.clone());
+        }
+    }
+
+    if !terms.is_empty() {
+        output.push((terms, 1));
+    }
+}
+
+pub fn constraint_clause(
+    _dst: &Key<Node>,
+    terms: &Vec<Condition>,
+    (weight, kind): &(ConstraintWeight, ConstraintKind),
+) -> Clause {
+    Clause::ConstraintGroup {
+        terms: terms.clone(),
+        weight: weight.clone(),
+        kind: kind.clone(),
     }
 }

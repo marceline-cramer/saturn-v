@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
 use flume::Sender;
+use saturn_v_ir::{ConstraintKind, ConstraintWeight};
 
 use crate::{
     types::{Clause, Condition, Fact},
@@ -111,6 +112,7 @@ impl Solver {
     fn insert_clause(&mut self, clause: Clause) {
         use Clause::*;
         let gate = -self.create_variable();
+        self.clauses.insert(clause.clone(), -gate);
         match clause {
             And { lhs, rhs, out } => {
                 let lhs = self.conditions[&lhs];
@@ -158,6 +160,21 @@ impl Solver {
 
                 self.sat.add_clause(clause);
             }
+            ConstraintGroup {
+                terms,
+                weight: ConstraintWeight::Hard,
+                kind: ConstraintKind::Any,
+            } => {
+                let mut clause = Vec::with_capacity(terms.len() + 1);
+                clause.push(gate);
+
+                for term in terms {
+                    clause.push(self.conditions[&term]);
+                }
+
+                self.sat.add_clause(clause);
+            }
+            other => unimplemented!("unimplemented clause kind: {other:?}"),
         }
     }
 

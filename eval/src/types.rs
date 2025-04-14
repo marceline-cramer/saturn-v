@@ -1,4 +1,4 @@
-use saturn_v_ir::{ConstraintKind, Expr, QueryTerm, Value};
+use saturn_v_ir::{ConstraintKind, ConstraintWeight, Expr, QueryTerm, Value};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -37,6 +37,13 @@ pub enum Clause {
         terms: Vec<Condition>,
         out: Condition,
     },
+
+    /// Constrains a group of constraint conditions.
+    ConstraintGroup {
+        terms: Vec<Condition>,
+        weight: ConstraintWeight,
+        kind: ConstraintKind,
+    },
 }
 
 impl Clause {
@@ -54,6 +61,7 @@ impl Clause {
                 terms.push(out);
                 terms
             }
+            ConstraintGroup { terms, .. } => terms,
         }
     }
 }
@@ -176,6 +184,9 @@ pub enum Node {
         /// The indices of the variables that the head is made up of.
         head: IndexList,
 
+        /// The constraint's weight.
+        weight: ConstraintWeight,
+
         /// The kind of constraint.
         kind: ConstraintKind,
     },
@@ -252,9 +263,16 @@ impl Node {
         }
     }
 
-    pub fn constraint(self) -> Option<(Key<Node>, (IndexList, ConstraintKind))> {
+    pub fn constraint_src(self) -> Option<(Key<Node>, IndexList)> {
         match self {
-            Node::Constraint { src, head, kind } => Some((src, (head, kind))),
+            Node::Constraint { src, head, .. } => Some((src, head)),
+            _ => None,
+        }
+    }
+
+    pub fn constraint_type(self) -> Option<(ConstraintWeight, ConstraintKind)> {
+        match self {
+            Node::Constraint { weight, kind, .. } => Some((weight, kind)),
             _ => None,
         }
     }
