@@ -203,15 +203,23 @@ impl Instruction {
                 Ok(vars)
             }
             Let(var, expr, rest) => {
+                // typecast variable
+                let var = *var as usize;
+
                 // validate the dependencies
                 let mut vars = rest.validate(relations, variables)?;
                 let got_ty = expr.validate(relations, variables)?;
 
+                // assert that the variable is not assigned twice
+                if vars.contains(&var) {
+                    return Err(Error::VariableAssignedTwice(var));
+                }
+
                 // retrieve the type of the variable (if it exists)
                 let expected_ty = variables
-                    .get(*var as usize)
+                    .get(var)
                     .cloned()
-                    .ok_or(Error::InvalidVariableIndex(*var as usize))?;
+                    .ok_or(Error::InvalidVariableIndex(var))?;
 
                 // check for unassigned variables used by the expression
                 let used = expr.variable_deps();
@@ -221,7 +229,7 @@ impl Instruction {
                 }
 
                 // insert the new variable into the assigned set
-                vars.insert(*var as usize);
+                vars.insert(var);
 
                 // confirm that the type of the expression matches the variable
                 if got_ty != expected_ty {
