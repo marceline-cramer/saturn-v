@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    hash::Hash,
     sync::Arc,
 };
 
@@ -12,9 +13,17 @@ use strum::EnumString;
 pub mod sexp;
 pub mod validate;
 
+#[derive(Clone, Debug, Default)]
 pub struct Program<R> {
     pub relations: HashMap<R, Relation<R>>,
     pub constraints: Vec<Constraint<R>>,
+}
+
+impl<R: Clone + Hash + Eq> Program<R> {
+    /// Easy shorthand to add a relation to this program.
+    pub fn insert_relation(&mut self, relation: Relation<R>) {
+        self.relations.insert(relation.store.clone(), relation);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
