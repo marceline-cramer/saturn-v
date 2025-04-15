@@ -1,7 +1,8 @@
 [workspace]
-members = [ "check", "eval", "ir", "lower" ]
+members = [ "check", "eval", "fuzz", "ir", "lower" ]
 
 [workspace.dependencies]
+arbitrary = { version = "1", features = ["derive"] }
 chumsky = "0.9"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }

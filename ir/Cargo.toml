@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 chumsky.workspace = true
 indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
 serde.workspace = true
 strum = { version = "0.27", features = ["derive"] }
+
+[features]
+fuzz = ["dep:arbitrary", "ordered-float/arbitrary"]

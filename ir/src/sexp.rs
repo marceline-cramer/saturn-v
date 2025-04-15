@@ -1,6 +1,9 @@
-use std::{borrow::Cow, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 use chumsky::prelude::*;
+
+#[cfg(feature = "fuzz")]
+use arbitrary::Arbitrary;
 
 use crate::*;
 
@@ -258,10 +261,11 @@ impl Sexp for Value {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Token {
     LParen,
     RParen,
-    Item(Cow<'static, str>),
+    Item(String),
     Integer(i64),
     Real(OrderedFloat<f64>),
 }
@@ -305,8 +309,8 @@ impl Token {
     }
 
     /// Short-hand to expect a specific item.
-    pub fn expect_item(name: &'static str) -> impl Parser<Token, Token, Error = Simple<Token>> {
-        just(Token::Item(Cow::Borrowed(name)))
+    pub fn expect_item(name: impl ToString) -> impl Parser<Token, Token, Error = Simple<Token>> {
+        just(Token::Item(name.to_string()))
     }
 
     /// Short-hand to parse an integer.

@@ -248,6 +248,7 @@ pub mod tests {
 
     use sexp::Sexp;
 
+    // TODO: move this into sexp module
     #[test]
     fn basic_pretty_print() {
         let expr = Expr::BinaryOp {

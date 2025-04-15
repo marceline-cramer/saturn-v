@@ -1,0 +1,17 @@
+[package]
+name = "saturn-v-check-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+chumsky.workspace = true
+libfuzzer-sys = "0.4"
+saturn-v-ir = { workspace = true, features = ["fuzz"] }
+
+[[bin]]
+name = "ir_from_sexp"
+path = "fuzz_targets/ir_from_sexp.rs"
