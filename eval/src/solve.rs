@@ -197,7 +197,6 @@ impl Solver {
                 // add completed "OR" clause
                 self.sat.add_clause(clause);
             }
-            other => unimplemented!("unimplemented clause kind: {other:?}"),
         }
     }
 

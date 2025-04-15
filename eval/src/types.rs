@@ -12,6 +12,12 @@ pub struct Fact {
     pub values: Values,
 }
 
+impl Fact {
+    pub fn relation_pair(self) -> (Key<Relation>, Self) {
+        (self.relation, self)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Clause {
     And {

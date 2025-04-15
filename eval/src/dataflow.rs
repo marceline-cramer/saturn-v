@@ -22,14 +22,8 @@ pub fn backend(
         let mut nodes_in = routers.nodes_in.add_sink();
 
         let relations = relations_in.to_collection(scope).map(Key::pair);
-
-        let facts = facts_in
-            .to_collection(scope)
-            .map(|fact| (fact.relation, fact));
-
+        let facts = facts_in.to_collection(scope).map(Fact::relation_pair);
         let nodes = nodes_in.to_collection(scope).map(Key::pair);
-
-        let inputs = relations_in.and(facts_in).and(nodes_in);
 
         // generate the semantics
         let (tuples, facts, clauses, implies) = scope.iterative::<u32, _, _>(|scope| {
@@ -142,7 +136,7 @@ pub fn backend(
                 .distinct();
 
             // the keys of stored contain new tuples
-            let store = stored.map(key);
+            let store = stored.map(key).map(Fact::relation_pair);
             let new_implies = stored.flat_map(value);
 
             // return outputs of all extended collections
@@ -221,13 +215,14 @@ pub fn backend(
             .distinct();
 
         // return inputs and outputs
-        let outputs = routers
-            .conditions_out
-            .add_source(&conditions)
-            .and(routers.clauses_out.add_source(&clauses))
-            .and(routers.outputs_out.add_source(&outputs));
-
-        (inputs, outputs)
+        (
+            relations_in.and(facts_in).and(nodes_in),
+            routers
+                .conditions_out
+                .add_source(&conditions)
+                .and(routers.clauses_out.add_source(&clauses))
+                .and(routers.outputs_out.add_source(&outputs)),
+        )
     })
 }
 
@@ -305,7 +300,7 @@ pub fn load(((node, fact), relation): ((Key<Node>, Fact), Relation)) -> (Key<Nod
 
 pub fn store(
     ((relation, head), tuple): ((Key<Relation>, StoreHead), Tuple),
-) -> ((Key<Relation>, Fact), Option<(Fact, Condition)>) {
+) -> (Fact, Option<(Fact, Condition)>) {
     let values = head
         .into_iter()
         .map(|term| match term {
@@ -316,7 +311,7 @@ pub fn store(
 
     let fact = Fact { relation, values };
     let implies = tuple.condition.map(|cond| (fact.clone(), cond));
-    ((relation, fact), implies)
+    (fact, implies)
 }
 
 pub fn decision_clause(
@@ -359,6 +354,7 @@ pub fn conditional_clause(
     output.push((clause, 1));
 }
 
+#[allow(unused_variables)]
 pub fn inspect<T: Debug, D: Debug>(name: &str) -> impl for<'a> Fn(&'a (T, D, Diff)) {
     let name = name.to_string();
     move |update| {
@@ -448,8 +444,8 @@ pub fn constraint_reduce(
     let mut terms = Vec::new();
 
     for (cond, _diff) in input {
-        if let Some(cond) = cond.clone() {
-            terms.push(cond.clone());
+        if let Some(cond) = cond.as_ref().to_owned() {
+            terms.push(cond.to_owned());
         }
     }
 
@@ -458,6 +454,7 @@ pub fn constraint_reduce(
     }
 }
 
+#[allow(clippy::ptr_arg)]
 pub fn constraint_clause(
     _dst: &Key<Node>,
     terms: &Vec<Condition>,
