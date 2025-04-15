@@ -121,22 +121,20 @@ impl<R> Rule<R> {
         let mut ty = Vec::new();
         let mut needed = HashSet::new();
         for term in self.head.iter() {
-            // process this term
-            let idx = match term {
+            match term {
                 // simply push value types to the running rule type
                 QueryTerm::Value(val) => {
                     ty.push(val.ty());
                     continue;
                 }
-                // process variables further
-                QueryTerm::Variable(idx) => *idx,
-            };
-
-            // check that the variable exists
-            self.vars.get(idx).ok_or(Error::InvalidVariableIndex(idx))?;
-
-            // insert the variable
-            needed.insert(idx);
+                // check that the variable exists, push its type, and insert it
+                QueryTerm::Variable(idx) => {
+                    let idx = *idx;
+                    let var_ty = self.vars.get(idx).ok_or(Error::InvalidVariableIndex(idx))?;
+                    ty.push(*var_ty);
+                    needed.insert(idx);
+                }
+            }
         }
 
         // if there are any unassigned but needed variables, return an error
@@ -197,7 +195,7 @@ impl Instruction {
                         .ok_or(Error::InvalidVariableIndex(*idx))?;
 
                     // ensure that the variable is only used once per query
-                    if vars.insert(*idx) {
+                    if !vars.insert(*idx) {
                         return Err(Error::DuplicateQueryVariable(*idx));
                     }
                 }
@@ -206,7 +204,7 @@ impl Instruction {
             }
             Let(var, expr, rest) => {
                 // validate the dependencies
-                let vars = rest.validate(relations, variables)?;
+                let mut vars = rest.validate(relations, variables)?;
                 let got_ty = expr.validate(relations, variables)?;
 
                 // retrieve the type of the variable (if it exists)
@@ -221,6 +219,9 @@ impl Instruction {
                 if !unassigned.is_empty() {
                     return Err(Error::UnassignedVariables(unassigned));
                 }
+
+                // insert the new variable into the assigned set
+                vars.insert(*var as usize);
 
                 // confirm that the type of the expression matches the variable
                 if got_ty != expected_ty {
@@ -305,7 +306,7 @@ impl Expr {
                     (BinaryOpCategory::Arithmetic, Real, Real) => Ok(Real),
                     (BinaryOpCategory::String, String, String) => Ok(String),
                     (BinaryOpCategory::Logical, Boolean, Boolean) => Ok(Boolean),
-                    (BinaryOpCategory::Comparison, lhs, rhs) if lhs == rhs => Ok(lhs),
+                    (BinaryOpCategory::Comparison, lhs, rhs) if lhs == rhs => Ok(Boolean),
                     (_, lhs, rhs) => Err(Error::InvalidBinaryOp { op: *op, lhs, rhs }),
                 }
             }
