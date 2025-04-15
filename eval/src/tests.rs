@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
-use saturn_v_ir::{BinaryOpKind, Expr, Instruction, QueryTerm, Value};
-
-use crate::{
-    dataflow::DataflowRouters,
-    load::Loader,
-    solve::Solver,
-    types::{Fact, Relation},
-    utils::{run_pumps, Key},
+use saturn_v_ir::{
+    self as ir, BinaryOpKind, Constraint, ConstraintKind, ConstraintWeight, Expr, Instruction,
+    Program, QueryTerm, RelationKind, Rule, Type, Value,
 };
 
-async fn run(loader: Loader) {
+use crate::{dataflow::DataflowRouters, load::Loader, solve::Solver, utils::run_pumps};
+
+async fn run(loader: Loader<String>) {
     let config = timely::Config::thread();
     let routers = DataflowRouters::default();
 
@@ -32,13 +29,13 @@ async fn run(loader: Loader) {
     }
 
     let mut relations = routers.relations_in.into_source();
-    for fact in loader.relations {
-        relations.insert(fact);
+    for relation in loader.relations.values() {
+        relations.insert(relation.clone());
     }
 
     let mut nodes = routers.nodes_in.into_source();
-    for fact in loader.nodes {
-        nodes.insert(fact);
+    for node in loader.nodes {
+        nodes.insert(node);
     }
 
     nodes.flush();
@@ -68,67 +65,108 @@ async fn run(loader: Loader) {
 }
 
 #[tokio::test]
-async fn test_basic() {
-    let relations = vec![
-        Relation {
-            discriminant: 0,
-            is_decision: false,
-            is_conditional: false,
-            is_output: false,
-        },
-        Relation {
-            discriminant: 1,
-            is_decision: true,
-            is_conditional: false,
-            is_output: true,
-        },
-    ];
+async fn test_pick_one() {
+    let mut program = Program::default();
 
-    let relation_keys: Vec<_> = relations.iter().map(Key::new).collect();
-
-    let mut loader = Loader::new(relations);
-
-    loader.add_fact(Fact {
-        relation: relation_keys[0],
-        values: vec![Value::Integer(1)].into(),
+    program.insert_relation(ir::Relation {
+        ty: vec![Type::Integer],
+        store: "Choice".to_string(),
+        facts: (1..=10).map(|idx| vec![Value::Integer(idx)]).collect(),
+        kind: RelationKind::Decision,
+        is_output: true,
+        rules: vec![],
     });
 
-    loader.store_relation(
-        0,
-        vec![QueryTerm::Variable(0)],
-        &Instruction::Let(
-            0,
-            Expr::BinaryOp {
-                op: saturn_v_ir::BinaryOpKind::Add,
-                lhs: Arc::new(Expr::Variable(1)),
-                rhs: Arc::new(Expr::Value(Value::Integer(1))),
-            },
-            Box::new(Instruction::Filter(
+    program.constraints.push(Constraint {
+        head: vec![],
+        loaded: vec!["Choice".to_string()],
+        vars: vec![Type::Integer],
+        weight: ConstraintWeight::Hard,
+        kind: ConstraintKind::One,
+        instructions: Instruction::FromQuery(0, vec![QueryTerm::Variable(0)]),
+    });
+
+    let loader = Loader::load_program(&program);
+    run(loader).await;
+}
+
+#[tokio::test]
+async fn test_pick_pairs() {
+    let mut program = Program::default();
+
+    program.insert_relation(ir::Relation {
+        ty: vec![Type::Integer],
+        store: "Base".to_string(),
+        facts: vec![vec![Value::Integer(0)]],
+        kind: RelationKind::Basic,
+        is_output: false,
+        rules: vec![Rule {
+            vars: vec![Type::Integer, Type::Integer],
+            head: vec![QueryTerm::Variable(0)],
+            loaded: vec!["Base".to_string()],
+            instructions: Instruction::Let(
+                0,
+                Expr::BinaryOp {
+                    op: saturn_v_ir::BinaryOpKind::Add,
+                    lhs: Arc::new(Expr::Variable(1)),
+                    rhs: Arc::new(Expr::Value(Value::Integer(1))),
+                },
+                Box::new(Instruction::Filter(
+                    Expr::BinaryOp {
+                        op: BinaryOpKind::Lt,
+                        lhs: Arc::new(Expr::Variable(1)),
+                        rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                    },
+                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
+                )),
+            ),
+        }],
+    });
+
+    program.insert_relation(ir::Relation {
+        ty: vec![Type::Integer, Type::Integer],
+        store: "Pair".to_string(),
+        facts: vec![],
+        kind: RelationKind::Decision,
+        is_output: true,
+        rules: vec![Rule {
+            vars: vec![Type::Integer, Type::Integer],
+            head: vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
+            loaded: vec!["Base".to_string()],
+            instructions: Instruction::Filter(
                 Expr::BinaryOp {
                     op: BinaryOpKind::Lt,
-                    lhs: Arc::new(Expr::Variable(1)),
-                    rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                    lhs: Arc::new(Expr::Variable(0)),
+                    rhs: Arc::new(Expr::Variable(1)),
                 },
-                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
-            )),
-        ),
-    );
+                Box::new(Instruction::Join(
+                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(0)])),
+                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
+                )),
+            ),
+        }],
+    });
 
-    loader.store_relation(
-        1,
-        vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
-        &Instruction::Filter(
+    program.constraints.push(Constraint {
+        head: vec![0],
+        loaded: vec!["Pair".to_string()],
+        vars: vec![Type::Integer, Type::Integer, Type::Integer],
+        weight: ConstraintWeight::Hard,
+        kind: saturn_v_ir::ConstraintKind::One,
+        instructions: Instruction::Let(
+            0,
             Expr::BinaryOp {
-                op: BinaryOpKind::Lt,
-                lhs: Arc::new(Expr::Variable(0)),
-                rhs: Arc::new(Expr::Variable(1)),
+                op: BinaryOpKind::Div,
+                lhs: Arc::new(Expr::Variable(1)),
+                rhs: Arc::new(Expr::Value(Value::Integer(10))),
             },
-            Box::new(Instruction::Join(
-                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(0)])),
-                Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
+            Box::new(Instruction::FromQuery(
+                0,
+                vec![QueryTerm::Variable(1), QueryTerm::Variable(2)],
             )),
         ),
-    );
+    });
 
+    let loader = Loader::load_program(&program);
     run(loader).await;
 }

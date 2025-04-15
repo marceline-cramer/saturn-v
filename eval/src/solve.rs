@@ -59,10 +59,10 @@ impl Solver {
         // mapping constraints into clauses goes here...
 
         // remove clauses and force their gate variables
-        // don't add the variable back to the queue because it is forced
+        // don't add the variable back to the queue because it is now forced
         for clause in clauses_remove {
-            let var = self.clauses.remove(&clause).unwrap();
-            self.sat.add_clause([-var]);
+            let gate = self.clauses.remove(&clause).unwrap();
+            self.sat.add_clause([-gate]);
         }
 
         // remove lookups for removed conditions
@@ -111,7 +111,7 @@ impl Solver {
 
     fn insert_clause(&mut self, clause: Clause) {
         use Clause::*;
-        let gate = -self.create_variable();
+        let gate = self.create_variable();
         self.clauses.insert(clause.clone(), -gate);
         match clause {
             And { lhs, rhs, out } => {
@@ -172,6 +172,29 @@ impl Solver {
                     clause.push(self.conditions[&term]);
                 }
 
+                self.sat.add_clause(clause);
+            }
+            ConstraintGroup {
+                terms,
+                weight: ConstraintWeight::Hard,
+                kind: ConstraintKind::One,
+            } => {
+                // simultaneously upper-bound and lower-bound term count
+                let mut clause = Vec::with_capacity(terms.len() + 1);
+                clause.push(gate);
+                for (idx, lhs) in terms.iter().enumerate() {
+                    // at least one term must be true
+                    let lhs = self.conditions[lhs];
+                    clause.push(lhs);
+
+                    // for each pair of terms, both must not be true
+                    for rhs in terms[(idx + 1)..].iter() {
+                        let rhs = self.conditions[rhs];
+                        self.sat.add_clause([gate, -lhs, -rhs]);
+                    }
+                }
+
+                // add completed "OR" clause
                 self.sat.add_clause(clause);
             }
             other => unimplemented!("unimplemented clause kind: {other:?}"),

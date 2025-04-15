@@ -1,4 +1,4 @@
-use saturn_v_ir::{ConstraintKind, ConstraintWeight, Expr, QueryTerm, Value};
+use saturn_v_ir::{ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationKind, Value};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -283,11 +283,8 @@ pub struct Relation {
     /// Used to differentiate otherwise identically-defined relations.
     pub discriminant: u64,
 
-    /// If this relation is a decision.
-    pub is_decision: bool,
-
-    /// If this relation is conditional.
-    pub is_conditional: bool,
+    /// The kind of relation this is.
+    pub kind: RelationKind,
 
     /// If this relation is an output.
     pub is_output: bool,

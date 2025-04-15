@@ -168,12 +168,20 @@ pub fn backend(
 
         // for a decision to be true, one of their dependents must also be true
         let decisions = implies
-            .semijoin(&relations.filter(|(_key, rel)| rel.is_decision).map(key))
+            .semijoin(
+                &relations
+                    .filter(|(_key, rel)| rel.kind == RelationKind::Decision)
+                    .map(key),
+            )
             .map(value);
 
         // conditional relations are collective ORs of their dependent conditions
         let conditional = implies
-            .semijoin(&relations.filter(|(_key, rel)| rel.is_conditional).map(key))
+            .semijoin(
+                &relations
+                    .filter(|(_key, rel)| rel.kind == RelationKind::Conditional)
+                    .map(key),
+            )
             .map(value);
 
         // filter output facts from all facts
@@ -284,13 +292,12 @@ pub fn project((dst, (tuple, map)): (Key<Node>, (Tuple, IndexList))) -> (Key<Nod
 pub fn load(((node, fact), relation): ((Key<Node>, Fact), Relation)) -> (Key<Node>, Tuple) {
     let values = fact.values;
 
-    let condition = if relation.is_conditional || relation.is_decision {
-        Some(Condition {
+    let condition = match relation.kind {
+        RelationKind::Conditional | RelationKind::Decision => Some(Condition {
             kind: ConditionKind::Relation(fact.relation),
             values: values.clone(),
-        })
-    } else {
-        None
+        }),
+        RelationKind::Basic => None,
     };
 
     (node, Tuple { values, condition })
