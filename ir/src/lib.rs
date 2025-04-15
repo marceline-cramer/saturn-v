@@ -56,6 +56,9 @@ pub enum ConstraintWeight {
 pub enum ConstraintKind {
     /// For every group, at least one element must be true.
     Any,
+
+    /// Exactly one element in a group must be true.
+    One,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,8 +75,23 @@ pub struct Relation<R> {
     /// A list of facts initially stored by this relation.
     pub facts: Vec<Vec<Value>>,
 
-    /// Whether or not this relation is a decision.
-    pub is_decision: bool,
+    /// The kind of relation this is.
+    pub kind: RelationKind,
+
+    /// Whether or not this relation should be outputted.
+    pub is_output: bool,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum RelationKind {
+    /// Generates tuples without any logical overhead.
+    Basic,
+
+    /// May be dependent on a decision relation but is not a decision itself.
+    Conditional,
+
+    /// Is a decision: all tuples may be arbitrarily removed to meet constraints.
+    Decision,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
