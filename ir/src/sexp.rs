@@ -275,7 +275,7 @@ impl Token {
         // integer
         let int = just('-')
             .or_not()
-            .then(one_of("0123456789").repeated().at_least(1).at_most(20))
+            .then(one_of("0123456789").repeated().at_least(1).at_most(9))
             .map(|(negate, numerals)| {
                 let mut string = String::new();
                 string.extend(negate);
@@ -301,6 +301,7 @@ impl Token {
             .recover_with(skip_then_retry_until([]))
             .padded()
             .repeated()
+            .then_ignore(end())
     }
 
     /// Short-hand to expect a specific item.
