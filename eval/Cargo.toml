@@ -2,6 +2,7 @@
 name = "saturn-v-eval"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 cadical = "0.1.15"

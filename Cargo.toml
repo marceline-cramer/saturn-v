@@ -1,6 +1,9 @@
 [workspace]
 members = [ "check", "eval", "fuzz", "ir", "lower" ]
 
+[workspace.package]
+license = "AGPL-3.0-or-later"
+
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 chumsky = "0.9"

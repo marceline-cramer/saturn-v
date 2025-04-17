@@ -2,6 +2,7 @@
 name = "saturn-v-ir"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
