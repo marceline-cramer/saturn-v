@@ -154,7 +154,7 @@ impl Instruction {
     fn validate_inner<T>(&self, relations: &[T], variables: &[Type]) -> Result<HashSet<u32>> {
         use Instruction::*;
         match self {
-            Noop => Ok(HashSet::new()),
+            Noop => Err(ErrorKind::Noop.into()),
             Sink(_vars, rest) => {
                 // TODO: just ignore sinks? where should unassigned variables be handled?
                 rest.validate(relations, variables)
@@ -473,4 +473,7 @@ pub enum ErrorKind {
 
     #[error("variable #{0} is used twice in the same query")]
     DuplicateQueryVariable(u32),
+
+    #[error("no-ops are invalid")]
+    Noop,
 }
