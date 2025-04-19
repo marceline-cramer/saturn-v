@@ -30,14 +30,14 @@ pub trait Sexp: Sized {
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
 }
 
-impl Sexp for HashSet<i64> {
+impl Sexp for HashSet<u32> {
     fn to_doc(&self) -> Doc {
         let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
         doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_list("set-of", Token::integer().repeated()).map(Self::from_iter)
+        parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
     }
 }
 
@@ -80,13 +80,13 @@ impl Sexp for Instruction {
                 .map(|(expr, rest)| Filter(expr, rest));
 
             // from query
-            let from_query = parse_list("FromQuery", Token::integer().then(QueryTerm::parser()))
+            let from_query = parse_list("FromQuery", Token::unsigned().then(QueryTerm::parser()))
                 .map(|(r, q)| FromQuery(r, q));
 
             // let
             let let_ = parse_list(
                 "Let",
-                Token::integer().then(Expr::parser()).then(instr.clone()),
+                Token::unsigned().then(Expr::parser()).then(instr.clone()),
             )
             .map(|((var, expr), rest)| Let(var, expr, rest));
 
@@ -230,11 +230,12 @@ impl QueryTerm {
                 },
             );
 
-            let variable =
-                parse_list("QueryVariable", Token::integer().then(query)).map(|(var, mut rest)| {
+            let variable = parse_list("QueryVariable", Token::unsigned().then(query)).map(
+                |(var, mut rest)| {
                     rest.push(QueryTerm::Variable(var as _)); // TODO: cast?
                     rest
-                });
+                },
+            );
 
             let nil = parse_tag("QueryNil").to(vec![]);
 
@@ -310,7 +311,7 @@ impl Token {
                 let mut str = String::new();
                 str.push(first);
                 str.extend(rest);
-                Token::Item(str.into())
+                Token::Item(str)
             });
 
         // any of the above options (padded with whitespace)
@@ -334,6 +335,14 @@ impl Token {
         select! {
             Token::Integer(val) => val,
         }
+    }
+
+    /// Short-hand to parse an unsigned integer.
+    pub fn unsigned() -> impl Parser<Token, u32, Error = Simple<Token>> {
+        Self::integer().try_map(|i, span| {
+            i.try_into()
+                .map_err(|_| Simple::custom(span, "expected unsigned 32-bit integer"))
+        })
     }
 
     /// Short-hand to parse the contents of any item.

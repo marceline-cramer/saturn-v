@@ -42,7 +42,7 @@ pub fn init_lower_egraph() -> EGraph {
 /// Defines the egglog representation to lower a rule.
 pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
     let instr = Instruction::Sink(
-        HashSet::from_iter(0..(rule.vars.len() as i64)),
+        HashSet::from_iter(0..(rule.vars.len() as u32)),
         Box::new(rule.instructions.clone()),
     );
 
@@ -104,11 +104,7 @@ pub mod tests {
 
     fn filter_to_instructions(filter: Expr) -> Instruction {
         Instruction::Sink(
-            filter
-                .variable_deps()
-                .iter()
-                .map(|idx| *idx as i64)
-                .collect(),
+            filter.variable_deps(),
             Box::new(Instruction::Filter(filter, Box::new(Instruction::Noop))),
         )
     }

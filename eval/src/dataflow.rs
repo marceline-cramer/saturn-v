@@ -321,7 +321,7 @@ pub fn store(
         .into_iter()
         .map(|term| match term {
             QueryTerm::Value(val) => val,
-            QueryTerm::Variable(idx) => tuple.values[idx].clone(),
+            QueryTerm::Variable(idx) => tuple.values[idx as usize].clone(),
         })
         .collect();
 
@@ -392,7 +392,10 @@ pub fn push(((dst, expr), mut tuple): ((Key<Node>, Expr), Tuple)) -> (Key<Node>,
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
     match expr {
-        Expr::Variable(idx) => vals.get(*idx).expect("invalid variable index").clone(),
+        Expr::Variable(idx) => vals
+            .get(*idx as usize)
+            .expect("invalid variable index")
+            .clone(),
         Expr::Value(val) => val.clone(),
         Expr::Load { .. } => unreachable!("eval expressions cannot load relations"),
         Expr::UnaryOp { op, term } => match (op, eval_expr(vals, term)) {

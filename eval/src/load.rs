@@ -27,7 +27,7 @@ use crate::{
     utils::Key,
 };
 
-pub type VariableMap = IndexSet<usize>;
+pub type VariableMap = IndexSet<u32>;
 
 #[derive(Debug)]
 pub struct Loader<R> {
@@ -137,7 +137,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 QueryTerm::Value(val) => QueryTerm::Value(val.clone()),
                 QueryTerm::Variable(idx) => {
                     let mapped = map.get_index_of(idx).unwrap();
-                    QueryTerm::Variable(mapped)
+                    QueryTerm::Variable(mapped.try_into().unwrap())
                 }
             });
         }
@@ -193,7 +193,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 let expr = expr.clone().map_variables(&map);
 
                 // add the variable to upwards-bound mappings
-                map.insert(*var as usize);
+                map.insert(*var);
 
                 // create the push node
                 let (dst, node) = Key::pair(Node::Push { src, expr });

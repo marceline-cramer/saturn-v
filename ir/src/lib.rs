@@ -48,7 +48,7 @@ pub struct Constraint<R> {
     pub instructions: Instruction,
 
     /// The variables to group this constraint over.
-    pub head: Vec<usize>,
+    pub head: Vec<u32>,
 
     /// The lookups for custom relation types loaded by the filter.
     pub loaded: Vec<R>,
@@ -129,20 +129,20 @@ pub struct Rule<R> {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum Instruction {
     Noop,
-    Sink(HashSet<i64>, Box<Self>),
+    Sink(HashSet<u32>, Box<Self>),
     Filter(Expr, Box<Self>),
-    FromQuery(i64, Vec<QueryTerm>),
-    Let(i64, Expr, Box<Self>),
+    FromQuery(u32, Vec<QueryTerm>),
+    Let(u32, Expr, Box<Self>),
     Merge(Box<Self>, Box<Self>),
     Join(Box<Self>, Box<Self>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Expr {
-    Variable(usize),
+    Variable(u32),
     Value(Value),
     Load {
-        relation: usize,
+        relation: u32,
         query: Vec<QueryTerm>,
     },
     UnaryOp {
@@ -157,10 +157,10 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn map_variables(self, map: &IndexSet<usize>) -> Self {
+    pub fn map_variables(self, map: &IndexSet<u32>) -> Self {
         use Expr::*;
         match self {
-            Variable(idx) => Variable(map.get_index_of(&idx).unwrap()),
+            Variable(idx) => Variable(map.get_index_of(&idx).unwrap() as u32),
             UnaryOp { op, term } => UnaryOp {
                 op,
                 term: (*term).clone().map_variables(map).into(),
@@ -223,7 +223,7 @@ pub enum UnaryOpKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum QueryTerm {
-    Variable(usize),
+    Variable(u32),
     Value(Value),
 }
 

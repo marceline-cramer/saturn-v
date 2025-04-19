@@ -28,20 +28,20 @@ pub fn expr_to_z3<'a>(
 ) -> Result<(Type, ast::Dynamic<'a>), Error> {
     match expr {
         Expr::Variable(idx) => variables
-            .get(*idx)
+            .get(*idx as usize)
             .cloned()
             .ok_or(Error::InvalidVariableIndex(*idx)),
         Expr::Value(val) => Ok(value_to_z3(ctx, val)),
         Expr::Load { relation, query } => {
             let relation = relations
-                .get(*relation)
+                .get(*relation as usize)
                 .ok_or(Error::InvalidRelationIndex(*relation))?;
 
             let mut terms = Vec::with_capacity(query.len());
             for term in query.iter() {
                 terms.push(match term {
                     QueryTerm::Variable(idx) => variables
-                        .get(*idx)
+                        .get(*idx as usize)
                         .cloned()
                         .ok_or(Error::InvalidVariableIndex(*idx))?,
                     QueryTerm::Value(val) => value_to_z3(ctx, val),
@@ -163,8 +163,8 @@ pub fn value_to_z3<'a>(ctx: &'a Context, val: &Value) -> (Type, ast::Dynamic<'a>
 }
 
 pub enum Error {
-    InvalidVariableIndex(usize),
-    InvalidRelationIndex(usize),
+    InvalidVariableIndex(u32),
+    InvalidRelationIndex(u32),
     UnexpectedSort(SortKind),
     InvalidUnaryOp {
         op: UnaryOpKind,

@@ -20,8 +20,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    InvalidRelationIndex(usize),
-    InvalidVariableIndex(usize),
+    InvalidRelationIndex(u32),
+    InvalidVariableIndex(u32),
     InvalidBinaryOp {
         op: BinaryOpKind,
         lhs: Type,
@@ -39,13 +39,13 @@ pub enum Error {
         expected: Vec<Type>,
         got: Vec<Type>,
     },
-    VariableAssignedTwice(usize),
-    UnassignedVariables(HashSet<usize>),
+    VariableAssignedTwice(u32),
+    UnassignedVariables(HashSet<u32>),
     MergeVariableMismatch {
-        lhs_only: HashSet<usize>,
-        rhs_only: HashSet<usize>,
+        lhs_only: HashSet<u32>,
+        rhs_only: HashSet<u32>,
     },
-    DuplicateQueryVariable(usize),
+    DuplicateQueryVariable(u32),
 }
 
 impl<R> Program<R> {
@@ -76,7 +76,9 @@ impl<R> Constraint<R> {
         let mut needed = HashSet::new();
         for idx in self.head.iter().copied() {
             // check that the variable exists
-            self.vars.get(idx).ok_or(Error::InvalidVariableIndex(idx))?;
+            self.vars
+                .get(idx as usize)
+                .ok_or(Error::InvalidVariableIndex(idx))?;
 
             // insert the variable
             needed.insert(idx);
@@ -146,7 +148,12 @@ impl<R> Rule<R> {
                 // check that the variable exists, push its type, and insert it
                 QueryTerm::Variable(idx) => {
                     let idx = *idx;
-                    let var_ty = self.vars.get(idx).ok_or(Error::InvalidVariableIndex(idx))?;
+
+                    let var_ty = self
+                        .vars
+                        .get(idx as usize)
+                        .ok_or(Error::InvalidVariableIndex(idx))?;
+
                     ty.push(*var_ty);
                     needed.insert(idx);
                 }
@@ -166,7 +173,7 @@ impl<R> Rule<R> {
 
 impl Instruction {
     /// Validates this expression and returns its assigned variables.
-    pub fn validate<T>(&self, relations: &[T], variables: &[Type]) -> Result<HashSet<usize>> {
+    pub fn validate<T>(&self, relations: &[T], variables: &[Type]) -> Result<HashSet<u32>> {
         use Instruction::*;
         match self {
             Noop => Ok(HashSet::new()),
@@ -181,7 +188,7 @@ impl Instruction {
 
                 // check for unassigned variables used by the expression
                 let used = expr.variable_deps();
-                let unassigned: HashSet<usize> = used.difference(&vars).copied().collect();
+                let unassigned: HashSet<_> = used.difference(&vars).copied().collect();
                 if !unassigned.is_empty() {
                     return Err(Error::UnassignedVariables(unassigned));
                 }
@@ -207,7 +214,7 @@ impl Instruction {
 
                     // check that the variable exists
                     variables
-                        .get(*idx)
+                        .get(*idx as usize)
                         .ok_or(Error::InvalidVariableIndex(*idx))?;
 
                     // ensure that the variable is only used once per query
@@ -220,7 +227,7 @@ impl Instruction {
             }
             Let(var, expr, rest) => {
                 // typecast variable
-                let var = *var as usize;
+                let var = *var;
 
                 // validate the dependencies
                 let mut vars = rest.validate(relations, variables)?;
@@ -233,13 +240,13 @@ impl Instruction {
 
                 // retrieve the type of the variable (if it exists)
                 let expected_ty = variables
-                    .get(var)
+                    .get(var as usize)
                     .cloned()
                     .ok_or(Error::InvalidVariableIndex(var))?;
 
                 // check for unassigned variables used by the expression
                 let used = expr.variable_deps();
-                let unassigned: HashSet<usize> = used.difference(&vars).copied().collect();
+                let unassigned: HashSet<_> = used.difference(&vars).copied().collect();
                 if !unassigned.is_empty() {
                     return Err(Error::UnassignedVariables(unassigned));
                 }
@@ -288,19 +295,19 @@ impl Expr {
         use Expr::*;
         match self {
             Variable(idx) => variables
-                .get(*idx)
+                .get(*idx as usize)
                 .cloned()
                 .ok_or(Error::InvalidVariableIndex(*idx)),
             Value(val) => Ok(val.ty()),
             Load { relation, query } => {
-                if *relation >= relations.len() {
+                if *relation >= relations.len() as u32 {
                     return Err(Error::InvalidRelationIndex(*relation));
                 }
 
                 for term in query {
                     match term {
                         QueryTerm::Variable(idx) => {
-                            if *idx >= variables.len() {
+                            if *idx >= variables.len() as u32 {
                                 return Err(Error::InvalidVariableIndex(*idx));
                             }
                         }
@@ -338,7 +345,7 @@ impl Expr {
     }
 
     /// Retrieves the set of variables accessed by this expression.
-    pub fn variable_deps(&self) -> HashSet<usize> {
+    pub fn variable_deps(&self) -> HashSet<u32> {
         use Expr::*;
         match self {
             Variable(idx) => HashSet::from_iter([*idx]),
