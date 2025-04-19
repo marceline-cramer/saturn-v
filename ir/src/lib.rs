@@ -26,10 +26,15 @@ use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
 use strum::{EnumDiscriminants, EnumString};
 
+#[cfg(feature = "fuzz")]
+use arbitrary::Arbitrary;
+
 pub mod sexp;
 pub mod validate;
 
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+#[arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash + 'static")]
 pub struct Program<R> {
     pub relations: HashMap<R, Relation<R>>,
     pub constraints: Vec<Constraint<R>>,
@@ -43,6 +48,8 @@ impl<R: Clone + Hash + Eq> Program<R> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+#[arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")]
 pub struct Constraint<R> {
     /// The desugared instructions in this constraint.
     pub instructions: Instruction,
@@ -64,11 +71,13 @@ pub struct Constraint<R> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum ConstraintWeight {
     Hard,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum ConstraintKind {
     /// For every group, at least one element must be true.
     Any,
@@ -78,6 +87,7 @@ pub enum ConstraintKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Relation<R> {
     /// The relation's type.
     pub ty: Vec<Type>,
@@ -99,6 +109,7 @@ pub struct Relation<R> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum RelationKind {
     /// Generates tuples without any logical overhead.
     Basic,
@@ -111,6 +122,7 @@ pub enum RelationKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Rule<R> {
     /// The desugared instructions for this rule.
     pub instructions: Instruction,
@@ -129,6 +141,7 @@ pub struct Rule<R> {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, EnumDiscriminants)]
 #[strum_discriminants(name(InstructionKind))]
 #[strum_discriminants(derive(Hash, Deserialize, Serialize))]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Instruction {
     Noop,
     Sink(HashSet<u32>, Box<Self>),
@@ -140,6 +153,7 @@ pub enum Instruction {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Expr {
     Variable(u32),
     Value(Value),
@@ -182,6 +196,7 @@ impl Expr {
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
 )]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum BinaryOpKind {
     Add,
     Mul,
@@ -218,18 +233,21 @@ pub enum BinaryOpCategory {
 #[derive(
     Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
 )]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum UnaryOpKind {
     Not,
     Negate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum QueryTerm {
     Variable(u32),
     Value(Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Value {
     Boolean(bool),
     Integer(i64),
@@ -252,6 +270,7 @@ impl Value {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Type {
     Boolean,
     Integer,

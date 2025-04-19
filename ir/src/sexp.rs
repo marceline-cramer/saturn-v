@@ -18,9 +18,6 @@ use std::{str::FromStr, sync::Arc};
 
 use chumsky::prelude::*;
 
-#[cfg(feature = "fuzz")]
-use arbitrary::Arbitrary;
-
 use crate::*;
 
 pub type Doc = RcDoc<'static, ()>;
