@@ -182,9 +182,14 @@ impl Instruction {
 
                 Ok(vars)
             }
-            FromQuery(_relation, terms) => {
-                let mut vars = HashSet::new();
+            FromQuery(relation, terms) => {
+                // assert that the relation index is valid
+                if *relation >= relations.len() as u32 {
+                    return Err(ErrorKind::InvalidRelationIndex(*relation).into());
+                }
 
+                // collect list of assigned variables
+                let mut vars = HashSet::new();
                 for (idx, term) in terms.iter().enumerate() {
                     // ignore value terms; we only care about variables
                     let QueryTerm::Variable(var) = term else {
