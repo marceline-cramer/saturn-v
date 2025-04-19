@@ -296,12 +296,16 @@ impl Token {
         // integer
         let int = just('-')
             .or_not()
-            .then(one_of("0123456789").repeated().at_least(1).at_most(9))
-            .map(|(negate, numerals)| {
+            .then(one_of("0123456789").repeated().at_least(1))
+            .try_map(|(negate, numerals), span| {
                 let mut string = String::new();
                 string.extend(negate);
                 string.extend(numerals);
-                Token::Integer(string.parse().unwrap())
+
+                string
+                    .parse()
+                    .map(Token::Integer)
+                    .map_err(|_| Simple::custom(span, "failed to parse integer literal"))
             });
 
         // alphanumeric item
