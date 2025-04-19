@@ -14,4 +14,4 @@ saturn-v-ir.workspace = true
 serde.workspace = true
 smallvec = { version = "1.15", features = ["serde"] }
 timely = "0.20"
-tokio = { version = "1.42", features = ["full"] }
+tokio = { version = "1.42", features = ["rt", "macros"] }
