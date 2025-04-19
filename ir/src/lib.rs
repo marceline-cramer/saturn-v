@@ -24,7 +24,7 @@ use indexmap::IndexSet;
 use ordered_float::OrderedFloat;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
-use strum::EnumString;
+use strum::{EnumDiscriminants, EnumString};
 
 pub mod sexp;
 pub mod validate;
@@ -126,7 +126,9 @@ pub struct Rule<R> {
     pub vars: Vec<Type>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, EnumDiscriminants)]
+#[strum_discriminants(name(InstructionKind))]
+#[strum_discriminants(derive(Hash, Deserialize, Serialize))]
 pub enum Instruction {
     Noop,
     Sink(HashSet<u32>, Box<Self>),
