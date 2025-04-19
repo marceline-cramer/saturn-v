@@ -18,33 +18,43 @@ use super::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
+    #[error("relation index #{0} is invalid")]
     InvalidRelationIndex(u32),
+
+    #[error("variable index #{0} is invalid")]
     InvalidVariableIndex(u32),
+
+    #[error("invalid binary operation: {lhs:?} {op:?} {rhs:?}")]
     InvalidBinaryOp {
         op: BinaryOpKind,
         lhs: Type,
         rhs: Type,
     },
-    InvalidUnaryOp {
-        op: UnaryOpKind,
-        term: Type,
-    },
-    ExpectedType {
-        expected: Type,
-        got: Type,
-    },
-    ExpectedTupleType {
-        expected: Vec<Type>,
-        got: Vec<Type>,
-    },
+
+    #[error("invalid unary operation: {op:?} {term:?}")]
+    InvalidUnaryOp { op: UnaryOpKind, term: Type },
+
+    #[error("expected {expected:?}, got {got:?}")]
+    ExpectedType { expected: Type, got: Type },
+
+    #[error("expected tuple type {expected:?}, got {got:?}")]
+    ExpectedTupleType { expected: Vec<Type>, got: Vec<Type> },
+
+    #[error("variable #{0} is assigned twice")]
     VariableAssignedTwice(u32),
+
+    #[error("unassigned variables: {0:?}")]
     UnassignedVariables(HashSet<u32>),
+
+    #[error("merge branches have mismatching variables. lhs: {lhs_only:?} rhs: {rhs_only:?}")]
     MergeVariableMismatch {
         lhs_only: HashSet<u32>,
         rhs_only: HashSet<u32>,
     },
+
+    #[error("variable #{0} is used twice in the same query")]
     DuplicateQueryVariable(u32),
 }
 

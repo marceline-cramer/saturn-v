@@ -11,6 +11,7 @@ indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
 serde = { version = "1", features = ["derive", "rc"] }
+thiserror = "2"
 
 # internal workspace members
 saturn-v-check.path = "check"

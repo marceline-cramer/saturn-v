@@ -12,6 +12,7 @@ ordered-float.workspace = true
 pretty.workspace = true
 serde.workspace = true
 strum = { version = "0.27", features = ["derive"] }
+thiserror.workspace = true
 
 [features]
 fuzz = ["dep:arbitrary", "ordered-float/arbitrary"]
