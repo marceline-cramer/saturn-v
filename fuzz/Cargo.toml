@@ -12,6 +12,7 @@ cargo-fuzz = true
 chumsky.workspace = true
 libfuzzer-sys = "0.4"
 saturn-v-ir = { workspace = true, features = ["fuzz"] }
+saturn-v-eval.workspace = true
 
 [[bin]]
 name = "ir_from_sexp"
@@ -20,3 +21,7 @@ path = "fuzz_targets/ir_from_sexp.rs"
 [[bin]]
 name = "ir_to_sexp"
 path = "fuzz_targets/ir_to_sexp.rs"
+
+[[bin]]
+name = "load_valid_ir"
+path = "fuzz_targets/load_valid_ir.rs"
