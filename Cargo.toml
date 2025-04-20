@@ -1,5 +1,5 @@
 [workspace]
-members = [ "check", "eval", "fuzz", "ir", "lower" ]
+members = [ "check", "eval", "frontend", "fuzz", "ir", "lower", "lsp" ]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -10,14 +10,20 @@ chumsky = "0.9"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
+salsa = "0.19"
 serde = { version = "1", features = ["derive", "rc"] }
+smallvec = { version = "1.15", features = ["serde"] }
 thiserror = "2"
+tokio = "1.42"
+tree-sitter = "0.25.1"
 
 # internal workspace members
 saturn-v-check.path = "check"
 saturn-v-eval.path = "eval"
+saturn-v-frontend.path = "frontend"
 saturn-v-ir.path = "ir"
 saturn-v-lower.path = "lower"
+saturn-v-lsp.path = "lsp"
 
 [package]
 name = "saturn-v"

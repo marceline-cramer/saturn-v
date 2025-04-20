@@ -1,0 +1,13 @@
+[package]
+name = "saturn-v-lsp"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+ropey = "1.6"
+salsa.workspace = true
+saturn-v-frontend.workspace = true
+tower-lsp = "0.20"
+tokio = { workspace = true, features = ["sync"] }
+tree-sitter.workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "saturn-v-frontend"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+salsa.workspace = true
+smallvec.workspace = true
