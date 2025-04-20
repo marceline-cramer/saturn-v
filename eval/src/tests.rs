@@ -17,8 +17,8 @@
 use std::sync::Arc;
 
 use saturn_v_ir::{
-    self as ir, BinaryOpKind, Constraint, ConstraintKind, ConstraintWeight, Expr, Instruction,
-    Program, QueryTerm, RelationKind, Rule, Type, Value,
+    self as ir, BinaryOpKind, CardinalityConstraintKind, Constraint, ConstraintKind,
+    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, Type, Value,
 };
 
 use crate::{dataflow::DataflowRouters, load::Loader, solve::Solver, utils::run_pumps};
@@ -98,7 +98,10 @@ async fn test_pick_one() {
         loaded: vec!["Choice".to_string()],
         vars: vec![Type::Integer],
         weight: ConstraintWeight::Hard,
-        kind: ConstraintKind::One,
+        kind: ConstraintKind::Cardinality {
+            kind: CardinalityConstraintKind::Only,
+            threshold: 1,
+        },
         instructions: Instruction::FromQuery(0, vec![QueryTerm::Variable(0)]),
     });
 
@@ -168,7 +171,10 @@ async fn test_pick_pairs() {
         loaded: vec!["Pair".to_string()],
         vars: vec![Type::Integer, Type::Integer, Type::Integer],
         weight: ConstraintWeight::Hard,
-        kind: saturn_v_ir::ConstraintKind::One,
+        kind: saturn_v_ir::ConstraintKind::Cardinality {
+            kind: CardinalityConstraintKind::Only,
+            threshold: 1,
+        },
         instructions: Instruction::Let(
             0,
             Expr::BinaryOp {

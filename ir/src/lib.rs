@@ -79,11 +79,27 @@ pub enum ConstraintWeight {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum ConstraintKind {
-    /// For every group, at least one element must be true.
-    Any,
+    /// Constrain the cardinality of elements per group.
+    Cardinality {
+        /// The kind of cardinality constraint.
+        kind: CardinalityConstraintKind,
 
-    /// Exactly one element in a group must be true.
-    One,
+        /// The threshold of the cardinality constraint.
+        threshold: u16,
+    },
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+pub enum CardinalityConstraintKind {
+    /// The cardinality must be at least the threshold.
+    AtLeast,
+
+    /// The cardinality must be at most the threshold.
+    AtMost,
+
+    /// The cardinality must be exactly threshold.
+    Only,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

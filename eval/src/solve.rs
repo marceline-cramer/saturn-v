@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
 use flume::Sender;
-use saturn_v_ir::{ConstraintKind, ConstraintWeight};
+use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 
 use crate::{
     types::{Clause, Condition, Fact},
@@ -179,7 +179,11 @@ impl Solver {
             ConstraintGroup {
                 terms,
                 weight: ConstraintWeight::Hard,
-                kind: ConstraintKind::Any,
+                kind:
+                    ConstraintKind::Cardinality {
+                        kind: CardinalityConstraintKind::AtLeast,
+                        threshold: 1,
+                    },
             } => {
                 let mut clause = Vec::with_capacity(terms.len() + 1);
                 clause.push(gate);
@@ -193,7 +197,7 @@ impl Solver {
             ConstraintGroup {
                 terms,
                 weight: ConstraintWeight::Hard,
-                kind: ConstraintKind::One,
+                kind: ConstraintKind::Cardinality { kind, threshold: 1 },
             } => {
                 // simultaneously upper-bound and lower-bound term count
                 let mut clause = Vec::with_capacity(terms.len() + 1);
@@ -210,8 +214,13 @@ impl Solver {
                     }
                 }
 
-                // add completed "OR" clause
-                self.sat.add_clause(clause);
+                // if cardinality =1 (not <=1), add completed "OR" clause
+                if kind == CardinalityConstraintKind::Only {
+                    self.sat.add_clause(clause);
+                }
+            }
+            ConstraintGroup { kind, .. } => {
+                unimplemented!("unimplemented constraint kind: {kind:?}")
             }
         }
     }
