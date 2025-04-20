@@ -34,7 +34,10 @@ pub mod validate;
 
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
-#[arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash + 'static")]
+#[cfg_attr(
+    feature = "fuzz",
+    arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")
+)]
 pub struct Program<R> {
     pub relations: HashMap<R, Relation<R>>,
     pub constraints: Vec<Constraint<R>>,
@@ -49,7 +52,10 @@ impl<R: Clone + Hash + Eq> Program<R> {
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
-#[arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")]
+#[cfg_attr(
+    feature = "fuzz",
+    arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")
+)]
 pub struct Constraint<R> {
     /// The desugared instructions in this constraint.
     pub instructions: Instruction,
