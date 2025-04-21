@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "version": "0.1.0",
+    "license": "AGPL-3.0-or-later"
+  },
+  "bindings": {
+    "rust": true,
+    "c": false,
+    "go": false,
+    "node": false,
+    "python": false,
+    "swift": false
+  },
+  "grammars": [
+    {
+      "name": "kerolox",
+      "path": ".",
+      "scope": "source.kerolox",
+      "highlights": "queries/highlights.scm",
+      "file-types": [
+        "rp1"
+      ]
+    }
+  ]
+}

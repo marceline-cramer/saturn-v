@@ -1,5 +1,5 @@
 [workspace]
-members = [ "check", "eval", "frontend", "fuzz", "ir", "lower", "lsp" ]
+members = [ "check", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "tree-sitter-kerolox" ]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -24,6 +24,7 @@ saturn-v-frontend.path = "frontend"
 saturn-v-ir.path = "ir"
 saturn-v-lower.path = "lower"
 saturn-v-lsp.path = "lsp"
+tree-sitter-kerolox.path = "tree-sitter-kerolox"
 
 [package]
 name = "saturn-v"

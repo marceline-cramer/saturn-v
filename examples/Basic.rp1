@@ -1,0 +1,11 @@
+define Base Integer.
+Base 1.
+Base a :- Base b, b < 100, a = b + 1.
+
+define Pair(Integer, Integer).
+Pair(a, b) :- Base a, Base b, a < b.
+
+constrain(middle) <= 1 :- Pair(start, middle), Pair(middle, end).
+constrain = 1 :- Pair(1, any).
+constrain = 1 :- Pair(any, 100).
+constrain = 10 :- Pair any.
