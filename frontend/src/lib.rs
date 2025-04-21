@@ -18,12 +18,14 @@ use std::collections::HashMap;
 
 use smallvec::SmallVec;
 
+use url::Url;
+
 pub use salsa::DatabaseImpl as Db;
 
 #[salsa::input]
 pub struct Workspace {
     #[return_ref]
-    pub files: HashMap<String, File>,
+    pub files: HashMap<Url, File>,
 }
 
 #[salsa::input]

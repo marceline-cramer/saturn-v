@@ -8,6 +8,7 @@ license.workspace = true
 ropey = "1.6"
 salsa.workspace = true
 saturn-v-frontend.workspace = true
-tower-lsp = "0.20"
+tower-lsp.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tree-sitter.workspace = true
+tree-sitter-kerolox.workspace = true

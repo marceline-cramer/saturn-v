@@ -14,6 +14,32 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-fn main() {
-    println!("Hello, world!");
+use clap::{Parser, Subcommand};
+use saturn_v_lsp::LspBackend;
+use tower_lsp::{LspService, Server};
+
+#[derive(Parser)]
+pub struct Args {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run the Kerolox language server over stdio.
+    Lsp,
+}
+
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+
+    match args.command {
+        Command::Lsp => {
+            let stdin = tokio::io::stdin();
+            let stdout = tokio::io::stdout();
+            let (service, socket) = LspService::new(|_client| LspBackend::default());
+            Server::new(stdin, stdout, socket).serve(service).await;
+        }
+    }
 }

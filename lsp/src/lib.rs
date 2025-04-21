@@ -23,16 +23,32 @@ use ropey::Rope;
 use salsa::Setter;
 use saturn_v_frontend::{AstNode, Children, Db, File, Point, Span, Workspace};
 use tokio::sync::Mutex;
-use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
-use tree_sitter::{InputEdit, Parser, Tree};
+use tower_lsp::{jsonrpc::Result, lsp_types::*, LanguageServer};
+use tree_sitter::{InputEdit, Language, Parser, Tree};
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
 
 pub struct LspBackend {
-    client: Client,
     editors: Arc<Mutex<EditorMap>>,
     db: Mutex<Db>,
     workspace: Workspace,
+    language: Language,
+}
+
+impl Default for LspBackend {
+    fn default() -> Self {
+        let db = Db::new();
+        let workspace = Workspace::new(&db, HashMap::new());
+        let language = Language::new(tree_sitter_kerolox::LANGUAGE);
+        let editors = Default::default();
+
+        LspBackend {
+            editors,
+            db: Mutex::new(db),
+            workspace,
+            language,
+        }
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -58,18 +74,27 @@ impl LanguageServer for LspBackend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        // lock the database
+        let mut db = self.db.lock().await;
+
+        // create the editor struct
         let url = params.text_document.uri.clone();
-        let ed = Editor::new(self.client.clone(), &self.items, &self.language, params).await;
-        self.editors.lock().await.insert(url, ed);
+        let ed = Editor::new(&mut db, &self.language, params.clone());
+
+        // insert editor file into workspace
+        let mut files = self.workspace.files(&*db).to_owned();
+        files.insert(params.text_document.uri, ed.file);
+        self.workspace.set_files(&mut *db).to(files);
+
+        // add the editor into the map
+        self.editors
+            .lock()
+            .await
+            .insert(url, Arc::new(Mutex::new(ed)));
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let ed = self
-            .editors
-            .lock()
-            .await
-            .remove(&params.text_document.uri)
-            .unwrap();
+        self.editors.lock().await.remove(&params.text_document.uri);
 
         let mut db = self.db.lock().await;
         let mut files = self.workspace.files(&*db).to_owned();
@@ -99,6 +124,37 @@ pub struct Editor {
 }
 
 impl Editor {
+    /// Creates a new editor.
+    pub fn new(db: &mut Db, language: &Language, params: DidOpenTextDocumentParams) -> Self {
+        // initialize the tree-sitter parser and tree
+        let mut parser = Parser::new();
+
+        parser
+            .set_language(language)
+            .expect("failed to set parser language");
+
+        let tree = parser
+            .parse(&params.text_document.text, None)
+            .expect("failed to create initial tree");
+
+        // create the initial file
+        let file = File::new(db, Default::default());
+
+        // create the editor
+        let mut ed = Self {
+            contents: Rope::from_str(&params.text_document.text),
+            parser,
+            tree,
+            file,
+        };
+
+        // update the AST for the initial text contents
+        ed.update_ast(db);
+
+        // done!
+        ed
+    }
+
     /// Handle text document change parameters.
     pub fn on_change(&mut self, db: &mut Db, params: DidChangeTextDocumentParams) {
         // push the changes into the content and current tree
@@ -243,7 +299,7 @@ impl Editor {
         }
 
         // discard nodes that aren't in the latest tree
-        ast.retain(|id, _node| if keep.contains(id) { true } else { false });
+        ast.retain(|id, _node| keep.contains(id));
 
         // update the file ast
         self.file.set_ast(db).to(ast);

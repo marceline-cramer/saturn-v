@@ -16,6 +16,8 @@ smallvec = { version = "1.15", features = ["serde"] }
 thiserror = "2"
 tokio = "1.42"
 tree-sitter = "0.25.1"
+tower-lsp = "0.20"
+url = "2.5"
 
 # internal workspace members
 saturn-v-check.path = "check"
@@ -32,3 +34,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+saturn-v-lsp.workspace = true
+tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
+tower-lsp.workspace = true

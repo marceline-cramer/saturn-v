@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 salsa.workspace = true
 smallvec.workspace = true
+url.workspace = true

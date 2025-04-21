@@ -1799,6 +1799,12 @@ dependencies = [
 [[package]]
 name = "saturn-v"
 version = "0.1.0"
+dependencies = [
+ "clap",
+ "saturn-v-lsp",
+ "tokio",
+ "tower-lsp",
+]
 
 [[package]]
 name = "saturn-v-check"
@@ -1841,6 +1847,7 @@ version = "0.1.0"
 dependencies = [
  "salsa",
  "smallvec",
+ "url",
 ]
 
 [[package]]
@@ -1879,6 +1886,7 @@ dependencies = [
  "tokio",
  "tower-lsp",
  "tree-sitter",
+ "tree-sitter-kerolox",
 ]
 
 [[package]]
