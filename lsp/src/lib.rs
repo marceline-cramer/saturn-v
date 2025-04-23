@@ -21,7 +21,7 @@ use std::{
 
 use ropey::Rope;
 use salsa::Setter;
-use saturn_v_frontend::{AstNode, Children, Db, File, Point, Span, Workspace};
+use saturn_v_frontend::toplevel::{AstNode, Children, Db, File, Point, Span, Workspace};
 use tokio::sync::Mutex;
 use tower_lsp::{jsonrpc::Result, lsp_types::*, LanguageServer};
 use tree_sitter::{InputEdit, Language, Parser, Tree};

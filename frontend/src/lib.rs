@@ -14,45 +14,4 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
-
-use smallvec::SmallVec;
-
-use url::Url;
-
-pub use salsa::DatabaseImpl as Db;
-
-#[salsa::input]
-pub struct Workspace {
-    #[return_ref]
-    pub files: HashMap<Url, File>,
-}
-
-#[salsa::input]
-pub struct File {
-    #[return_ref]
-    pub ast: HashMap<usize, AstNode>,
-}
-
-#[salsa::input]
-pub struct AstNode {
-    pub symbol: &'static str,
-    pub field: Option<&'static str>,
-    pub span: Span,
-    pub contents: Option<String>,
-    pub children: Children,
-}
-
-pub type Children = SmallVec<[usize; 4]>;
-
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Span {
-    pub start: Point,
-    pub end: Point,
-}
-
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Point {
-    pub line: usize,
-    pub column: usize,
-}
+pub mod toplevel;
