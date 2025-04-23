@@ -257,12 +257,12 @@ impl Editor {
     /// Efficiently update inputs to the frontend with changes to the AST.
     pub fn update_ast(&mut self, db: &mut Db) {
         let mut cursor = self.tree.walk();
-        let mut stack = vec![(None, cursor.node())];
+        let mut stack = vec![cursor.node()];
         let mut keep = HashSet::new();
         let mut ast = self.file.ast(db).to_owned();
         self.file.set_root(db).to(cursor.node().id());
 
-        while let Some((field, node)) = stack.pop() {
+        while let Some(node) = stack.pop() {
             // any node we encounter in the new tree should be preserved
             keep.insert(node.id());
 
@@ -280,13 +280,16 @@ impl Editor {
 
             // add it and its children
             let mut children = Children::new();
+            let mut fields = Vec::new();
             for (idx, child) in node.children(&mut cursor).enumerate() {
-                // look up the optional field name of the node
-                let field = node.field_name_for_child(idx as u32);
-
                 // add the children and be sure we process it
                 children.push(child.id());
-                stack.push((field, child));
+                stack.push(child);
+
+                // add the field, if it exists
+                if let Some(field) = node.field_name_for_child(idx as u32) {
+                    fields.push((field, child.id()));
+                }
             }
 
             // if the AST already contains this node, skip adding it. node
@@ -300,8 +303,8 @@ impl Editor {
                 continue;
             }
 
-            // if we don't have any children, get text contents of the AST node
-            let contents = if children.is_empty() {
+            // if we don't have any fields, get text contents of the AST node
+            let contents = if fields.is_empty() {
                 Some(self.contents.byte_slice(node.byte_range()).to_string())
             } else {
                 None
@@ -309,7 +312,16 @@ impl Editor {
 
             // create the AST node
             let symbol = node.grammar_name();
-            let ast_node = AstNode::new(db, node.id(), symbol, field, span, contents, children);
+            let ast_node = AstNode::new(
+                db,
+                self.file,
+                node.id(),
+                symbol,
+                span,
+                contents,
+                children,
+                fields,
+            );
 
             // insert the AST node
             ast.insert(node.id(), ast_node);
@@ -323,7 +335,7 @@ impl Editor {
     }
 
     pub fn hover(&self, db: &Db, params: HoverParams) -> Result<Option<Hover>> {
-        Ok(saturn_v_frontend::toplevel::hover(
+        Ok(saturn_v_frontend::hover(
             db,
             self.file,
             params.text_document_position_params.position.into(),

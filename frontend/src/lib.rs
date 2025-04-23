@@ -14,4 +14,22 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use salsa::Database;
+use toplevel::{File, Point, Span};
+
+pub mod parse;
 pub mod toplevel;
+
+#[salsa::tracked]
+pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {
+    let mut list = Vec::new();
+    let mut span = Span::default();
+    for node in toplevel::node_hierarchy_at(db, file, at) {
+        list.push(node.symbol(db));
+        span = node.span(db);
+    }
+
+    let relations = parse::file_relations(db, file).into_keys();
+    let msg = format!("node hierarchy symbols: {list:?}\nrelations: {relations:?}");
+    Some((span, msg))
+}

@@ -38,14 +38,34 @@ pub struct File {
 
 #[salsa::input]
 pub struct AstNode {
+    pub file: File,
     pub id: usize,
     pub symbol: &'static str,
-    pub field: Option<&'static str>,
     pub span: Span,
     #[return_ref]
     pub contents: Option<String>,
     #[return_ref]
     pub children: Children,
+    #[return_ref]
+    pub fields: Vec<(&'static str, usize)>,
+}
+
+impl AstNode {
+    pub fn get_field(&self, db: &dyn Database, name: &str) -> Option<AstNode> {
+        for (field, id) in self.fields(db).iter() {
+            if *field == name {
+                let ast = self.file(db).ast(db);
+                return Some(*ast.get(id).unwrap());
+            }
+        }
+
+        None
+    }
+
+    pub fn expect_field(&self, db: &dyn Database, name: &str) -> AstNode {
+        self.get_field(db, name)
+            .unwrap_or_else(|| panic!("expected {:?} node to have {name:?} field", self.symbol(db)))
+    }
 }
 
 pub type Children = SmallVec<[usize; 4]>;
@@ -145,17 +165,4 @@ pub fn node_hierarchy_at(db: &dyn Database, file: File, at: Point) -> Vec<AstNod
 
     // return the complete stack
     stack
-}
-
-#[salsa::tracked]
-pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {
-    let mut list = Vec::new();
-    let mut span = Span::default();
-    for node in node_hierarchy_at(db, file, at) {
-        list.push(node.symbol(db));
-        span = node.span(db);
-    }
-
-    let msg = format!("node hierarchy symbols: {list:?}");
-    Some((span, msg))
 }
