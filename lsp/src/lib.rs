@@ -63,6 +63,7 @@ impl LanguageServer for LspBackend {
                         ..Default::default()
                     },
                 )),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Default::default(),
@@ -114,6 +115,21 @@ impl LanguageServer for LspBackend {
             ed.lock().await.on_change(&mut db, params);
         }
     }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let ed = self
+            .editors
+            .lock()
+            .await
+            .get(&params.text_document_position_params.text_document.uri)
+            .cloned();
+
+        let Some(ed) = ed else { return Ok(None) };
+
+        let db = self.db.lock().await;
+        let hover = ed.lock().await.hover(&db, params);
+        hover
+    }
 }
 
 pub struct Editor {
@@ -138,7 +154,7 @@ impl Editor {
             .expect("failed to create initial tree");
 
         // create the initial file
-        let file = File::new(db, Default::default());
+        let file = File::new(db, 0, Default::default());
 
         // create the editor
         let mut ed = Self {
@@ -244,6 +260,7 @@ impl Editor {
         let mut stack = vec![(None, cursor.node())];
         let mut keep = HashSet::new();
         let mut ast = self.file.ast(db).to_owned();
+        self.file.set_root(db).to(cursor.node().id());
 
         while let Some((field, node)) = stack.pop() {
             // any node we encounter in the new tree should be preserved
@@ -292,7 +309,7 @@ impl Editor {
 
             // create the AST node
             let symbol = node.grammar_name();
-            let ast_node = AstNode::new(db, symbol, field, span, contents, children);
+            let ast_node = AstNode::new(db, node.id(), symbol, field, span, contents, children);
 
             // insert the AST node
             ast.insert(node.id(), ast_node);
@@ -303,5 +320,17 @@ impl Editor {
 
         // update the file ast
         self.file.set_ast(db).to(ast);
+    }
+
+    pub fn hover(&self, db: &Db, params: HoverParams) -> Result<Option<Hover>> {
+        Ok(saturn_v_frontend::toplevel::hover(
+            db,
+            self.file,
+            params.text_document_position_params.position.into(),
+        )
+        .map(|(range, contents)| Hover {
+            contents: HoverContents::Scalar(MarkedString::String(contents)),
+            range: Some(range.into()),
+        }))
     }
 }

@@ -1,3 +1,19 @@
+// Copyright (C) 2025 Marceline Cramer
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Saturn V is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Saturn V is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+// more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
+
 use std::collections::HashMap;
 
 use salsa::Database;
@@ -15,12 +31,14 @@ pub struct Workspace {
 
 #[salsa::input]
 pub struct File {
+    pub root: usize,
     #[return_ref]
     pub ast: HashMap<usize, AstNode>,
 }
 
 #[salsa::input]
 pub struct AstNode {
+    pub id: usize,
     pub symbol: &'static str,
     pub field: Option<&'static str>,
     pub span: Span,
@@ -38,10 +56,52 @@ pub struct Span {
     pub end: Point,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+impl From<lsp_types::Range> for Span {
+    fn from(range: lsp_types::Range) -> Self {
+        Self {
+            start: range.start.into(),
+            end: range.end.into(),
+        }
+    }
+}
+
+impl From<Span> for lsp_types::Range {
+    fn from(span: Span) -> Self {
+        Self {
+            start: span.start.into(),
+            end: span.end.into(),
+        }
+    }
+}
+
+impl Span {
+    pub fn contains(&self, at: Point) -> bool {
+        at >= self.start && at < self.end
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Point {
     pub line: usize,
     pub column: usize,
+}
+
+impl From<lsp_types::Position> for Point {
+    fn from(pos: lsp_types::Position) -> Self {
+        Self {
+            line: pos.line as usize,
+            column: pos.character as usize,
+        }
+    }
+}
+
+impl From<Point> for lsp_types::Position {
+    fn from(pt: Point) -> Self {
+        Self {
+            line: pt.line as u32,
+            character: pt.column as u32,
+        }
+    }
 }
 
 #[salsa::tracked]
@@ -50,4 +110,52 @@ pub fn node_parents(db: &dyn Database, file: File) -> HashMap<usize, usize> {
         .iter()
         .flat_map(|(parent, node)| node.children(db).iter().map(|child| (*child, *parent)))
         .collect()
+}
+
+#[salsa::tracked]
+pub fn node_hierarchy_at(db: &dyn Database, file: File, at: Point) -> Vec<AstNode> {
+    let mut stack = Vec::new();
+    let ast = file.ast(db);
+
+    // depth-first search from the root node
+    let id = file.root(db);
+    let node = ast.get(&id).unwrap();
+    let mut cursor = Some(node);
+
+    // loop until nodes have no more children
+    while let Some(node) = cursor {
+        // add this node to the stack
+        stack.push(*node);
+
+        // reset current node cursor
+        cursor = None;
+
+        // find children inside
+        for child in node.children(db).iter() {
+            // retrieve the AST node for this child
+            let child = ast.get(child).unwrap();
+
+            // if this child's span contains the cursor, descend into it
+            if child.span(db).contains(at) {
+                cursor = Some(child);
+                break;
+            }
+        }
+    }
+
+    // return the complete stack
+    stack
+}
+
+#[salsa::tracked]
+pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {
+    let mut list = Vec::new();
+    let mut span = Span::default();
+    for node in node_hierarchy_at(db, file, at) {
+        list.push(node.symbol(db));
+        span = node.span(db);
+    }
+
+    let msg = format!("node hierarchy symbols: {list:?}");
+    Some((span, msg))
 }

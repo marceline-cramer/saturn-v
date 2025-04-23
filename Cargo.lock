@@ -1845,6 +1845,7 @@ dependencies = [
 name = "saturn-v-frontend"
 version = "0.1.0"
 dependencies = [
+ "lsp-types",
  "salsa",
  "smallvec",
  "url",

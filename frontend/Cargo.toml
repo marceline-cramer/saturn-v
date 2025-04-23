@@ -5,6 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
+lsp-types = "0.94"
 salsa.workspace = true
 smallvec.workspace = true
 url.workspace = true
