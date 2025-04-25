@@ -51,8 +51,8 @@ module.exports = grammar({
     ),
 
     type: $ => choice(
-      field("name", $.symbol),
-      field("nested", paren_list1($.type)),
+      field("named", $.symbol),
+      paren_list1(field("tuple", $.type)),
     ),
 
     rule: $ => seq(
@@ -68,11 +68,11 @@ module.exports = grammar({
       field("nested", paren_list1($.pattern)),
     ),
 
-    rule_body: $ => list1(choice($.atom, $._expr)),
+    rule_body: $ => list1(field("clause", choice($.atom, $._expr))),
 
     constraint: $ => seq(
       "constrain",
-      field("soft", optional(seq("soft", "(", $.integer, ")"))),
+      optional(seq("soft", "(", field("soft", $.integer), ")")),
       optional(paren_list(field("capture", $.variable))),
       field("kind", $.constraint_kind),
       ":-",
@@ -107,7 +107,7 @@ module.exports = grammar({
       $.integer,
     ),
 
-    tuple: $ => paren_list1($._expr),
+    tuple: $ => paren_list1(field("element", $._expr)),
 
     unary_expr: $ => prec.left(5, seq(
       field("op", $.unary_op),

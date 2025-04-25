@@ -10,9 +10,10 @@ chumsky = "0.9"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
-salsa = "0.19"
+salsa = "0.20"
 serde = { version = "1", features = ["derive", "rc"] }
 smallvec = { version = "1.15", features = ["serde"] }
+strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 tokio = "1.42"
 tree-sitter = "0.25.1"

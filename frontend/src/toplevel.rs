@@ -37,6 +37,7 @@ pub struct File {
 }
 
 #[salsa::input]
+#[derive(Debug)]
 pub struct AstNode {
     pub file: File,
     pub id: usize,
@@ -65,6 +66,29 @@ impl AstNode {
     pub fn expect_field(&self, db: &dyn Database, name: &str) -> AstNode {
         self.get_field(db, name)
             .unwrap_or_else(|| panic!("expected {:?} node to have {name:?} field", self.symbol(db)))
+    }
+
+    pub fn get_fields(
+        &self,
+        db: &dyn Database,
+        name: &str,
+    ) -> impl Iterator<Item = Self> + 'static {
+        let ast = self.file(db).ast(db);
+        self.fields(db)
+            .iter()
+            .filter(|(field, _idx)| *field == name)
+            .map(|(_name, idx)| *ast.get(idx).unwrap())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    pub fn get_children(&self, db: &dyn Database) -> impl Iterator<Item = Self> + 'static {
+        let ast = self.file(db).ast(db);
+        self.children(db)
+            .iter()
+            .map(|idx| *ast.get(idx).unwrap())
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 

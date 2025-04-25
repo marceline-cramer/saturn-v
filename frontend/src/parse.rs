@@ -14,21 +14,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use salsa::Database;
 
-use crate::toplevel::{AstNode, File, Span};
+use crate::{
+    toplevel::{AstNode, File},
+    types::PrimitiveType,
+};
 
 /// A definition of a relation.
 // TODO: add commment above definition AST node for documentation
 #[salsa::interned]
 pub struct RelationDefinition {
-    /// The file this relation was defined in.
-    pub file: File,
-
-    /// The span within the file this relation was defined in.
-    pub span: Span,
+    /// The AST node this relation corresponds to.
+    pub ast: AstNode,
 
     /// The name of this relation.
     pub name: String,
@@ -38,6 +41,53 @@ pub struct RelationDefinition {
 
     /// Whether this relation is a output.
     pub is_output: bool,
+
+    /// This relation's abstract type (pure syntax).
+    pub ty: AbstractType,
+}
+
+/// An abstract type definition of a type.
+///
+/// This just represents the literal, syntactic type representation, without
+/// dereferencing any aliases or checking semantic validity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AbstractType {
+    /// The AST node this type term corresponds to.
+    pub ast: AstNode,
+
+    /// The kind of relation type that this is.
+    pub kind: AbstractTypeKind,
+}
+
+impl Display for AbstractType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
+/// The kind of [[AbstractType]].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum AbstractTypeKind {
+    Named(String),
+    Primitive(PrimitiveType),
+    Tuple(Vec<AbstractType>),
+}
+
+impl Display for AbstractTypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AbstractTypeKind::Named(name) => write!(f, "{name}"),
+            AbstractTypeKind::Primitive(ty) => write!(f, "{ty}"),
+            AbstractTypeKind::Tuple(els) => {
+                let els = els
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({els})")
+            }
+        }
+    }
 }
 
 /// Gets the full relation table of a file.
@@ -58,20 +108,39 @@ pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, Relation
 /// Parses a relation from a relation definition AST node.
 #[salsa::tracked]
 pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
-    // get file info
-    let file = node.file(db);
-
     // get the name
     let relation = node.expect_field(db, "relation");
     let name = relation.contents(db).clone().unwrap();
-    let span = relation.span(db);
 
     // relation attributes
     let is_decision = node.get_field(db, "decision").is_some();
     let is_output = node.get_field(db, "output").is_some();
 
+    // parse the type
+    let ty = parse_abstract_type(db, node.expect_field(db, "type"));
+
     // create the full decision
-    RelationDefinition::new(db, file, span, name, is_decision, is_output)
+    RelationDefinition::new(db, node, name, is_decision, is_output, ty)
+}
+
+/// Parses an [AbstractType] from an AST node.
+#[salsa::tracked]
+pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> AbstractType {
+    let kind = if let Some(named) = ast.get_field(db, "named") {
+        let name = named.contents(db).as_ref().unwrap();
+        match name.parse() {
+            Ok(prim) => AbstractTypeKind::Primitive(prim),
+            Err(_) => AbstractTypeKind::Named(name.to_string()),
+        }
+    } else {
+        AbstractTypeKind::Tuple(
+            ast.get_fields(db, "tuple")
+                .map(|child| parse_abstract_type(db, child))
+                .collect(),
+        )
+    };
+
+    AbstractType { ast, kind }
 }
 
 /// Gets all top-level AST nodes of a particular item kind from a file.
