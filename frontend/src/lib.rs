@@ -18,6 +18,7 @@ use salsa::Database;
 use toplevel::{File, Point, Span};
 
 pub mod parse;
+pub mod resolve;
 pub mod toplevel;
 pub mod types;
 

@@ -23,17 +23,18 @@ use salsa::Database;
 
 use crate::{
     toplevel::{AstNode, File},
-    types::PrimitiveType,
+    types::{PrimitiveType, WithAst},
 };
 
 /// A definition of a relation.
 // TODO: add commment above definition AST node for documentation
-#[salsa::interned]
-pub struct RelationDefinition {
+#[salsa::tracked]
+pub struct RelationDefinition<'db> {
     /// The AST node this relation corresponds to.
     pub ast: AstNode,
 
     /// The name of this relation.
+    #[return_ref]
     pub name: String,
 
     /// Whether this relation is a decision.
@@ -43,42 +44,40 @@ pub struct RelationDefinition {
     pub is_output: bool,
 
     /// This relation's abstract type (pure syntax).
-    pub ty: AbstractType,
+    #[return_ref]
+    pub ty: WithAst<AbstractType>,
+}
+
+/// A definition of a type alias.
+#[salsa::tracked]
+pub struct TypeAlias<'db> {
+    /// The AST node this type alias corresponds to.
+    pub ast: AstNode,
+
+    /// The name of this type alias.
+    pub name: String,
+
+    /// The alias's abstract type (pure syntax).
+    pub ty: WithAst<AbstractType>,
 }
 
 /// An abstract type definition of a type.
 ///
 /// This just represents the literal, syntactic type representation, without
 /// dereferencing any aliases or checking semantic validity.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AbstractType {
-    /// The AST node this type term corresponds to.
-    pub ast: AstNode,
-
-    /// The kind of relation type that this is.
-    pub kind: AbstractTypeKind,
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum AbstractType {
+    Named(String),
+    Primitive(PrimitiveType),
+    Tuple(Vec<WithAst<AbstractType>>),
 }
 
 impl Display for AbstractType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.kind.fmt(f)
-    }
-}
-
-/// The kind of [[AbstractType]].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum AbstractTypeKind {
-    Named(String),
-    Primitive(PrimitiveType),
-    Tuple(Vec<AbstractType>),
-}
-
-impl Display for AbstractTypeKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AbstractTypeKind::Named(name) => write!(f, "{name}"),
-            AbstractTypeKind::Primitive(ty) => write!(f, "{ty}"),
-            AbstractTypeKind::Tuple(els) => {
+            AbstractType::Named(name) => write!(f, "{name}"),
+            AbstractType::Primitive(ty) => write!(f, "{ty}"),
+            AbstractType::Tuple(els) => {
                 let els = els
                     .iter()
                     .map(ToString::to_string)
@@ -125,22 +124,22 @@ pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinitio
 
 /// Parses an [AbstractType] from an AST node.
 #[salsa::tracked]
-pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> AbstractType {
-    let kind = if let Some(named) = ast.get_field(db, "named") {
+pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> WithAst<AbstractType> {
+    let ty = if let Some(named) = ast.get_field(db, "named") {
         let name = named.contents(db).as_ref().unwrap();
         match name.parse() {
-            Ok(prim) => AbstractTypeKind::Primitive(prim),
-            Err(_) => AbstractTypeKind::Named(name.to_string()),
+            Ok(prim) => AbstractType::Primitive(prim),
+            Err(_) => AbstractType::Named(name.to_string()),
         }
     } else {
-        AbstractTypeKind::Tuple(
+        AbstractType::Tuple(
             ast.get_fields(db, "tuple")
                 .map(|child| parse_abstract_type(db, child))
                 .collect(),
         )
     };
 
-    AbstractType { ast, kind }
+    WithAst::new(ast, ty)
 }
 
 /// Gets all top-level AST nodes of a particular item kind from a file.

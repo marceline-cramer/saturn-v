@@ -37,7 +37,6 @@ pub struct File {
 }
 
 #[salsa::input]
-#[derive(Debug)]
 pub struct AstNode {
     pub file: File,
     pub id: usize,

@@ -14,7 +14,73 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::{
+    fmt::{Debug, Display},
+    ops::Deref,
+};
+
+use salsa::Update;
 use strum::{Display, EnumString};
+
+use crate::toplevel::AstNode;
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct WithAst<T> {
+    /// The AST node corresponding to this object.
+    pub ast: AstNode,
+
+    /// The inner type whose AST is being tracked.
+    pub inner: T,
+}
+
+impl<T> WithAst<T> {
+    pub fn new(ast: AstNode, inner: T) -> Self {
+        Self { ast, inner }
+    }
+
+    pub fn with<O>(&self, inner: O) -> WithAst<O> {
+        WithAst {
+            ast: self.ast,
+            inner,
+        }
+    }
+}
+
+impl<T> Deref for WithAst<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T> AsRef<T> for WithAst<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T: Debug> Debug for WithAst<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T: Display> Display for WithAst<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+unsafe impl<T: Eq + Update> Update for WithAst<T> {
+    unsafe fn maybe_update(old_pointer: *mut Self, new_value: Self) -> bool {
+        let old: &mut Self = unsafe { &mut *old_pointer };
+        let update = T::maybe_update(&mut old.inner, new_value.inner);
+        let ast = old.ast != new_value.ast;
+        old.ast = new_value.ast;
+        update || ast
+    }
+}
 
 #[derive(Copy, Clone, Debug, Display, PartialEq, Eq, Hash, EnumString)]
 pub enum PrimitiveType {
