@@ -58,14 +58,14 @@ module.exports = grammar({
     rule: $ => seq(
       field("relation", $.symbol),
       field("head", $.pattern),
-      field("body", optional(seq(":-", $.rule_body))),
+      repeat(seq(":-", field("body", $.rule_body))),
       "."
     ),
 
     pattern: $ => choice(
       field("value", $.value),
       field("variable", $.variable),
-      field("nested", paren_list1($.pattern)),
+      paren_list1(field("tuple", $.pattern)),
     ),
 
     rule_body: $ => list1(field("clause", choice($.atom, $._expr))),
@@ -103,8 +103,10 @@ module.exports = grammar({
     ),
 
     value: $ => choice(
-      $.symbol,
-      $.integer,
+      field("true", "True"),
+      field("false", "False"),
+      field("symbol", $.symbol),
+      field("integer", $.integer),
     ),
 
     tuple: $ => paren_list1(field("element", $._expr)),

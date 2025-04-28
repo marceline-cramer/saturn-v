@@ -410,22 +410,10 @@
     "type": "pattern",
     "named": true,
     "fields": {
-      "nested": {
+      "tuple": {
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": ",",
-            "named": false
-          },
           {
             "type": "pattern",
             "named": true
@@ -462,10 +450,6 @@
         "multiple": true,
         "required": false,
         "types": [
-          {
-            "type": ":-",
-            "named": false
-          },
           {
             "type": "rule_body",
             "named": true
@@ -662,20 +646,47 @@
   {
     "type": "value",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "integer",
-          "named": true
-        },
-        {
-          "type": "symbol",
-          "named": true
-        }
-      ]
+    "fields": {
+      "false": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "False",
+            "named": false
+          }
+        ]
+      },
+      "integer": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "integer",
+            "named": true
+          }
+        ]
+      },
+      "symbol": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "symbol",
+            "named": true
+          }
+        ]
+      },
+      "true": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "True",
+            "named": false
+          }
+        ]
+      }
     }
   },
   {
@@ -752,6 +763,14 @@
   },
   {
     "type": ">=",
+    "named": false
+  },
+  {
+    "type": "False",
+    "named": false
+  },
+  {
+    "type": "True",
     "named": false
   },
   {

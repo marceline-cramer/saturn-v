@@ -1848,6 +1848,7 @@ version = "0.1.0"
 dependencies = [
  "lsp-types",
  "salsa",
+ "saturn-v-ir",
  "smallvec",
  "strum",
  "url",

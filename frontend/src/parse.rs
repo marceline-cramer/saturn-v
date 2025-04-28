@@ -20,6 +20,7 @@ use std::{
 };
 
 use salsa::Database;
+use saturn_v_ir::Value;
 
 use crate::{
     toplevel::{AstNode, File},
@@ -87,6 +88,26 @@ impl Display for AbstractType {
             }
         }
     }
+}
+
+/// Gets the full rule table of a file.
+#[salsa::tracked]
+pub fn file_rules(db: &dyn Database, file: File) -> HashMap<String, HashSet<AbstractRule<'_>>> {
+    // iterate over all rule items
+    let mut rules: HashMap<_, HashSet<_>> = HashMap::new();
+    for node in file_item_kind_ast(db, file, ItemKind::Rule) {
+        // parse the rule
+        let rule = parse_rule(db, node);
+
+        // add it into the set corresponding to each relation name
+        rules
+            .entry(rule.relation(db).clone().inner)
+            .or_default()
+            .insert(rule);
+    }
+
+    // done!
+    rules
 }
 
 /// Gets the full relation table of a file.
@@ -188,4 +209,72 @@ pub enum ItemKind {
     Definition,
     Rule,
     Constraint,
+}
+
+/// Parses an abstract rule from an AST.
+#[salsa::tracked]
+pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
+    // get the name of the relation
+    let relation_node = ast.expect_field(db, "relation");
+    let relation = WithAst::new(ast, relation_node.contents(db).clone().unwrap());
+
+    // parse the head
+    let head = parse_pattern(db, ast.expect_field(db, "head"));
+
+    // init the full rule
+    AbstractRule::new(db, relation, head)
+}
+
+/// An abstract rule, aka a syntactical representation of one.
+#[salsa::tracked]
+pub struct AbstractRule<'db> {
+    /// The name of the relation this rule is for.
+    pub relation: WithAst<String>,
+
+    /// The pattern defining this rule's head.
+    pub head: WithAst<Pattern>,
+}
+
+/// Parses a pattern from an AST.
+#[salsa::tracked]
+pub fn parse_pattern(db: &dyn Database, ast: AstNode) -> WithAst<Pattern> {
+    let inner = if let Some(val) = ast.get_field(db, "value") {
+        Pattern::Value(parse_value(db, val))
+    } else if let Some(variable) = ast.get_field(db, "variable") {
+        Pattern::Variable(variable.contents(db).clone().unwrap())
+    } else {
+        Pattern::Tuple(
+            ast.get_fields(db, "tuple")
+                .map(|el| parse_pattern(db, el))
+                .collect(),
+        )
+    };
+
+    WithAst::new(ast, inner)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Pattern {
+    Variable(String),
+    Value(Value),
+    Tuple(Vec<WithAst<Pattern>>),
+}
+
+/// Parses a value from an AST.
+#[salsa::tracked]
+pub fn parse_value(db: &dyn Database, ast: AstNode) -> Value {
+    if ast.get_field(db, "true").is_some() {
+        Value::Boolean(true)
+    } else if ast.get_field(db, "false").is_some() {
+        Value::Boolean(false)
+    } else if let Some(sym) = ast.get_field(db, "symbol") {
+        Value::Symbol(sym.contents(db).clone().unwrap())
+    } else {
+        let int = ast.expect_field(db, "integer");
+        match int.contents(db).as_ref().unwrap().parse() {
+            Ok(val) => Value::Integer(val),
+            // TODO: handle integer parse errors
+            Err(_) => Value::Integer(0),
+        }
+    }
 }
