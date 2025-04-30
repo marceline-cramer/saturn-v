@@ -38,7 +38,7 @@ async fn main() {
         Command::Lsp => {
             let stdin = tokio::io::stdin();
             let stdout = tokio::io::stdout();
-            let (service, socket) = LspService::new(|_client| LspBackend::default());
+            let (service, socket) = LspService::new(LspBackend::new);
             Server::new(stdin, stdout, socket).serve(service).await;
         }
     }

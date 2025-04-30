@@ -15,12 +15,21 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use salsa::Database;
-use toplevel::{File, Point, Span};
+use toplevel::{File, Point, Span, Workspace};
 
+pub mod diagnostic;
 pub mod parse;
 pub mod resolve;
 pub mod toplevel;
 pub mod types;
+
+#[salsa::tracked]
+pub fn check_all(db: &dyn Database, ws: Workspace) {
+    for (_url, file) in ws.files(db).iter() {
+        parse::file_relations(db, *file);
+        parse::file_rules(db, *file);
+    }
+}
 
 #[salsa::tracked]
 pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {

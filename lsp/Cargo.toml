@@ -5,7 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
-ropey = "1.6"
+ropey.workspace = true
 salsa.workspace = true
 saturn-v-frontend.workspace = true
 tower-lsp.workspace = true

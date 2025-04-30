@@ -6,10 +6,12 @@ license = "AGPL-3.0-or-later"
 
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
+ariadne = { version = "0.5", features = ["auto-color"] }
 chumsky = "0.9"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
+ropey = "1.6"
 salsa = "0.20"
 serde = { version = "1", features = ["derive", "rc"] }
 smallvec = { version = "1.15", features = ["serde"] }

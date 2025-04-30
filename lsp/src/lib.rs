@@ -21,32 +21,83 @@ use std::{
 
 use ropey::Rope;
 use salsa::Setter;
-use saturn_v_frontend::toplevel::{AstNode, Children, Db, File, Point, Span, Workspace};
+use saturn_v_frontend::{
+    check_all,
+    diagnostic::DynDiagnostic,
+    toplevel::{AstNode, Children, Db, File, Point, Span, Workspace},
+};
 use tokio::sync::Mutex;
-use tower_lsp::{jsonrpc::Result, lsp_types::*, LanguageServer};
+use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 use tree_sitter::{InputEdit, Language, Parser, Tree};
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
 
 pub struct LspBackend {
+    client: Client,
     editors: Arc<Mutex<EditorMap>>,
     db: Mutex<Db>,
     workspace: Workspace,
     language: Language,
 }
 
-impl Default for LspBackend {
-    fn default() -> Self {
+impl LspBackend {
+    pub fn new(client: Client) -> Self {
         let db = Db::new();
         let workspace = Workspace::new(&db, HashMap::new());
         let language = Language::new(tree_sitter_kerolox::LANGUAGE);
         let editors = Default::default();
 
         LspBackend {
+            client,
             editors,
             db: Mutex::new(db),
             workspace,
             language,
+        }
+    }
+}
+
+impl LspBackend {
+    pub async fn update_diagnostics(&self) {
+        // lock the database
+        let db = self.db.lock().await;
+
+        // read the dynamic diagnostics from workspace checking
+        let diagnostics = check_all::accumulated::<DynDiagnostic>(&*db, self.workspace);
+
+        // deduplicate identical diagnostics
+        let diagnostics = diagnostics
+            .into_iter()
+            .map(|d| (d.dyn_eq(), d))
+            .collect::<HashMap<_, _>>()
+            .into_values();
+
+        // create a file source map
+        let mut src = HashMap::new();
+        let mut by_file: HashMap<_, Vec<_>> = HashMap::new();
+        for ed in self.editors.lock().await.values() {
+            let ed = ed.lock().await;
+            src.insert(ed.file, ed.contents.clone());
+
+            // even if a file doesn't receive diagnostics, publish them
+            by_file.entry(ed.file).or_default();
+        }
+
+        // convert the diagnostics into a set of LSP diagnostics
+        let diagnostics = diagnostics.into_iter().flat_map(|d| d.to_lsp(&*db, &src));
+
+        // batch diagnostics by file
+        for (file, d) in diagnostics {
+            by_file.entry(file).or_default().push(d);
+        }
+
+        // update all diagnostics
+        for (file, diagnostics) in by_file {
+            let url = file.url(&*db).clone();
+
+            self.client
+                .publish_diagnostics(url, diagnostics, None)
+                .await;
         }
     }
 }
@@ -80,7 +131,7 @@ impl LanguageServer for LspBackend {
 
         // create the editor struct
         let url = params.text_document.uri.clone();
-        let ed = Editor::new(&mut db, &self.language, params.clone());
+        let ed = Editor::new(&mut db, url.clone(), &self.language, params.clone());
 
         // insert editor file into workspace
         let mut files = self.workspace.files(&*db).to_owned();
@@ -92,6 +143,10 @@ impl LanguageServer for LspBackend {
             .lock()
             .await
             .insert(url, Arc::new(Mutex::new(ed)));
+
+        // unlock database and update diagnostics
+        drop(db);
+        self.update_diagnostics().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -114,6 +169,9 @@ impl LanguageServer for LspBackend {
             let mut db = self.db.lock().await;
             ed.lock().await.on_change(&mut db, params);
         }
+
+        // update diagnostics
+        self.update_diagnostics().await;
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
@@ -141,7 +199,12 @@ pub struct Editor {
 
 impl Editor {
     /// Creates a new editor.
-    pub fn new(db: &mut Db, language: &Language, params: DidOpenTextDocumentParams) -> Self {
+    pub fn new(
+        db: &mut Db,
+        url: Url,
+        language: &Language,
+        params: DidOpenTextDocumentParams,
+    ) -> Self {
         // initialize the tree-sitter parser and tree
         let mut parser = Parser::new();
 
@@ -154,7 +217,7 @@ impl Editor {
             .expect("failed to create initial tree");
 
         // create the initial file
-        let file = File::new(db, 0, Default::default());
+        let file = File::new(db, url, 0, Default::default());
 
         // create the editor
         let mut ed = Self {

@@ -5,7 +5,9 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
+ariadne.workspace = true
 lsp-types = "0.94"
+ropey.workspace = true
 salsa.workspace = true
 saturn-v-ir.workspace = true
 smallvec.workspace = true

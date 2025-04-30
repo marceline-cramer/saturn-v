@@ -23,6 +23,7 @@ use salsa::Database;
 use saturn_v_ir::Value;
 
 use crate::{
+    diagnostic::{AccumulateDiagnostic, IntegerParseError},
     toplevel::{AstNode, File},
     types::{PrimitiveType, WithAst},
 };
@@ -273,8 +274,10 @@ pub fn parse_value(db: &dyn Database, ast: AstNode) -> Value {
         let int = ast.expect_field(db, "integer");
         match int.contents(db).as_ref().unwrap().parse() {
             Ok(val) => Value::Integer(val),
-            // TODO: handle integer parse errors
-            Err(_) => Value::Integer(0),
+            Err(_) => {
+                IntegerParseError { ast: int }.accumulate(db);
+                Value::Integer(0)
+            }
         }
     }
 }

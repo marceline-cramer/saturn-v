@@ -31,6 +31,8 @@ pub struct Workspace {
 
 #[salsa::input]
 pub struct File {
+    #[return_ref]
+    pub url: Url,
     pub root: usize,
     #[return_ref]
     pub ast: HashMap<usize, AstNode>,
