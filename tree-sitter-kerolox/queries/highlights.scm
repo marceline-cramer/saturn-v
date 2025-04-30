@@ -7,7 +7,7 @@
 
 (rule relation: (symbol) @constructor)
 (definition relation: (symbol) @function)
-(atom relation: (symbol) @function)
+(atom head: (symbol) @function)
 
 [ ":-" "," "." ] @punctuation.delimiter
 [ "(" ")" ] @punctuation.bracket

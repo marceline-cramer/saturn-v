@@ -13,41 +13,17 @@
     "type": "atom",
     "named": true,
     "fields": {
-      "expr": {
-        "multiple": true,
+      "body": {
+        "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]
       },
-      "relation": {
+      "head": {
         "multiple": false,
         "required": true,
         "types": [
@@ -64,35 +40,11 @@
     "named": true,
     "fields": {
       "lhs": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]
@@ -156,35 +108,11 @@
         ]
       },
       "rhs": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]
@@ -330,6 +258,82 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "expr",
+    "named": true,
+    "fields": {
+      "atom": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "atom",
+            "named": true
+          }
+        ]
+      },
+      "binary": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "binary_expr",
+            "named": true
+          }
+        ]
+      },
+      "tuple": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "tuple",
+            "named": true
+          }
+        ]
+      },
+      "unary": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "unary_expr",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "value",
+            "named": true
+          }
+        ]
+      },
+      "variable": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "variable",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -487,35 +491,7 @@
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "atom",
-            "named": true
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]
@@ -526,36 +502,12 @@
     "type": "tuple",
     "named": true,
     "fields": {
-      "element": {
+      "el": {
         "multiple": true,
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]
@@ -603,35 +555,11 @@
         ]
       },
       "term": {
-        "multiple": true,
+        "multiple": false,
         "required": true,
         "types": [
           {
-            "type": "(",
-            "named": false
-          },
-          {
-            "type": ")",
-            "named": false
-          },
-          {
-            "type": "binary_expr",
-            "named": true
-          },
-          {
-            "type": "tuple",
-            "named": true
-          },
-          {
-            "type": "unary_expr",
-            "named": true
-          },
-          {
-            "type": "value",
-            "named": true
-          },
-          {
-            "type": "variable",
+            "type": "expr",
             "named": true
           }
         ]

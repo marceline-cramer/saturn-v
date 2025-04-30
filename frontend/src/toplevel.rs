@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
 use salsa::Database;
 use smallvec::SmallVec;
@@ -50,6 +50,12 @@ pub struct AstNode {
     pub children: Children,
     #[return_ref]
     pub fields: Vec<(&'static str, usize)>,
+}
+
+impl Debug for AstNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AstNode")
+    }
 }
 
 impl AstNode {

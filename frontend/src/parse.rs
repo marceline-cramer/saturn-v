@@ -17,13 +17,14 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
+    str::FromStr,
 };
 
 use salsa::Database;
 use saturn_v_ir::Value;
 
 use crate::{
-    diagnostic::{AccumulateDiagnostic, IntegerParseError},
+    diagnostic::{AccumulateDiagnostic, SimpleError},
     toplevel::{AstNode, File},
     types::{PrimitiveType, WithAst},
 };
@@ -222,8 +223,14 @@ pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
     // parse the head
     let head = parse_pattern(db, ast.expect_field(db, "head"));
 
+    // parse each rule body
+    let bodies = ast
+        .get_fields(db, "body")
+        .map(|body| parse_rule_body(db, body))
+        .collect();
+
     // init the full rule
-    AbstractRule::new(db, relation, head)
+    AbstractRule::new(db, relation, head, bodies)
 }
 
 /// An abstract rule, aka a syntactical representation of one.
@@ -234,6 +241,30 @@ pub struct AbstractRule<'db> {
 
     /// The pattern defining this rule's head.
     pub head: WithAst<Pattern>,
+
+    /// The set of rule bodies in this rule.
+    pub bodies: Vec<AbstractRuleBody<'db>>,
+}
+
+/// Parses an [AbstractRuleBody] from an AST.
+#[salsa::tracked]
+pub fn parse_rule_body(db: &dyn Database, ast: AstNode) -> AbstractRuleBody<'_> {
+    // simply iterate over each clause in the AST and parse each one
+    let clauses = ast
+        .get_fields(db, "clause")
+        .map(|clause| parse_expr(db, clause))
+        .collect();
+
+    AbstractRuleBody::new(db, ast, clauses)
+}
+
+#[salsa::tracked]
+pub struct AbstractRuleBody<'db> {
+    /// The AST node this rule body corresponds to.
+    pub ast: AstNode,
+
+    /// Each clause in the body is an expression.
+    pub clauses: Vec<Expr<'db>>,
 }
 
 /// Parses a pattern from an AST.
@@ -275,9 +306,152 @@ pub fn parse_value(db: &dyn Database, ast: AstNode) -> Value {
         match int.contents(db).as_ref().unwrap().parse() {
             Ok(val) => Value::Integer(val),
             Err(_) => {
-                IntegerParseError { ast: int }.accumulate(db);
+                SimpleError::new(int, "failed to parse integer literal").accumulate(db);
                 Value::Integer(0)
             }
         }
+    }
+}
+
+#[salsa::tracked]
+pub fn parse_expr(db: &dyn Database, ast: AstNode) -> Expr<'_> {
+    // parse the kind depending on which field is selected
+    let kind = if let Some(tuple) = ast.get_field(db, "tuple") {
+        let els = tuple
+            .get_fields(db, "el")
+            .map(|el| parse_expr(db, el))
+            .collect();
+
+        ExprKind::Tuple(els)
+    } else if let Some(val) = ast.get_field(db, "value") {
+        ExprKind::Value(parse_value(db, val))
+    } else if let Some(var) = ast.get_field(db, "variable") {
+        ExprKind::Variable(var.contents(db).to_owned().unwrap())
+    } else if let Some(binary) = ast.get_field(db, "binary") {
+        let op = parse_binary_op(db, binary.expect_field(db, "op"));
+        let lhs = parse_expr(db, binary.expect_field(db, "lhs"));
+        let rhs = parse_expr(db, binary.expect_field(db, "rhs"));
+        ExprKind::BinaryOp { op, lhs, rhs }
+    } else if let Some(unary) = ast.get_field(db, "unary") {
+        let op = parse_unary_op(db, unary.expect_field(db, "op"));
+        let term = parse_expr(db, unary.expect_field(db, "term"));
+        ExprKind::UnaryOp { op, term }
+    } else if let Some(atom) = ast.get_field(db, "atom") {
+        let head = atom.expect_field(db, "head");
+        let head = WithAst::new(head, head.contents(db).to_owned().unwrap());
+        let body = parse_expr(db, atom.expect_field(db, "body"));
+        ExprKind::Atom { head, body }
+    } else {
+        unreachable!("unrecognized expression node kind at {:?}", ast.symbol(db));
+    };
+
+    // create the expression
+    Expr::new(db, ast, kind)
+}
+
+#[salsa::interned]
+#[derive(Debug)]
+pub struct Expr<'db> {
+    pub ast: AstNode,
+    pub kind: ExprKind<'db>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ExprKind<'db> {
+    Tuple(Vec<Expr<'db>>),
+    Value(Value),
+    Variable(String),
+    BinaryOp {
+        op: BinaryOpKind,
+        lhs: Expr<'db>,
+        rhs: Expr<'db>,
+    },
+    UnaryOp {
+        op: UnaryOpKind,
+        term: Expr<'db>,
+    },
+    Atom {
+        head: WithAst<String>,
+        body: Expr<'db>,
+    },
+}
+
+pub fn parse_binary_op(db: &dyn Database, ast: AstNode) -> BinaryOpKind {
+    match ast.contents(db).as_ref().unwrap().parse() {
+        Ok(op) => op,
+        Err(_) => {
+            SimpleError::new(ast, "failed to parse binary operator").accumulate(db);
+            BinaryOpKind::Eq
+        }
+    }
+}
+
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BinaryOpKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Concat,
+    And,
+    Or,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+impl FromStr for BinaryOpKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use BinaryOpKind::*;
+        Ok(match s {
+            "+" => Add,
+            "-" => Sub,
+            "*" => Mul,
+            "/" => Div,
+            ".." => Concat,
+            "&&" => And,
+            "||" => Or,
+            "=" => Eq,
+            "!=" => Ne,
+            "<" => Lt,
+            "<=" => Le,
+            ">=" => Gt,
+            ">" => Ge,
+            _ => return Err(()),
+        })
+    }
+}
+
+pub fn parse_unary_op(db: &dyn Database, ast: AstNode) -> UnaryOpKind {
+    match ast.contents(db).as_ref().unwrap().parse() {
+        Ok(op) => op,
+        Err(_) => {
+            SimpleError::new(ast, "failed to parse unary operator").accumulate(db);
+            UnaryOpKind::Negate
+        }
+    }
+}
+
+#[derive(Copy, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum UnaryOpKind {
+    Not,
+    Negate,
+}
+
+impl FromStr for UnaryOpKind {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use UnaryOpKind::*;
+        Ok(match s {
+            "!" => Not,
+            "-" => Negate,
+            _ => return Err(()),
+        })
     }
 }

@@ -19,7 +19,7 @@ module.exports = grammar({
   name: "kerolox",
 
   extras: $ => [$._whitespace, $.comment],
-  conflicts: $ => [[$._expr, $.tuple], [$.atom, $.value]],
+  conflicts: $ => [[$.expr, $.tuple]],
 
   rules: {
     file: $ => repeat(choice($.import, $.definition, $.rule, $.constraint)),
@@ -68,7 +68,7 @@ module.exports = grammar({
       paren_list1(field("tuple", $.pattern)),
     ),
 
-    rule_body: $ => list1(field("clause", choice($.atom, $._expr))),
+    rule_body: $ => list1(field("clause", $.expr)),
 
     constraint: $ => seq(
       "constrain",
@@ -91,16 +91,19 @@ module.exports = grammar({
     at_most: _ => "<=",
     at_least: _ => ">=",
 
-    atom: $ => seq(field("relation", $.symbol), field("expr", $._expr)),
-
-    _expr: $ => choice(
-      $.value,
-      $.variable,
-      $.unary_expr,
-      $.binary_expr,
-      $.tuple,
-      seq('(', $._expr, ')')
+    expr: $ => choice(
+      field("atom", $.atom),
+      field("tuple", $.tuple),
+      field("value", $.value),
+      field("variable", $.variable),
+      field("unary", $.unary_expr),
+      field("binary", $.binary_expr),
+      seq('(', choice($.expr), ')')
     ),
+
+    atom: $ => prec.right(2, seq(field("head", $.symbol), field("body", $.expr))),
+
+    tuple: $ => paren_list1(field("el", $.expr)),
 
     value: $ => choice(
       field("true", "True"),
@@ -109,21 +112,19 @@ module.exports = grammar({
       field("integer", $.integer),
     ),
 
-    tuple: $ => paren_list1(field("element", $._expr)),
-
     unary_expr: $ => prec.left(5, seq(
       field("op", $.unary_op),
-      field("term", $._expr)
+      field("term", $.expr)
     )),
 
     unary_op: _ => choice("!", "-"),
 
     binary_expr: $ => choice(
-      expr_prec($._expr, 4, choice("*", "/")),
-      expr_prec($._expr, 3, choice("+", "-")),
-      expr_prec($._expr, 2, ".."),
-      expr_prec($._expr, 1, choice("=", "!=", ">=", "<=", "<", ">")),
-      expr_prec($._expr, 0, choice("&&", "||")),
+      expr_prec($.expr, 4, choice("*", "/")),
+      expr_prec($.expr, 3, choice("+", "-")),
+      expr_prec($.expr, 2, ".."),
+      expr_prec($.expr, 1, choice("=", "!=", ">=", "<=", "<", ">")),
+      expr_prec($.expr, 0, choice("&&", "||")),
     ),
   }
 });

@@ -29,18 +29,28 @@ use salsa::{Accumulator, Database};
 
 use crate::toplevel::{AstNode, File, Span};
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct IntegerParseError {
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SimpleError {
     pub ast: AstNode,
+    pub message: String,
 }
 
-impl BasicDiagnostic for IntegerParseError {
+impl SimpleError {
+    pub fn new(ast: AstNode, message: impl ToString) -> Self {
+        Self {
+            ast,
+            message: message.to_string(),
+        }
+    }
+}
+
+impl BasicDiagnostic for SimpleError {
     fn range(&self) -> Range<AstNode> {
         self.ast..self.ast
     }
 
     fn message(&self) -> String {
-        "could not parse integer literal".into()
+        self.message.clone()
     }
 
     fn kind(&self) -> DiagnosticKind {
