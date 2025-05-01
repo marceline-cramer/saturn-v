@@ -14,10 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use ropey::Rope;
 use salsa::Setter;
@@ -28,7 +25,7 @@ use saturn_v_frontend::{
 };
 use tokio::sync::Mutex;
 use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
-use tree_sitter::{InputEdit, Language, Parser, Tree};
+use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
 
@@ -195,6 +192,7 @@ pub struct Editor {
     parser: Parser,
     tree: Tree,
     file: File,
+    ast: HashMap<usize, AstNode>,
 }
 
 impl Editor {
@@ -217,7 +215,7 @@ impl Editor {
             .expect("failed to create initial tree");
 
         // create the initial file
-        let file = File::new(db, url, 0, Default::default());
+        let file = File::new(db, url, None);
 
         // create the editor
         let mut ed = Self {
@@ -225,6 +223,7 @@ impl Editor {
             parser,
             tree,
             file,
+            ast: HashMap::new(),
         };
 
         // update the AST for the initial text contents
@@ -319,82 +318,83 @@ impl Editor {
 
     /// Efficiently update inputs to the frontend with changes to the AST.
     pub fn update_ast(&mut self, db: &mut Db) {
-        let mut cursor = self.tree.walk();
-        let mut stack = vec![cursor.node()];
-        let mut keep = HashSet::new();
-        let mut ast = self.file.ast(db).to_owned();
-        self.file.set_root(db).to(cursor.node().id());
+        let mut new_ast = HashMap::new();
+        let new_root = self.add_node(db, &mut new_ast, self.tree.root_node());
+        self.file.set_root(db).to(Some(new_root));
+        self.ast = new_ast;
+    }
 
-        while let Some(node) = stack.pop() {
-            // any node we encounter in the new tree should be preserved
-            keep.insert(node.id());
+    fn add_node(&self, db: &mut Db, new_ast: &mut HashMap<usize, AstNode>, node: Node) -> AstNode {
+        // add the node's children
+        let mut children = Children::default();
+        let mut fields = Vec::new();
+        let mut cursor = node.walk();
+        for (idx, child) in node.children(&mut cursor).enumerate() {
+            // add the node
+            let child = self.add_node(db, new_ast, child);
 
-            // convert the range type to a frontend span
-            let span = Span {
-                start: Point {
-                    line: node.range().start_point.row,
-                    column: node.range().start_point.column,
-                },
-                end: Point {
-                    line: node.range().end_point.row,
-                    column: node.range().end_point.column,
-                },
-            };
+            // push the child to the list
+            children.push(child);
 
-            // add it and its children
-            let mut children = Children::new();
-            let mut fields = Vec::new();
-            for (idx, child) in node.children(&mut cursor).enumerate() {
-                // add the children and be sure we process it
-                children.push(child.id());
-                stack.push(child);
-
-                // add the field, if it exists
-                if let Some(field) = node.field_name_for_child(idx as u32) {
-                    fields.push((field, child.id()));
-                }
+            // add the field, if it exists
+            if let Some(field) = node.field_name_for_child(idx as u32) {
+                fields.push((field, child));
             }
-
-            // if the AST already contains this node, skip adding it. node
-            // IDs change when their contents change, so this ensures that we
-            // don't modify inputs unnecessarily. we do this after children are
-            // iterated so that all of the descendants of old trees are kept
-            // before we remove all unencountered nodes after this loop.
-            if let Some(node) = ast.get(&node.id()) {
-                // update the span of an existing node
-                node.set_span(db).to(span);
-                continue;
-            }
-
-            // if we don't have any fields, get text contents of the AST node
-            let contents = if fields.is_empty() {
-                Some(self.contents.byte_slice(node.byte_range()).to_string())
-            } else {
-                None
-            };
-
-            // create the AST node
-            let symbol = node.grammar_name();
-            let ast_node = AstNode::new(
-                db,
-                self.file,
-                node.id(),
-                symbol,
-                span,
-                contents,
-                children,
-                fields,
-            );
-
-            // insert the AST node
-            ast.insert(node.id(), ast_node);
         }
 
-        // discard nodes that aren't in the latest tree
-        ast.retain(|id, _node| keep.contains(id));
+        // convert the range type to a frontend span
+        let span = Span {
+            start: Point {
+                line: node.range().start_point.row,
+                column: node.range().start_point.column,
+            },
+            end: Point {
+                line: node.range().end_point.row,
+                column: node.range().end_point.column,
+            },
+        };
 
-        // update the file ast
-        self.file.set_ast(db).to(ast);
+        // if our AST already contains this node, skip adding it. node
+        // IDs change when their contents change, so this ensures that we
+        // don't modify inputs unnecessarily. we do this after children are
+        // iterated so that all of the descendants of old trees are kept
+        // before we remove all unencountered nodes after this loop.
+        if let Some(ast_node) = self.ast.get(&node.id()) {
+            // update the span of an existing node
+            ast_node.set_span(db).to(span);
+
+            // add this node to the new AST
+            new_ast.insert(node.id(), *ast_node);
+
+            // return this node
+            return *ast_node;
+        }
+
+        // if we don't have any fields, get text contents of the AST node
+        let contents = if fields.is_empty() {
+            Some(self.contents.byte_slice(node.byte_range()).to_string())
+        } else {
+            None
+        };
+
+        // create the AST node
+        let symbol = node.grammar_name();
+        let ast_node = AstNode::new(
+            db,
+            self.file,
+            node.id(),
+            symbol,
+            span,
+            contents,
+            children,
+            fields,
+        );
+
+        // insert the AST node into the new AST
+        new_ast.insert(node.id(), ast_node);
+
+        // return the initialized node
+        ast_node
     }
 
     pub fn hover(&self, db: &Db, params: HoverParams) -> Result<Option<Hover>> {

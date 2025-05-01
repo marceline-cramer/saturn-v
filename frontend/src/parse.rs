@@ -177,15 +177,10 @@ pub fn file_item_kind_ast(db: &dyn Database, file: File, kind: ItemKind) -> Hash
 /// Gets the top-level item AST nodes from a file.
 #[salsa::tracked]
 pub fn file_item_ast(db: &dyn Database, file: File) -> HashMap<ItemKind, HashSet<AstNode>> {
-    // get top-level information
-    let ast = file.ast(db);
-    let root = ast.get(&file.root(db)).unwrap();
-
     // iterate all children
+    let root = file.ast(db);
     let mut items: HashMap<_, HashSet<_>> = HashMap::default();
     for child in root.children(db).iter() {
-        let child = ast.get(child).unwrap();
-
         // select item kind based on symbol
         use ItemKind::*;
         let kind = match child.symbol(db) {

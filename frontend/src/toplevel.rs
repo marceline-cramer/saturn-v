@@ -33,9 +33,15 @@ pub struct Workspace {
 pub struct File {
     #[return_ref]
     pub url: Url,
-    pub root: usize,
-    #[return_ref]
-    pub ast: HashMap<usize, AstNode>,
+    pub root: Option<AstNode>,
+}
+
+impl File {
+    /// Shadow root behind this method to retrieve the file's AST. This is so
+    /// we can initialize files with uninitialized ASTs.
+    pub fn ast(&self, db: &dyn Database) -> AstNode {
+        self.root(db).unwrap()
+    }
 }
 
 #[salsa::input]
@@ -49,7 +55,7 @@ pub struct AstNode {
     #[return_ref]
     pub children: Children,
     #[return_ref]
-    pub fields: Vec<(&'static str, usize)>,
+    pub fields: Vec<(&'static str, AstNode)>,
 }
 
 impl Debug for AstNode {
@@ -60,10 +66,9 @@ impl Debug for AstNode {
 
 impl AstNode {
     pub fn get_field(&self, db: &dyn Database, name: &str) -> Option<AstNode> {
-        for (field, id) in self.fields(db).iter() {
+        for (field, ast) in self.fields(db).iter() {
             if *field == name {
-                let ast = self.file(db).ast(db);
-                return Some(*ast.get(id).unwrap());
+                return Some(*ast);
             }
         }
 
@@ -80,26 +85,20 @@ impl AstNode {
         db: &dyn Database,
         name: &str,
     ) -> impl Iterator<Item = Self> + 'static {
-        let ast = self.file(db).ast(db);
         self.fields(db)
             .iter()
-            .filter(|(field, _idx)| *field == name)
-            .map(|(_name, idx)| *ast.get(idx).unwrap())
+            .filter(|(field, _ast)| *field == name)
+            .map(|(_name, ast)| *ast)
             .collect::<Vec<_>>()
             .into_iter()
     }
 
     pub fn get_children(&self, db: &dyn Database) -> impl Iterator<Item = Self> + 'static {
-        let ast = self.file(db).ast(db);
-        self.children(db)
-            .iter()
-            .map(|idx| *ast.get(idx).unwrap())
-            .collect::<Vec<_>>()
-            .into_iter()
+        self.children(db).clone().into_iter()
     }
 }
 
-pub type Children = SmallVec<[usize; 4]>;
+pub type Children = SmallVec<[AstNode; 4]>;
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -156,39 +155,24 @@ impl From<Point> for lsp_types::Position {
 }
 
 #[salsa::tracked]
-pub fn node_parents(db: &dyn Database, file: File) -> HashMap<usize, usize> {
-    file.ast(db)
-        .iter()
-        .flat_map(|(parent, node)| node.children(db).iter().map(|child| (*child, *parent)))
-        .collect()
-}
-
-#[salsa::tracked]
 pub fn node_hierarchy_at(db: &dyn Database, file: File, at: Point) -> Vec<AstNode> {
-    let mut stack = Vec::new();
-    let ast = file.ast(db);
-
     // depth-first search from the root node
-    let id = file.root(db);
-    let node = ast.get(&id).unwrap();
-    let mut cursor = Some(node);
+    let mut cursor = Some(file.ast(db));
 
     // loop until nodes have no more children
+    let mut stack = Vec::new();
     while let Some(node) = cursor {
         // add this node to the stack
-        stack.push(*node);
+        stack.push(node);
 
         // reset current node cursor
         cursor = None;
 
         // find children inside
         for child in node.children(db).iter() {
-            // retrieve the AST node for this child
-            let child = ast.get(child).unwrap();
-
             // if this child's span contains the cursor, descend into it
             if child.span(db).contains(at) {
-                cursor = Some(child);
+                cursor = Some(*child);
                 break;
             }
         }
