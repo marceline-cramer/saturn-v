@@ -23,11 +23,14 @@ use std::{
 };
 
 use ariadne::{Color, Label, Report, ReportKind};
-use lsp_types::Diagnostic as LspDiagnostic;
+use lsp_types::{Diagnostic as LspDiagnostic, DiagnosticRelatedInformation};
 use ropey::Rope;
 use salsa::{Accumulator, Database};
 
-use crate::toplevel::{AstNode, File, Span};
+use crate::{
+    toplevel::{AstNode, File, Span},
+    types::WithAst,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SimpleError {
@@ -69,16 +72,35 @@ pub trait BasicDiagnostic: DynEq + UnwindSafe + Send + Sync + 'static {
 
     fn kind(&self) -> DiagnosticKind;
 
-    fn source(&self) -> Option<String>;
+    fn source(&self) -> Option<String> {
+        None
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![]
+    }
 }
 
 impl<T: BasicDiagnostic> Diagnostic for T {
     fn to_lsp(&self, db: &dyn Database, _src: &FileSources) -> Vec<(File, LspDiagnostic)> {
+        let notes = self
+            .notes()
+            .into_iter()
+            .map(|note| DiagnosticRelatedInformation {
+                location: lsp_types::Location {
+                    uri: note.ast.file(db).url(db).clone(),
+                    range: note.ast.span(db).into(),
+                },
+                message: note.inner,
+            })
+            .collect();
+
         let d = LspDiagnostic {
             range: ast_span(db, self.range()).into(),
             severity: Some(self.kind().into()),
             source: self.source(),
             message: self.message(),
+            related_information: Some(notes),
             ..Default::default()
         };
 

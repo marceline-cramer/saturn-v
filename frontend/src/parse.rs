@@ -21,7 +21,7 @@ use std::{
 };
 
 use salsa::Database;
-use saturn_v_ir::Value;
+use saturn_v_ir::{BinaryOpCategory, Value};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
@@ -240,9 +240,11 @@ pub struct AbstractRule<'db> {
     pub relation: WithAst<String>,
 
     /// The pattern defining this rule's head.
+    #[return_ref]
     pub head: WithAst<Pattern>,
 
     /// The set of rule bodies in this rule.
+    #[return_ref]
     pub bodies: Vec<AbstractRuleBody<'db>>,
 }
 
@@ -362,12 +364,12 @@ pub enum ExprKind<'db> {
     Value(Value),
     Variable(String),
     BinaryOp {
-        op: BinaryOpKind,
+        op: WithAst<BinaryOpKind>,
         lhs: Expr<'db>,
         rhs: Expr<'db>,
     },
     UnaryOp {
-        op: UnaryOpKind,
+        op: WithAst<UnaryOpKind>,
         term: Expr<'db>,
     },
     Atom {
@@ -376,12 +378,12 @@ pub enum ExprKind<'db> {
     },
 }
 
-pub fn parse_binary_op(db: &dyn Database, ast: AstNode) -> BinaryOpKind {
+pub fn parse_binary_op(db: &dyn Database, ast: AstNode) -> WithAst<BinaryOpKind> {
     match ast.contents(db).as_ref().unwrap().parse() {
-        Ok(op) => op,
+        Ok(op) => WithAst::new(ast, op),
         Err(_) => {
             SimpleError::new(ast, "failed to parse binary operator").accumulate(db);
-            BinaryOpKind::Eq
+            WithAst::new(ast, BinaryOpKind::Eq)
         }
     }
 }
@@ -427,12 +429,25 @@ impl FromStr for BinaryOpKind {
     }
 }
 
-pub fn parse_unary_op(db: &dyn Database, ast: AstNode) -> UnaryOpKind {
+impl BinaryOpKind {
+    pub fn category(&self) -> BinaryOpCategory {
+        use BinaryOpCategory::*;
+        use BinaryOpKind::*;
+        match self {
+            Add | Sub | Mul | Div => Arithmetic,
+            Concat => String,
+            And | Or => Logical,
+            Eq | Ne | Lt | Le | Gt | Ge => Comparison,
+        }
+    }
+}
+
+pub fn parse_unary_op(db: &dyn Database, ast: AstNode) -> WithAst<UnaryOpKind> {
     match ast.contents(db).as_ref().unwrap().parse() {
-        Ok(op) => op,
+        Ok(op) => WithAst::new(ast, op),
         Err(_) => {
             SimpleError::new(ast, "failed to parse unary operator").accumulate(db);
-            UnaryOpKind::Negate
+            WithAst::new(ast, UnaryOpKind::Negate)
         }
     }
 }

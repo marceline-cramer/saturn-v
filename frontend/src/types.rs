@@ -24,7 +24,7 @@ use strum::{Display, EnumString};
 
 use crate::toplevel::AstNode;
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WithAst<T> {
     /// The AST node corresponding to this object.
     pub ast: AstNode,
@@ -36,6 +36,13 @@ pub struct WithAst<T> {
 impl<T> WithAst<T> {
     pub fn new(ast: AstNode, inner: T) -> Self {
         Self { ast, inner }
+    }
+
+    pub fn map<O>(self, cb: impl FnOnce(T) -> O) -> WithAst<O> {
+        WithAst {
+            ast: self.ast,
+            inner: cb(self.inner),
+        }
     }
 
     pub fn with<O>(&self, inner: O) -> WithAst<O> {
@@ -82,11 +89,24 @@ unsafe impl<T: Eq + Update> Update for WithAst<T> {
     }
 }
 
-#[derive(Copy, Clone, Debug, Display, PartialEq, Eq, Hash, EnumString)]
+#[derive(Copy, Clone, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString)]
 pub enum PrimitiveType {
     Integer,
     Real,
     String,
     Boolean,
     Symbol,
+}
+
+impl From<saturn_v_ir::Type> for PrimitiveType {
+    fn from(ir: saturn_v_ir::Type) -> Self {
+        use saturn_v_ir::Type::*;
+        match ir {
+            Boolean => PrimitiveType::Boolean,
+            Integer => PrimitiveType::Integer,
+            Real => PrimitiveType::Real,
+            Symbol => PrimitiveType::Symbol,
+            String => PrimitiveType::String,
+        }
+    }
 }

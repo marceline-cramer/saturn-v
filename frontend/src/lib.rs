@@ -18,6 +18,7 @@ use salsa::Database;
 use toplevel::{File, Point, Span, Workspace};
 
 pub mod diagnostic;
+pub mod infer;
 pub mod parse;
 pub mod resolve;
 pub mod toplevel;
@@ -27,7 +28,12 @@ pub mod types;
 pub fn check_all(db: &dyn Database, ws: Workspace) {
     for (_url, file) in ws.files(db).iter() {
         parse::file_relations(db, *file);
-        parse::file_rules(db, *file);
+
+        for (_name, rules) in parse::file_rules(db, *file) {
+            for rule in rules {
+                infer::typed_rule_bodies(db, rule);
+            }
+        }
     }
 }
 
