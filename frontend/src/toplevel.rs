@@ -23,6 +23,8 @@ use url::Url;
 
 pub use salsa::DatabaseImpl as Db;
 
+use crate::diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind};
+
 #[salsa::input]
 pub struct Workspace {
     #[return_ref]
@@ -151,6 +153,41 @@ impl From<Point> for lsp_types::Position {
             line: pt.line as u32,
             character: pt.column as u32,
         }
+    }
+}
+
+#[salsa::tracked]
+pub fn file_syntax_errors(db: &dyn Database, file: File) {
+    syntax_errors(db, file.ast(db));
+}
+
+#[salsa::tracked]
+pub fn syntax_errors(db: &dyn Database, ast: AstNode) {
+    if ast.symbol(db) == "ERROR" {
+        SyntaxError { ast }.accumulate(db);
+    } else {
+        ast.children(db)
+            .iter()
+            .for_each(|child| syntax_errors(db, *child));
+    }
+}
+
+#[derive(Debug, Hash)]
+pub struct SyntaxError {
+    pub ast: AstNode,
+}
+
+impl BasicDiagnostic for SyntaxError {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.ast..self.ast
+    }
+
+    fn message(&self) -> String {
+        "syntax error".to_string()
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
     }
 }
 

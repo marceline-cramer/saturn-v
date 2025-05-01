@@ -27,6 +27,7 @@ pub mod types;
 #[salsa::tracked]
 pub fn check_all(db: &dyn Database, ws: Workspace) {
     for (_url, file) in ws.files(db).iter() {
+        toplevel::file_syntax_errors(db, *file);
         parse::file_relations(db, *file);
 
         for (_name, rules) in parse::file_rules(db, *file) {
