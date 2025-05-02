@@ -152,15 +152,18 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
         use Instruction::*;
         match instr {
             Noop => unreachable!("cannot load noops"),
-            Sink(_, _) => unreachable!("cannot load sinks"),
-            Filter(test, rest) => {
+            Sink { .. } => unreachable!("cannot load sinks"),
+            Filter { test, rest } => {
                 let (src, map) = self.load_instruction(loaded, rest);
                 let expr = test.clone().map_variables(&map);
                 let (dst, node) = Key::pair(Node::Filter { src, expr });
                 self.nodes.insert(node);
                 (dst, map)
             }
-            FromQuery(idx, terms) => {
+            FromQuery {
+                relation: idx,
+                terms,
+            } => {
                 // load the key of the relation to load from
                 let key = &loaded[*idx as usize];
                 let relation = Key::new(self.relations.get(key).unwrap());
@@ -185,7 +188,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 self.nodes.insert(node);
                 (dst, map)
             }
-            Let(var, expr, rest) => {
+            Let { var, expr, rest } => {
                 // create nodes for the rest of the instructions
                 let (src, mut map) = self.load_instruction(loaded, rest);
 
@@ -200,7 +203,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 self.nodes.insert(node);
                 (dst, map)
             }
-            Merge(lhs, rhs) => {
+            Merge { lhs, rhs } => {
                 // add the nodes for each branch
                 let (lhs, lhs_map) = self.load_instruction(loaded, lhs);
                 let (rhs, rhs_map) = self.load_instruction(loaded, rhs);
@@ -213,7 +216,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 self.nodes.insert(node);
                 (dst, lhs_map)
             }
-            Join(lhs, rhs) => {
+            Join { lhs, rhs } => {
                 // add the nodes for each branch
                 let (lhs, lhs_map) = self.load_instruction(loaded, lhs);
                 let (rhs, rhs_map) = self.load_instruction(loaded, rhs);

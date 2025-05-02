@@ -155,17 +155,17 @@ impl Instruction {
         use Instruction::*;
         match self {
             Noop => Err(ErrorKind::Noop.into()),
-            Sink(_vars, rest) => {
+            Sink { rest, .. } => {
                 // TODO: just ignore sinks? where should unassigned variables be handled?
                 rest.validate(relations, variables)
             }
-            Filter(expr, rest) => {
+            Filter { test, rest } => {
                 // validate the dependencies
                 let vars = rest.validate(relations, variables)?;
-                let ty = expr.validate(relations, variables)?;
+                let ty = test.validate(relations, variables)?;
 
-                // check for unassigned variables used by the expression
-                let used = expr.variable_deps();
+                // check for unassigned variables used by the test
+                let used = test.variable_deps();
                 let unassigned: HashSet<_> = used.difference(&vars).copied().collect();
                 if !unassigned.is_empty() {
                     return Err(ErrorKind::UnassignedVariables(unassigned).into());
@@ -182,7 +182,7 @@ impl Instruction {
 
                 Ok(vars)
             }
-            FromQuery(relation, terms) => {
+            FromQuery { relation, terms } => {
                 // assert that the relation index is valid
                 if *relation >= relations.len() as u32 {
                     return Err(ErrorKind::InvalidRelationIndex(*relation).into());
@@ -211,7 +211,7 @@ impl Instruction {
 
                 Ok(vars)
             }
-            Let(var, expr, rest) => {
+            Let { var, expr, rest } => {
                 // typecast variable
                 let var = *var;
 
@@ -251,7 +251,7 @@ impl Instruction {
 
                 Ok(vars)
             }
-            Merge(lhs, rhs) => {
+            Merge { lhs, rhs } => {
                 // validate each branch first
                 let lhs = lhs
                     .validate(relations, variables)
@@ -271,7 +271,7 @@ impl Instruction {
                     Err(ErrorKind::MergeVariableMismatch { lhs_only, rhs_only }.into())
                 }
             }
-            Join(lhs, rhs) => {
+            Join { lhs, rhs } => {
                 // just take the union of either branch
                 let mut lhs = lhs
                     .validate(relations, variables)

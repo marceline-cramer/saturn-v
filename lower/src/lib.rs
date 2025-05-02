@@ -41,10 +41,10 @@ pub fn init_lower_egraph() -> EGraph {
 
 /// Defines the egglog representation to lower a rule.
 pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
-    let instr = Instruction::Sink(
-        HashSet::from_iter(0..(rule.vars.len() as u32)),
-        Box::new(rule.instructions.clone()),
-    );
+    let instr = Instruction::Sink {
+        vars: HashSet::from_iter(0..(rule.vars.len() as u32)),
+        rest: Box::new(rule.instructions.clone()),
+    };
 
     let assignment = sexp::doc_indent(
         sexp::doc_pair("let", Doc::text(name.to_string())),
@@ -102,11 +102,14 @@ pub mod tests {
             .expect("failed to parse")
     }
 
-    fn filter_to_instructions(filter: Expr) -> Instruction {
-        Instruction::Sink(
-            filter.variable_deps(),
-            Box::new(Instruction::Filter(filter, Box::new(Instruction::Noop))),
-        )
+    fn filter_to_instructions(test: Expr) -> Instruction {
+        Instruction::Sink {
+            vars: test.variable_deps(),
+            rest: Box::new(Instruction::Filter {
+                test,
+                rest: Box::new(Instruction::Noop),
+            }),
+        }
     }
 
     #[test]

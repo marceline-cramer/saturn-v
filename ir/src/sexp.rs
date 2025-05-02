@@ -43,19 +43,21 @@ impl Sexp for Instruction {
         use Instruction::*;
         match self {
             Noop => doc_list(Doc::text("Noop")),
-            Sink(vars, rest) => doc_indent(doc_pair("Sink", vars.to_doc()), rest.to_doc()),
-            Filter(expr, rest) => doc_indent_two(Doc::text("Filter"), expr.to_doc(), rest.to_doc()),
-            FromQuery(relation, terms) => doc_indent(
+            Sink { vars, rest } => doc_indent(doc_pair("Sink", vars.to_doc()), rest.to_doc()),
+            Filter { test, rest } => {
+                doc_indent_two(Doc::text("Filter"), test.to_doc(), rest.to_doc())
+            }
+            FromQuery { relation, terms } => doc_indent(
                 doc_pair("FromQuery", Doc::text(relation.to_string())),
                 QueryTerm::to_doc(terms.iter()),
             ),
-            Let(var, expr, rest) => doc_indent_two(
+            Let { var, expr, rest } => doc_indent_two(
                 doc_pair("Let", Doc::text(var.to_string())),
                 expr.to_doc(),
                 rest.to_doc(),
             ),
-            Merge(lhs, rhs) => doc_indent_two(Doc::text("Merge"), lhs.to_doc(), rhs.to_doc()),
-            Join(lhs, rhs) => doc_indent_two(Doc::text("Join"), lhs.to_doc(), rhs.to_doc()),
+            Merge { lhs, rhs } => doc_indent_two(Doc::text("Merge"), lhs.to_doc(), rhs.to_doc()),
+            Join { lhs, rhs } => doc_indent_two(Doc::text("Join"), lhs.to_doc(), rhs.to_doc()),
         }
     }
 
@@ -70,30 +72,30 @@ impl Sexp for Instruction {
 
             // sink
             let sink = parse_list("Sink", HashSet::parser().then(instr.clone()))
-                .map(|(vars, rest)| Sink(vars, rest));
+                .map(|(vars, rest)| Sink { vars, rest });
 
             // filter
             let filter = parse_list("Filter", Expr::parser().then(instr.clone()))
-                .map(|(expr, rest)| Filter(expr, rest));
+                .map(|(test, rest)| Filter { test, rest });
 
             // from query
             let from_query = parse_list("FromQuery", Token::unsigned().then(QueryTerm::parser()))
-                .map(|(r, q)| FromQuery(r, q));
+                .map(|(relation, terms)| FromQuery { relation, terms });
 
             // let
             let let_ = parse_list(
                 "Let",
                 Token::unsigned().then(Expr::parser()).then(instr.clone()),
             )
-            .map(|((var, expr), rest)| Let(var, expr, rest));
+            .map(|((var, expr), rest)| Let { var, expr, rest });
 
             // merge
             let merge = parse_list("Merge", instr.clone().then(instr.clone()))
-                .map(|(lhs, rhs)| Merge(lhs, rhs));
+                .map(|(lhs, rhs)| Merge { lhs, rhs });
 
             // join
             let join = parse_list("Join", instr.clone().then(instr.clone()))
-                .map(|(lhs, rhs)| Join(lhs, rhs));
+                .map(|(lhs, rhs)| Join { lhs, rhs });
 
             noop.or(sink)
                 .or(filter)

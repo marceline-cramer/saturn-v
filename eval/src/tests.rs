@@ -102,7 +102,10 @@ async fn test_pick_one() {
             kind: CardinalityConstraintKind::Only,
             threshold: 1,
         },
-        instructions: Instruction::FromQuery(0, vec![QueryTerm::Variable(0)]),
+        instructions: Instruction::FromQuery {
+            relation: 0,
+            terms: vec![QueryTerm::Variable(0)],
+        },
     });
 
     let loader = Loader::load_program(&program);
@@ -123,22 +126,25 @@ async fn test_pick_pairs() {
             vars: vec![Type::Integer, Type::Integer],
             head: vec![QueryTerm::Variable(0)],
             loaded: vec!["Base".to_string()],
-            instructions: Instruction::Let(
-                0,
-                Expr::BinaryOp {
+            instructions: Instruction::Let {
+                var: 0,
+                expr: Expr::BinaryOp {
                     op: saturn_v_ir::BinaryOpKind::Add,
                     lhs: Arc::new(Expr::Variable(1)),
                     rhs: Arc::new(Expr::Value(Value::Integer(1))),
                 },
-                Box::new(Instruction::Filter(
-                    Expr::BinaryOp {
+                rest: Box::new(Instruction::Filter {
+                    test: Expr::BinaryOp {
                         op: BinaryOpKind::Lt,
                         lhs: Arc::new(Expr::Variable(1)),
-                        rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                        rhs: Arc::new(Expr::Value(Value::Integer(1000))),
                     },
-                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
-                )),
-            ),
+                    rest: Box::new(Instruction::FromQuery {
+                        relation: 0,
+                        terms: vec![QueryTerm::Variable(1)],
+                    }),
+                }),
+            },
         }],
     });
 
@@ -152,17 +158,23 @@ async fn test_pick_pairs() {
             vars: vec![Type::Integer, Type::Integer],
             head: vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
             loaded: vec!["Base".to_string()],
-            instructions: Instruction::Filter(
-                Expr::BinaryOp {
+            instructions: Instruction::Filter {
+                test: Expr::BinaryOp {
                     op: BinaryOpKind::Lt,
                     lhs: Arc::new(Expr::Variable(0)),
                     rhs: Arc::new(Expr::Variable(1)),
                 },
-                Box::new(Instruction::Join(
-                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(0)])),
-                    Box::new(Instruction::FromQuery(0, vec![QueryTerm::Variable(1)])),
-                )),
-            ),
+                rest: Box::new(Instruction::Join {
+                    lhs: Box::new(Instruction::FromQuery {
+                        relation: 0,
+                        terms: vec![QueryTerm::Variable(0)],
+                    }),
+                    rhs: Box::new(Instruction::FromQuery {
+                        relation: 0,
+                        terms: vec![QueryTerm::Variable(1)],
+                    }),
+                }),
+            },
         }],
     });
 
@@ -175,18 +187,18 @@ async fn test_pick_pairs() {
             kind: CardinalityConstraintKind::Only,
             threshold: 1,
         },
-        instructions: Instruction::Let(
-            0,
-            Expr::BinaryOp {
+        instructions: Instruction::Let {
+            var: 0,
+            expr: Expr::BinaryOp {
                 op: BinaryOpKind::Div,
                 lhs: Arc::new(Expr::Variable(1)),
                 rhs: Arc::new(Expr::Value(Value::Integer(10))),
             },
-            Box::new(Instruction::FromQuery(
-                0,
-                vec![QueryTerm::Variable(1), QueryTerm::Variable(2)],
-            )),
-        ),
+            rest: Box::new(Instruction::FromQuery {
+                relation: 0,
+                terms: vec![QueryTerm::Variable(1), QueryTerm::Variable(2)],
+            }),
+        },
     });
 
     let loader = Loader::load_program(&program);
