@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
+
 use super::*;
 
 impl<R> Program<R> {
@@ -423,15 +425,42 @@ impl From<ErrorKind> for Error {
     }
 }
 
-#[derive(Clone, Debug)]
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "validation error")?;
+
+        for ctx in self.context.iter().rev() {
+            writeln!(f, "  {ctx}")?;
+        }
+
+        writeln!(f, "  {}", self.kind)
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum ErrorContext {
+    #[error("in {0:?} instruction")]
     Instruction(InstructionKind),
+
+    #[error("in {0:?} binary operation")]
     BinaryOp(BinaryOpKind),
+
+    #[error("in {0:?} unary operation")]
     UnaryOp(UnaryOpKind),
+
+    #[error("in constraint #{0}")]
     Constraint(usize),
+
+    #[error("in rule #{0}")]
     Rule(usize),
+
+    #[error("in query term #{0}")]
     QueryTerm(usize),
+
+    #[error("in left branch")]
     Left,
+
+    #[error("in right branch")]
     Right,
 }
 

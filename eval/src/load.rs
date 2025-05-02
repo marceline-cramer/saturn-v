@@ -40,7 +40,9 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
     /// Loads a program.
     pub fn load_program(program: &Program<R>) -> Self {
         // assert that the program is valid
-        program.validate().expect("program failed validation");
+        if let Err(err) = program.validate() {
+            panic!("program failed validation\n{err}");
+        }
 
         // create an initial load using the program's relations
         let mut loader = Self::new(program.relations.values());
