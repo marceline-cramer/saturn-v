@@ -14,13 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 use saturn_v_ir::{ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationKind, Value};
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
 use crate::utils::Key;
 
-pub type Values = SmallVec<[Value; 2]>;
+pub type Values = Vec<Value>;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Fact {
@@ -115,15 +116,15 @@ pub enum ConditionKind {
     Relation(Key<Relation>),
 }
 
-pub type IndexList = SmallVec<[usize; 8]>;
+pub type IndexList = Arc<[usize]>;
 
 /// The terms of a query.
 ///
 /// Terms can either be constrained by a value or bound to variables.
-pub type Query = SmallVec<[Option<Value>; 4]>;
+pub type Query = Arc<[Option<Value>]>;
 
 /// The head of a relation store operation.
-pub type StoreHead = SmallVec<[QueryTerm; 4]>;
+pub type StoreHead = Arc<[QueryTerm]>;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Node {

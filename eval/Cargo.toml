@@ -12,6 +12,5 @@ futures-util = "0.3"
 indexmap.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
-smallvec.workspace = true
 timely = "0.20"
 tokio = { workspace = true, features = ["rt", "macros"] }

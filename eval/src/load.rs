@@ -23,7 +23,7 @@ use indexmap::IndexSet;
 use saturn_v_ir::{self as ir, Instruction, Program, QueryTerm, Rule};
 
 use crate::{
-    types::{Fact, IndexList, Node, Query, Relation, StoreHead},
+    types::{Fact, Node, Relation},
     utils::Key,
 };
 
@@ -95,7 +95,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
         let (src, map) = self.load_instruction(&constraint.loaded, &constraint.instructions);
 
         // map the constraint head
-        let mut head = IndexList::with_capacity(constraint.head.len());
+        let mut head = Vec::with_capacity(constraint.head.len());
         for idx in constraint.head.iter() {
             let mapped = map.get_index_of(idx).unwrap();
             head.push(mapped);
@@ -104,7 +104,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
         // add the constraint node
         self.nodes.insert(Node::Constraint {
             src,
-            head,
+            head: head.into(),
             weight: constraint.weight.clone(),
             kind: constraint.kind.clone(),
         });
@@ -133,7 +133,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
         let (src, map) = self.load_instruction(&rule.loaded, &rule.instructions);
 
         // build the head of the relation
-        let mut head = StoreHead::with_capacity(rule.head.len());
+        let mut head = Vec::with_capacity(rule.head.len());
         for term in rule.head.iter() {
             head.push(match term {
                 QueryTerm::Value(val) => QueryTerm::Value(val.clone()),
@@ -146,7 +146,11 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
 
         // add the store node
         let dst = Key::new(self.relations.get(relation).unwrap());
-        self.nodes.insert(Node::StoreRelation { src, dst, head });
+        self.nodes.insert(Node::StoreRelation {
+            src,
+            dst,
+            head: head.into(),
+        });
     }
 
     /// Loads an instruction. Returns the node of the instruction and a [VariableMap].
@@ -172,7 +176,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
 
                 // load query terms into node
                 let mut map = IndexSet::new();
-                let mut query = Query::new();
+                let mut query = Vec::new();
                 for term in terms.iter() {
                     match term.clone() {
                         QueryTerm::Variable(idx) => {
@@ -186,7 +190,11 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 }
 
                 // create node
-                let (dst, node) = Key::pair(Node::LoadRelation { relation, query });
+                let (dst, node) = Key::pair(Node::LoadRelation {
+                    relation,
+                    query: query.into(),
+                });
+
                 self.nodes.insert(node);
                 (dst, map)
             }

@@ -318,10 +318,10 @@ pub fn store(
     ((relation, head), tuple): ((Key<Relation>, StoreHead), Tuple),
 ) -> (Fact, Option<(Fact, Condition)>) {
     let values = head
-        .into_iter()
+        .iter()
         .map(|term| match term {
-            QueryTerm::Value(val) => val,
-            QueryTerm::Variable(idx) => tuple.values[idx as usize].clone(),
+            QueryTerm::Value(val) => val.clone(),
+            QueryTerm::Variable(idx) => tuple.values[*idx as usize].clone(),
         })
         .collect();
 
