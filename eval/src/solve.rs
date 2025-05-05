@@ -17,7 +17,19 @@
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
 use flume::Sender;
-use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
+use rustsat::{
+    encodings::{
+        am1::{Commander, Encode, Pairwise},
+        card::{totalizer::Totalizer, BoundBoth},
+        CollectClauses,
+    },
+    instances::ManageVars,
+    solvers::{Solve, SolveIncremental, SolverResult},
+    types::{constraints::CardConstraint, Lit, Var},
+};
+use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind};
+
+pub type Oracle = rustsat_batsat::BasicSolver;
 
 use crate::{
     types::{Clause, Condition, Fact},
@@ -25,16 +37,11 @@ use crate::{
 };
 
 pub struct Solver {
-    sat: cadical::Solver,
-    next_var: i32,
     conditions_sink: OutputSink<Key<Condition>>,
     clauses_sink: OutputSink<Clause>,
     outputs_sink: OutputSink<Fact>,
-    free_vars: BinaryHeap<i32>,
-    clauses: HashMap<Clause, i32>,
-    conditions: HashMap<Key<Condition>, i32>,
-    outputs: BTreeMap<Fact, (bool, i32)>,
     output_tx: Sender<Update<Fact>>,
+    model: Model,
 }
 
 impl Solver {
@@ -49,29 +56,107 @@ impl Solver {
             clauses_sink,
             outputs_sink,
             output_tx,
-            sat: cadical::Solver::default(),
-            next_var: 1,
-            free_vars: BinaryHeap::new(),
-            clauses: HashMap::new(),
-            conditions: HashMap::new(),
-            outputs: BTreeMap::new(),
+            model: Model::default(),
         }
     }
 
     pub async fn run(&mut self) {
-        loop {
-            self.step().await.unwrap();
-            self.solve().unwrap();
-            self.update_outputs();
+        while self.step().await.is_some() {}
+    }
+
+    pub async fn step(&mut self) -> Option<bool> {
+        // fetch updates
+        let conditions = self.conditions_sink.next_batch().await?;
+        let clauses = self.clauses_sink.next_batch().await?;
+        let outputs = self.outputs_sink.next_batch().await?;
+
+        // update model
+        let removed_outputs = self.model.update(conditions, clauses, outputs);
+
+        // remove any outputs just removed
+        for output in removed_outputs {
+            let _ = self.output_tx.send(Update::Push(output, false));
+        }
+
+        // solve
+        let sat = self.model.solve()?;
+
+        // update outputs
+        self.update_outputs(sat);
+
+        // done
+        Some(sat)
+    }
+
+    pub fn update_outputs(&mut self, sat: bool) {
+        // make sure that when we update outputs, we default to all outputs
+        // being false if the SAT solver returned unknown or unsat
+        for (output, (state, var)) in self.model.outputs.iter_mut() {
+            let value = sat
+                && self
+                    .model
+                    .oracle
+                    .var_val(*var)
+                    .unwrap()
+                    .to_bool_with_def(false);
+
+            if *state != value {
+                let _ = self.output_tx.send(Update::Push(output.clone(), value));
+                *state = value;
+            }
+        }
+
+        let _ = self.output_tx.send(Update::Flush);
+    }
+}
+
+#[derive(Default)]
+pub struct Model {
+    oracle: Oracle,
+    vars: VariablePool,
+    clauses: HashMap<Clause, Var>,
+    conditions: HashMap<Key<Condition>, Var>,
+    outputs: BTreeMap<Fact, (bool, Var)>,
+}
+
+impl Model {
+    pub fn solve(&mut self) -> Option<bool> {
+        // time solving
+        let start = std::time::Instant::now();
+
+        // display statistics
+        eprintln!("starting SAT solving...");
+        eprintln!("  {} pending var recycs", self.vars.free_vars.len());
+        eprintln!("  {} active clauses", self.clauses.len());
+        eprintln!("  {} active conditions", self.conditions.len());
+        eprintln!("  {} outputs", self.outputs.len());
+
+        // solve SAT, assuming clause gates
+        let assumptions: Vec<_> = self.clauses.values().map(|var| var.neg_lit()).collect();
+        let result = self.oracle.solve_assumps(&assumptions).unwrap();
+
+        // display solve time and SAT stats
+        eprintln!("solved in {:?}", start.elapsed());
+
+        // return result
+        match result {
+            SolverResult::Sat => Some(true),
+            SolverResult::Unsat => Some(false),
+            SolverResult::Interrupted => None,
         }
     }
 
-    pub async fn step(&mut self) -> Option<()> {
-        // process the next batch of outputs
-        let (conditions_insert, conditions_remove) =
-            split_batch(self.conditions_sink.next_batch().await?);
-        let (clauses_insert, clauses_remove) = split_batch(self.clauses_sink.next_batch().await?);
-        let (outputs_insert, outputs_remove) = split_batch(self.outputs_sink.next_batch().await?);
+    /// Returns the list of outputs that have been disabled and removed.
+    pub fn update(
+        &mut self,
+        conditions: Vec<(Key<Condition>, bool)>,
+        clauses: Vec<(Clause, bool)>,
+        outputs: Vec<(Fact, bool)>,
+    ) -> Vec<Fact> {
+        // split update batches into insertions and removals
+        let (conditions_insert, conditions_remove) = split_batch(conditions);
+        let (clauses_insert, clauses_remove) = split_batch(clauses);
+        let (outputs_insert, outputs_remove) = split_batch(outputs);
 
         // mapping constraints into clauses goes here...
 
@@ -80,7 +165,7 @@ impl Solver {
         log_time("removing old clauses...", || {
             for clause in clauses_remove.iter() {
                 let gate = self.clauses.remove(clause).unwrap();
-                self.sat.add_clause([-gate]);
+                self.oracle.add_unit(gate.pos_lit()).unwrap();
             }
         });
 
@@ -89,14 +174,14 @@ impl Solver {
         log_time("removing old conditions...", || {
             for cond in conditions_remove.iter() {
                 let var = self.conditions.remove(cond).unwrap();
-                self.free_vars.push(var);
+                self.vars.recycle(var);
             }
         });
 
         // create lookups for new conditions
         log_time("adding new conditions...", || {
             for cond in conditions_insert.iter() {
-                let var = self.create_variable();
+                let var = self.vars.new_var();
                 self.conditions.insert(*cond, var);
             }
         });
@@ -109,10 +194,11 @@ impl Solver {
         });
 
         // forward removal of outputs
+        let mut removed_outputs = Vec::with_capacity(outputs_remove.len());
         log_time("removing old outputs...", || {
             for output in outputs_remove.iter() {
                 if self.outputs.remove(output).unwrap().0 {
-                    let _ = self.output_tx.send(Update::Push(output.clone(), false));
+                    removed_outputs.push(output.clone());
                 }
             }
         });
@@ -126,153 +212,185 @@ impl Solver {
             }
         });
 
-        // done
-        Some(())
-    }
-
-    pub fn solve(&mut self) -> Option<bool> {
-        // time solving
-        let start = std::time::Instant::now();
-
-        // display statistics
-        eprintln!("starting SAT solving...");
-        eprintln!("  {} free vars", self.free_vars.len());
-        eprintln!("  {} active clauses", self.clauses.len());
-        eprintln!("  {} active conditions", self.conditions.len());
-        eprintln!("  {} outputs", self.outputs.len());
-
-        // solve SAT, assuming clause gates
-        let result = self.sat.solve_with(self.clauses.values().copied());
-
-        // display solve time and SAT stats
-        eprintln!("solved in {:?}", start.elapsed());
-
-        // return result
-        result
-    }
-
-    fn create_variable(&mut self) -> i32 {
-        self.free_vars.pop().unwrap_or_else(|| {
-            let var = self.next_var;
-            self.next_var += 1;
-            var
-        })
+        // return removed outputs
+        removed_outputs
     }
 
     fn insert_clause(&mut self, clause: &Clause) {
         use Clause::*;
-        let gate = self.create_variable();
-        self.clauses.insert(clause.clone(), -gate);
+        let gate = self.vars.new_var();
+        self.clauses.insert(clause.clone(), gate);
+
+        let mut enc = GatedEncoder {
+            inner: &mut self.oracle,
+            gate: gate.pos_lit(),
+        };
+
         match clause {
             And { lhs, rhs, out } => {
                 let lhs = self.conditions[lhs];
                 let rhs = self.conditions[rhs];
                 let out = self.conditions[out];
-                self.sat.add_clause([gate, -lhs, -rhs, out]);
-                self.sat.add_clause([gate, lhs, -out]);
-                self.sat.add_clause([gate, rhs, -out]);
+                enc.add_clause([lhs.neg_lit(), rhs.neg_lit(), out.pos_lit()].into())
+                    .unwrap();
+                enc.add_clause([lhs.pos_lit(), out.neg_lit()].into())
+                    .unwrap();
+                enc.add_clause([rhs.pos_lit(), out.neg_lit()].into())
+                    .unwrap();
             }
             AndNot { lhs, rhs, out } => {
                 let lhs = self.conditions[lhs];
                 let rhs = self.conditions[rhs];
                 let out = self.conditions[out];
-                self.sat.add_clause([gate, -lhs, rhs, out]);
-                self.sat.add_clause([gate, lhs, -out]);
-                self.sat.add_clause([gate, -rhs, -out]);
+                enc.add_clause([lhs.neg_lit(), rhs.pos_lit(), out.pos_lit()].into())
+                    .unwrap();
+                enc.add_clause([lhs.pos_lit(), out.neg_lit()].into())
+                    .unwrap();
+                enc.add_clause([rhs.neg_lit(), out.neg_lit()].into())
+                    .unwrap();
             }
             Implies { term, out } => {
                 let term = self.conditions[term];
                 let out = self.conditions[out];
-                self.sat.add_clause([gate, -term, out]);
+                enc.add_clause([term.neg_lit(), out.pos_lit()].into())
+                    .unwrap();
             }
             Or { terms, out } => {
                 let out = self.conditions[out];
                 let mut all_false = Vec::with_capacity(terms.len() + 2);
-                all_false.push(gate);
-                all_false.push(-out);
+                all_false.push(out.neg_lit());
 
                 for term in terms {
                     let term = self.conditions[term];
-                    self.sat.add_clause([gate, -term, out]);
-                    all_false.push(term);
+                    enc.add_clause([term.neg_lit(), out.pos_lit()].into())
+                        .unwrap();
+                    all_false.push(term.pos_lit());
                 }
 
-                self.sat.add_clause(all_false);
+                enc.add_clause(all_false.as_slice().into()).unwrap();
             }
             Decision { terms, out } => {
                 let mut clause = Vec::with_capacity(terms.len() + 2);
-                clause.push(gate);
-                clause.push(-self.conditions[out]);
+                clause.push(self.conditions[out].neg_lit());
 
                 for term in terms {
-                    clause.push(self.conditions[term]);
+                    clause.push(self.conditions[term].pos_lit());
                 }
 
-                self.sat.add_clause(clause);
+                enc.add_clause(clause.as_slice().into()).unwrap();
             }
-            ConstraintGroup {
-                terms,
-                weight: ConstraintWeight::Hard,
-                kind:
-                    ConstraintKind::Cardinality {
-                        kind: CardinalityConstraintKind::AtLeast,
-                        threshold: 1,
-                    },
-            } => {
-                let mut clause = Vec::with_capacity(terms.len() + 1);
-                clause.push(gate);
-
-                for term in terms {
-                    clause.push(self.conditions[term]);
-                }
-
-                self.sat.add_clause(clause);
-            }
-            ConstraintGroup {
-                terms,
-                weight: ConstraintWeight::Hard,
-                kind: ConstraintKind::Cardinality { kind, threshold: 1 },
-            } => {
-                // simultaneously upper-bound and lower-bound term count
-                let mut clause = Vec::with_capacity(terms.len() + 1);
-                clause.push(gate);
-                for (idx, lhs) in terms.iter().enumerate() {
-                    // at least one term must be true
-                    let lhs = self.conditions[lhs];
-                    clause.push(lhs);
-
-                    // for each pair of terms, both must not be true
-                    for rhs in terms[(idx + 1)..].iter() {
-                        let rhs = self.conditions[rhs];
-                        self.sat.add_clause([gate, -lhs, -rhs]);
-                    }
-                }
-
-                // if cardinality =1 (not <=1), add completed "OR" clause
-                if *kind == CardinalityConstraintKind::Only {
-                    self.sat.add_clause(clause);
-                }
-            }
-            ConstraintGroup { kind, .. } => {
-                unimplemented!("unimplemented constraint kind: {kind:?}")
-            }
+            ConstraintGroup { terms, kind, .. } => self.encode_constraint(
+                gate.pos_lit(),
+                terms
+                    .iter()
+                    .map(|key| self.conditions[key].pos_lit())
+                    .collect(),
+                kind,
+            ),
         }
     }
 
-    pub fn update_outputs(&mut self) {
-        // make sure that when we update outputs, we default to all outputs
-        // being false if the SAT solver returned unknown or unsat
-        let sat = self.sat.status().unwrap_or(false);
+    /// Encodes a constraint.
+    pub fn encode_constraint(&mut self, gate: Lit, terms: Vec<Lit>, kind: &ConstraintKind) {
+        let mut enc = GatedEncoder {
+            inner: &mut self.oracle,
+            gate,
+        };
 
-        for (output, (state, var)) in self.outputs.iter_mut() {
-            let value = sat && self.sat.value(*var).unwrap_or(false);
-            if *state != value {
-                let _ = self.output_tx.send(Update::Push(output.clone(), value));
-                *state = value;
+        match kind {
+            ConstraintKind::Cardinality {
+                kind: CardinalityConstraintKind::AtLeast,
+                threshold: 1,
+            } => {
+                enc.add_clause(FromIterator::from_iter(terms)).unwrap();
+            }
+            ConstraintKind::Cardinality {
+                kind: CardinalityConstraintKind::AtMost,
+                threshold: 1,
+            } => {
+                let mut am1 = Commander::<4, Pairwise>::from_iter(terms);
+                am1.encode(&mut enc, &mut self.vars).unwrap();
+            }
+            ConstraintKind::Cardinality { kind, threshold } => {
+                let threshold = *threshold as usize;
+
+                let constr = match kind {
+                    CardinalityConstraintKind::AtLeast => CardConstraint::new_lb(terms, threshold),
+                    CardinalityConstraintKind::AtMost => CardConstraint::new_ub(terms, threshold),
+                    CardinalityConstraintKind::Only => CardConstraint::new_eq(terms, threshold),
+                };
+
+                Totalizer::encode_constr(constr, &mut enc, &mut self.vars).unwrap();
             }
         }
+    }
+}
 
-        let _ = self.output_tx.send(Update::Flush);
+/// Helper struct to add clauses with a gate literal.
+pub struct GatedEncoder<'a> {
+    inner: &'a mut Oracle,
+    gate: Lit,
+}
+
+impl CollectClauses for GatedEncoder<'_> {
+    fn n_clauses(&self) -> usize {
+        self.inner.n_clauses()
+    }
+
+    fn extend_clauses<T>(&mut self, cl_iter: T) -> Result<(), rustsat::OutOfMemory>
+    where
+        T: IntoIterator<Item = rustsat::types::Clause>,
+    {
+        self.inner.extend_clauses(cl_iter.into_iter().map(|mut cl| {
+            cl.add(self.gate);
+            cl
+        }))
+    }
+}
+
+/// Allocator for SAT variables.
+#[derive(Default)]
+pub struct VariablePool {
+    next_var: u32,
+    free_vars: BinaryHeap<Var>,
+    used_num: u32,
+}
+
+impl VariablePool {
+    pub fn recycle(&mut self, var: Var) {
+        self.free_vars.push(var);
+        self.used_num -= 1;
+    }
+}
+
+impl ManageVars for VariablePool {
+    fn new_var(&mut self) -> Var {
+        self.used_num += 1;
+        self.free_vars.pop().unwrap_or_else(|| {
+            let var = self.next_var;
+            self.next_var += 1;
+            Var::new(var)
+        })
+    }
+
+    fn max_var(&self) -> Option<Var> {
+        None
+    }
+
+    fn increase_next_free(&mut self, _v: Var) -> bool {
+        false
+    }
+
+    fn combine(&mut self, _other: Self) {
+        unimplemented!()
+    }
+
+    fn n_used(&self) -> u32 {
+        self.used_num
+    }
+
+    fn forget_from(&mut self, _: Var) {
+        unimplemented!()
     }
 }
 
