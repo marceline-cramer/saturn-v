@@ -161,7 +161,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
             Sink { .. } => unreachable!("cannot load sinks"),
             Filter { test, rest } => {
                 let (src, map) = self.load_instruction(loaded, rest);
-                let expr = test.clone().map_variables(&map);
+                let expr = map_variables(test.clone(), &map);
                 let (dst, node) = Key::pair(Node::Filter { src, expr });
                 self.nodes.insert(node);
                 (dst, map)
@@ -203,7 +203,7 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 let (src, mut map) = self.load_instruction(loaded, rest);
 
                 // map variables from rule-scoped indices to node-scoped indices
-                let expr = expr.clone().map_variables(&map);
+                let expr = map_variables(expr.clone(), &map);
 
                 // add the variable to upwards-bound mappings
                 map.insert(*var);
@@ -281,5 +281,35 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
                 (dst, joined)
             }
         }
+    }
+}
+
+/// Maps an expression's variables using the given variable map.
+pub fn map_variables(expr: ir::Expr, map: &IndexSet<u32>) -> ir::Expr {
+    use ir::Expr::*;
+    match expr {
+        Variable(idx) => Variable(map.get_index_of(&idx).unwrap() as u32),
+        UnaryOp { op, term } => UnaryOp {
+            op,
+            term: map_variables((*term).clone(), map).into(),
+        },
+        BinaryOp { op, lhs, rhs } => BinaryOp {
+            op,
+            lhs: map_variables((*lhs).clone(), map).into(),
+            rhs: map_variables((*rhs).clone(), map).into(),
+        },
+        Load { relation, query } => Load {
+            relation,
+            query: query
+                .into_iter()
+                .map(|term| match term {
+                    QueryTerm::Variable(idx) => {
+                        QueryTerm::Variable(map.get_index_of(&idx).unwrap() as u32)
+                    }
+                    term => term,
+                })
+                .collect(),
+        },
+        other => other,
     }
 }

@@ -20,7 +20,6 @@ use std::{
     sync::Arc,
 };
 
-use indexmap::IndexSet;
 use ordered_float::OrderedFloat;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
@@ -256,25 +255,6 @@ pub enum Expr {
         lhs: Arc<Expr>,
         rhs: Arc<Expr>,
     },
-}
-
-impl Expr {
-    pub fn map_variables(self, map: &IndexSet<u32>) -> Self {
-        use Expr::*;
-        match self {
-            Variable(idx) => Variable(map.get_index_of(&idx).unwrap() as u32),
-            UnaryOp { op, term } => UnaryOp {
-                op,
-                term: (*term).clone().map_variables(map).into(),
-            },
-            BinaryOp { op, lhs, rhs } => BinaryOp {
-                op,
-                lhs: (*lhs).clone().map_variables(map).into(),
-                rhs: (*rhs).clone().map_variables(map).into(),
-            },
-            other => other,
-        }
-    }
 }
 
 /// Redundant operations (Sub, Neq, Gt, Ge) are not included. Use unary ops to

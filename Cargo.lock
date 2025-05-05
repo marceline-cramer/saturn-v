@@ -1952,7 +1952,6 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "chumsky",
- "indexmap",
  "ordered-float 4.6.0",
  "pretty",
  "serde",
