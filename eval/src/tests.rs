@@ -69,7 +69,8 @@ async fn run(loader: Loader<String>) {
         output_tx,
     );
 
-    assert_eq!(solver.step().await, Some(true), "unsat or timeout");
+    assert_eq!(solver.step().await, Some(()), "failed to step solver");
+    assert_eq!(solver.solve(), Some(true), "unsat or unknown");
     solver.update_outputs();
 
     let mut batch = Vec::new();
@@ -137,7 +138,7 @@ async fn test_pick_pairs() {
                     test: Expr::BinaryOp {
                         op: BinaryOpKind::Lt,
                         lhs: Arc::new(Expr::Variable(1)),
-                        rhs: Arc::new(Expr::Value(Value::Integer(1000))),
+                        rhs: Arc::new(Expr::Value(Value::Integer(100))),
                     },
                     rest: Box::new(Instruction::FromQuery {
                         relation: 0,

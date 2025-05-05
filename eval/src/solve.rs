@@ -21,25 +21,25 @@ use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 
 use crate::{
     types::{Clause, Condition, Fact},
-    utils::{OutputSink, Update},
+    utils::{Key, OutputSink, Update},
 };
 
 pub struct Solver {
     sat: cadical::Solver,
     next_var: i32,
-    conditions_sink: OutputSink<Condition>,
+    conditions_sink: OutputSink<Key<Condition>>,
     clauses_sink: OutputSink<Clause>,
     outputs_sink: OutputSink<Fact>,
     free_vars: BinaryHeap<i32>,
     clauses: HashMap<Clause, i32>,
-    conditions: HashMap<Condition, i32>,
+    conditions: HashMap<Key<Condition>, i32>,
     outputs: BTreeMap<Fact, (bool, i32)>,
     output_tx: Sender<Update<Fact>>,
 }
 
 impl Solver {
     pub fn new(
-        conditions_sink: OutputSink<Condition>,
+        conditions_sink: OutputSink<Key<Condition>>,
         clauses_sink: OutputSink<Clause>,
         outputs_sink: OutputSink<Fact>,
         output_tx: Sender<Update<Fact>>,
@@ -61,11 +61,12 @@ impl Solver {
     pub async fn run(&mut self) {
         loop {
             self.step().await.unwrap();
+            self.solve().unwrap();
             self.update_outputs();
         }
     }
 
-    pub async fn step(&mut self) -> Option<bool> {
+    pub async fn step(&mut self) -> Option<()> {
         // process the next batch of outputs
         let (conditions_insert, conditions_remove) =
             split_batch(self.conditions_sink.next_batch().await?);
@@ -108,13 +109,34 @@ impl Solver {
 
         // insert new outputs with default state of false
         for output in outputs_insert {
-            let cond = Condition::from(output.clone());
+            let cond = Key::new(&Condition::from(output.clone()));
             let var = self.conditions[&cond];
             self.outputs.insert(output, (false, var));
         }
 
+        // done
+        Some(())
+    }
+
+    pub fn solve(&mut self) -> Option<bool> {
+        // time solving
+        let start = std::time::Instant::now();
+
+        // display statistics
+        eprintln!("starting SAT solving...");
+        eprintln!("  {} free vars", self.free_vars.len());
+        eprintln!("  {} active clauses", self.clauses.len());
+        eprintln!("  {} active conditions", self.conditions.len());
+        eprintln!("  {} outputs", self.outputs.len());
+
         // solve SAT, assuming clause gates
-        self.sat.solve_with(self.clauses.values().copied())
+        let result = self.sat.solve_with(self.clauses.values().copied());
+
+        // display solve time and SAT stats
+        eprintln!("solved in {:?}", start.elapsed());
+
+        // return result
+        result
     }
 
     fn create_variable(&mut self) -> i32 {

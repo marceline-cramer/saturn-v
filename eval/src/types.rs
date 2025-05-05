@@ -26,7 +26,7 @@ pub type Values = Vec<Value>;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Fact {
     pub relation: Key<Relation>,
-    pub values: Values,
+    pub values: Arc<[Value]>,
 }
 
 impl Fact {
@@ -38,67 +38,47 @@ impl Fact {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Clause {
     And {
-        lhs: Condition,
-        rhs: Condition,
-        out: Condition,
+        lhs: Key<Condition>,
+        rhs: Key<Condition>,
+        out: Key<Condition>,
     },
     AndNot {
-        lhs: Condition,
+        lhs: Key<Condition>,
         /// Negated.
-        rhs: Condition,
-        out: Condition,
+        rhs: Key<Condition>,
+        out: Key<Condition>,
     },
     Implies {
-        term: Condition,
-        out: Condition,
+        term: Key<Condition>,
+        out: Key<Condition>,
     },
     Or {
-        terms: Vec<Condition>,
-        out: Condition,
+        terms: Vec<Key<Condition>>,
+        out: Key<Condition>,
     },
     Decision {
-        terms: Vec<Condition>,
-        out: Condition,
+        terms: Vec<Key<Condition>>,
+        out: Key<Condition>,
     },
 
     /// Constrains a group of constraint conditions.
     ConstraintGroup {
-        terms: Vec<Condition>,
+        terms: Vec<Key<Condition>>,
         weight: ConstraintWeight,
         kind: ConstraintKind,
     },
 }
 
-impl Clause {
-    pub fn into_conditions(self) -> Vec<Condition> {
-        use Clause::*;
-        match self {
-            And { lhs, rhs, out } => vec![lhs, rhs, out],
-            AndNot { lhs, rhs, out } => vec![lhs, rhs, out],
-            Implies { term, out } => vec![term, out],
-            Or { mut terms, out } => {
-                terms.push(out);
-                terms
-            }
-            Decision { mut terms, out } => {
-                terms.push(out);
-                terms
-            }
-            ConstraintGroup { terms, .. } => terms,
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Tuple {
     pub values: Values,
-    pub condition: Option<Condition>,
+    pub condition: Option<Key<Condition>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Condition {
     pub kind: ConditionKind,
-    pub values: Values,
+    pub values: Arc<[Value]>,
 }
 
 impl From<Fact> for Condition {
@@ -244,16 +224,9 @@ impl Node {
         }
     }
 
-    pub fn project_src(self) -> Option<Key<Node>> {
+    pub fn project(self) -> Option<(Key<Node>, IndexList)> {
         match self {
-            Node::Project { src, .. } => Some(src),
-            _ => None,
-        }
-    }
-
-    pub fn project_map(self) -> Option<IndexList> {
-        match self {
-            Node::Project { map, .. } => Some(map),
+            Node::Project { src, map } => Some((src, map)),
             _ => None,
         }
     }

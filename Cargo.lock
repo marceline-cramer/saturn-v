@@ -1868,7 +1868,6 @@ dependencies = [
  "indexmap",
  "saturn-v-ir",
  "serde",
- "smallvec",
  "timely",
  "tokio",
 ]

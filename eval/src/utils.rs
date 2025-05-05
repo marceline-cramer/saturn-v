@@ -488,6 +488,10 @@ pub fn swap<K, V>((k, v): (K, V)) -> (V, K) {
     (v, k)
 }
 
+pub fn swap_in_place<V>((a, b): &mut (V, V)) {
+    std::mem::swap(a, b);
+}
+
 pub fn map_value<K, I, O>(
     mut cb: impl FnMut(I) -> Option<O>,
 ) -> impl FnMut((K, I)) -> Option<(K, O)> {

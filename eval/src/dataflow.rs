@@ -16,7 +16,9 @@
 
 use std::fmt::Debug;
 
-use differential_dataflow::operators::{iterate::Variable, Join, Reduce, Threshold};
+use differential_dataflow::operators::{
+    arrange::ArrangeByKey, iterate::Variable, Join, JoinCore, Reduce, Threshold,
+};
 use saturn_v_ir::*;
 use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::Worker};
 
@@ -42,7 +44,7 @@ pub fn backend(
         let nodes = nodes_in.to_collection(scope).map(Key::pair);
 
         // generate the semantics
-        let (tuples, facts, clauses, implies) = scope.iterative::<u32, _, _>(|scope| {
+        let (facts, clauses, implies, conditions) = scope.iterative::<u32, _, _>(|scope| {
             // enter inputs into iterative scope
             let relations = relations.enter(scope);
             let facts = facts.enter(scope);
@@ -55,126 +57,125 @@ pub fn backend(
             let clauses = Variable::new(scope, step);
             let implies = Variable::new(scope, step);
 
+            // arrange tuples for all fetch operations
+            let tuples_arranged = tuples.arrange_by_key();
+
             // extract left and right sides of join operation
             let join_lhs = nodes
                 .flat_map(map_value(Node::join_lhs))
-                .map(|(dst, (src, num))| (src, (dst, num)))
-                .join(&tuples)
-                .map(value)
-                .map(join_slice);
+                .map_in_place(|(dst, (src, _num))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, dst, tup| [join_slice(dst, tup)]);
 
             let join_rhs = nodes
                 .flat_map(map_value(Node::join_rhs))
-                .map(|(dst, (src, num))| (src, (dst, num)))
-                .join(&tuples)
-                .map(value)
-                .map(join_slice);
+                .map_in_place(|(dst, (src, _num))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, dst, tup| [join_slice(dst, tup)]);
 
             // select and merge sides of join source nodes
-            let joined = join_lhs.join(&join_rhs).map(join);
+            let joined = join_lhs.join_map(&join_rhs, join);
 
             // extract the new tuples and clauses from a join
             let join = joined.map(key);
-            let join_clauses = joined.flat_map(value);
+            let join_rhs = joined.flat_map(value);
+            let join_clauses = join_rhs.map(key);
+            let join_cond = join_rhs.map(value);
 
             // extract left and right sides of merge operation
             let merge_lhs = nodes
                 .flat_map(map_value(Node::merge_lhs))
-                .map(swap)
-                .join(&tuples)
-                .map(value);
+                .map_in_place(swap_in_place)
+                .join_core(&tuples_arranged, |_, dst, tup| [(*dst, tup.clone())]);
 
             let merge_rhs = nodes
                 .flat_map(map_value(Node::merge_rhs))
-                .map(swap)
-                .join(&tuples)
-                .map(value);
+                .map_in_place(swap_in_place)
+                .join_core(&tuples_arranged, |_, dst, tup| [(*dst, tup.clone())]);
 
             // merge sides
             let merge = merge_lhs.concat(&merge_rhs);
 
             // project operation
-            let project_src = nodes.flat_map(map_value(Node::project_src)).map(swap);
-            let project_map = nodes.flat_map(map_value(Node::project_map));
-
-            // join together project targets and rearrange values
-            let project = project_src
-                .join(&tuples)
-                .map(value)
-                .join(&project_map)
-                .map(project);
+            let project = nodes
+                .flat_map(map_value(Node::project))
+                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, dst, tup| [project(dst, tup)]);
 
             // filter nodes
             let filter = nodes
                 .flat_map(map_value(Node::filter))
-                .map(|(dst, (src, expr))| (src, (dst, expr)))
-                .join(&tuples)
-                .map(value)
-                .filter(filter)
-                .map(|((dst, _expr), tuple)| (dst, tuple));
+                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, dst, tup| filter(dst, tup));
 
             // push nodes
             let push = nodes
                 .flat_map(map_value(Node::push))
-                .map(|(dst, (src, expr))| (src, (dst, expr)))
-                .join(&tuples)
-                .map(value)
-                .map(push);
+                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, rhs, val| [push(rhs, val)]);
 
             // load relation operation
             let load = nodes
                 .flat_map(map_value(Node::load_relation))
-                .map(swap)
-                .map(|((rel, _query), node)| (rel, node)) // TODO: hack
+                .map(|(node, (rel, _query))| (rel, node)) // TODO: hack
                 .inspect(inspect("load input"))
                 .join(&facts)
                 .join(&relations)
                 .map(value)
                 .map(load);
 
-            // combine all operations into new tuples
-            let new_tuples = join
-                .concat(&merge)
-                .concat(&project)
-                .concat(&filter)
-                .concat(&push)
-                .concat(&load)
-                .distinct()
-                .inspect(inspect("stored"));
+            let load_cond = load.flat_map(value);
+            let load = load.map(key);
 
-            // store new tuples to corresponding relations
+            // store tuples to corresponding relations
             let stored = nodes
                 .map(value)
                 .flat_map(Node::store_relation)
-                .join(&new_tuples)
-                .map(value)
-                .map(store)
+                .join_core(&tuples_arranged, |_, dst, val| [store(dst, val)])
                 .distinct();
+
+            // collect constraint groups into clauses
+            let constraint_type = nodes.flat_map(map_value(Node::constraint_type));
+
+            let constraints = nodes
+                .flat_map(map_value(Node::constraint_src))
+                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
+                .join_core(&tuples_arranged, |_, dst, tup| [constraint_map(dst, tup)])
+                .reduce(constraint_reduce)
+                .map(|((dst, _head), group)| (dst, group))
+                .join_map(&constraint_type, constraint_clause);
+
+            // combine all operations into new tuples
+            tuples
+                .set_concat(&join.concatenate([merge, project, filter, push, load]))
+                .inspect(inspect("tuples"));
 
             // the keys of stored contain new tuples
             let store = stored.map(key).map(Fact::relation_pair);
             let new_implies = stored.flat_map(value);
 
+            // all new clauses
+            let new_clauses = join_clauses
+                .concat(&constraints)
+                .inspect(inspect("clauses"));
+
+            // all new conditions
+            let conditions = join_cond.concat(&load_cond);
+
             // return outputs of all extended collections
             (
-                tuples
-                    .set_concat(&new_tuples)
-                    .inspect(inspect("tuples"))
-                    .leave(),
                 facts.set_concat(&store).inspect(inspect("facts")).leave(),
-                clauses
-                    .set_concat(&join_clauses)
-                    .inspect(inspect("clauses"))
-                    .leave(),
+                clauses.set_concat(&new_clauses).leave(),
                 implies
                     .set_concat(&new_implies)
                     .inspect(inspect("implies"))
                     .leave(),
+                conditions.leave(),
             )
         });
 
         // make a map from implies to their relations
-        let implies = implies.map(|(fact, condition)| (fact.relation, (fact, condition)));
+        let implies = implies
+            .map(|(fact, condition)| (fact.relation, (fact, condition)))
+            .arrange_by_key();
 
         // for a decision to be true, one of their dependents must also be true
         let decisions = implies
@@ -183,6 +184,8 @@ pub fn backend(
                     .filter(|(_key, rel)| rel.kind == RelationKind::Decision)
                     .map(key),
             )
+            .map(value)
+            .reduce(decision_clause)
             .map(value);
 
         // conditional relations are collective ORs of their dependent conditions
@@ -192,43 +195,24 @@ pub fn backend(
                     .filter(|(_key, rel)| rel.kind == RelationKind::Conditional)
                     .map(key),
             )
+            .map(value)
+            .reduce(conditional_clause)
             .map(value);
 
         // filter output facts from all facts
         let outputs = facts
             .semijoin(&relations.filter(|(_key, rel)| rel.is_output).map(key))
-            .map(value)
-            .distinct();
-
-        // collect constraint groups into clauses
-        let constraint_type = nodes.flat_map(map_value(Node::constraint_type));
-
-        let constraints = nodes
-            .flat_map(map_value(Node::constraint_src))
-            .map(|(dst, (src, map))| (src, (dst, map)))
-            .join_map(&tuples, constraint_map)
-            .reduce(constraint_reduce)
-            .map(|((dst, _head), group)| (dst, group))
-            .join_map(&constraint_type, constraint_clause);
+            .map(value);
 
         // extend clauses
         let clauses = clauses
-            .concat(&decisions.reduce(decision_clause).map(value))
-            .concat(&conditional.reduce(conditional_clause).map(value))
-            .concat(&constraints)
-            .distinct();
+            .concatenate([decisions.map(key), conditional.map(key)])
+            .inspect(inspect("clause"));
 
-        // track instances of all condition variables
-        let conditions = clauses
-            .flat_map(Clause::into_conditions)
-            .concat(
-                &decisions
-                    .concat(&conditional)
-                    .map(key)
-                    .concat(&outputs)
-                    .map(Into::into),
-            )
-            .distinct();
+        // track instances of all new condition variables
+        let conditions = conditions
+            .concatenate([decisions.map(value), conditional.map(value)])
+            .map(|cond| Key::new(&cond));
 
         // return inputs and outputs
         (
@@ -247,22 +231,28 @@ pub struct DataflowRouters {
     pub relations_in: InputRouter<Relation>,
     pub facts_in: InputRouter<Fact>,
     pub nodes_in: InputRouter<Node>,
-    pub conditions_out: OutputRouter<Condition>,
+    pub conditions_out: OutputRouter<Key<Condition>>,
     pub clauses_out: OutputRouter<Clause>,
     pub outputs_out: OutputRouter<Fact>,
 }
 
-pub fn join_slice(
-    ((dst, num), mut tuple): ((Key<Node>, usize), Tuple),
-) -> ((Key<Node>, Values), Tuple) {
+pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: &Tuple) -> ((Key<Node>, Values), Tuple) {
+    let num = *num;
     let prefix = tuple.values[..num].into();
-    tuple.values = tuple.values[num..].into();
-    ((dst, prefix), tuple)
+    (
+        (*dst, prefix),
+        Tuple {
+            values: tuple.values[num..].into(),
+            condition: tuple.condition,
+        },
+    )
 }
 
 pub fn join(
-    ((dst, prefix), (lhs, rhs)): ((Key<Node>, Values), (Tuple, Tuple)),
-) -> ((Key<Node>, Tuple), Option<Clause>) {
+    (dst, prefix): &(Key<Node>, Values),
+    lhs: &Tuple,
+    rhs: &Tuple,
+) -> ((Key<Node>, Tuple), Option<(Clause, Condition)>) {
     let values: Values = prefix
         .iter()
         .chain(lhs.values.iter())
@@ -275,48 +265,51 @@ pub fn join(
         (Some(lhs), None) => (Some(lhs), None),
         (None, Some(rhs)) => (Some(rhs), None),
         (Some(lhs), Some(rhs)) => {
-            let out = Condition {
-                kind: ConditionKind::Node(dst),
-                values: values.clone(),
-            };
+            let (out_key, out) = Key::pair(Condition {
+                kind: ConditionKind::Node(*dst),
+                values: values.clone().into(),
+            });
 
             let clause = Clause::And {
+                out: out_key,
                 lhs,
                 rhs,
-                out: out.clone(),
             };
 
-            (Some(out), Some(clause))
+            (Some(out_key), Some((clause, out)))
         }
     };
 
     let tuple = Tuple { values, condition };
-    ((dst, tuple), clause)
+    ((*dst, tuple), clause)
 }
 
-pub fn project((dst, (tuple, map)): (Key<Node>, (Tuple, IndexList))) -> (Key<Node>, Tuple) {
+pub fn project((dst, map): &(Key<Node>, IndexList), tuple: &Tuple) -> (Key<Node>, Tuple) {
     let condition = tuple.condition;
     let values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
-    (dst, Tuple { values, condition })
+    (*dst, Tuple { values, condition })
 }
 
-pub fn load(((node, fact), relation): ((Key<Node>, Fact), Relation)) -> (Key<Node>, Tuple) {
-    let values = fact.values;
-
-    let condition = match relation.kind {
+pub fn load(
+    ((node, fact), relation): ((Key<Node>, Fact), Relation),
+) -> ((Key<Node>, Tuple), Option<Condition>) {
+    let condition_data = match relation.kind {
         RelationKind::Conditional | RelationKind::Decision => Some(Condition {
             kind: ConditionKind::Relation(fact.relation),
-            values: values.clone(),
+            values: fact.values.clone(),
         }),
         RelationKind::Basic => None,
     };
 
-    (node, Tuple { values, condition })
+    let values = fact.values.to_vec();
+    let condition = condition_data.as_ref().map(Key::new);
+    ((node, Tuple { values, condition }), condition_data)
 }
 
 pub fn store(
-    ((relation, head), tuple): ((Key<Relation>, StoreHead), Tuple),
-) -> (Fact, Option<(Fact, Condition)>) {
+    (relation, head): &(Key<Relation>, StoreHead),
+    tuple: &Tuple,
+) -> (Fact, Option<(Fact, Key<Condition>)>) {
     let values = head
         .iter()
         .map(|term| match term {
@@ -325,6 +318,7 @@ pub fn store(
         })
         .collect();
 
+    let relation = *relation;
     let fact = Fact { relation, values };
     let implies = tuple.condition.map(|cond| (fact.clone(), cond));
     (fact, implies)
@@ -332,42 +326,38 @@ pub fn store(
 
 pub fn decision_clause(
     fact: &Fact,
-    input: &[(&Condition, Diff)],
-    output: &mut Vec<(Clause, Diff)>,
+    input: &[(&Key<Condition>, Diff)],
+    output: &mut Vec<((Clause, Condition), Diff)>,
 ) {
+    let (key, cond) = Key::pair(Condition {
+        kind: ConditionKind::Relation(fact.relation),
+        values: fact.values.clone(),
+    });
+
     let clause = Clause::Decision {
-        terms: input
-            .iter()
-            .cloned()
-            .map(|(cond, _diff)| cond.clone())
-            .collect(),
-        out: Condition {
-            kind: ConditionKind::Relation(fact.relation),
-            values: fact.values.clone(),
-        },
+        terms: input.iter().cloned().map(|(cond, _diff)| *cond).collect(),
+        out: key,
     };
 
-    output.push((clause, 1));
+    output.push(((clause, cond), 1));
 }
 
 pub fn conditional_clause(
     fact: &Fact,
-    input: &[(&Condition, Diff)],
-    output: &mut Vec<(Clause, Diff)>,
+    input: &[(&Key<Condition>, Diff)],
+    output: &mut Vec<((Clause, Condition), Diff)>,
 ) {
+    let (key, cond) = Key::pair(Condition {
+        kind: ConditionKind::Relation(fact.relation),
+        values: fact.values.clone(),
+    });
+
     let clause = Clause::Or {
-        terms: input
-            .iter()
-            .cloned()
-            .map(|(cond, _diff)| cond.clone())
-            .collect(),
-        out: Condition {
-            kind: ConditionKind::Relation(fact.relation),
-            values: fact.values.clone(),
-        },
+        terms: input.iter().cloned().map(|(cond, _diff)| *cond).collect(),
+        out: key,
     };
 
-    output.push((clause, 1));
+    output.push(((clause, cond), 1));
 }
 
 #[allow(unused_variables)]
@@ -378,16 +368,18 @@ pub fn inspect<T: Debug, D: Debug>(name: &str) -> impl for<'a> Fn(&'a (T, D, Dif
     }
 }
 
-pub fn filter(((_dst, expr), tuple): &((Key<Node>, Expr), Tuple)) -> bool {
+pub fn filter((dst, expr): &(Key<Node>, Expr), tuple: &Tuple) -> Option<(Key<Node>, Tuple)> {
     match eval_expr(&tuple.values, expr) {
-        Value::Boolean(test) => test,
+        Value::Boolean(false) => None,
+        Value::Boolean(true) => Some((*dst, tuple.clone())),
         other => panic!("unexpected filter value: {other:?}"),
     }
 }
 
-pub fn push(((dst, expr), mut tuple): ((Key<Node>, Expr), Tuple)) -> (Key<Node>, Tuple) {
-    tuple.values.push(eval_expr(&tuple.values, &expr));
-    (dst, tuple)
+pub fn push((dst, expr): &(Key<Node>, Expr), tuple: &Tuple) -> (Key<Node>, Tuple) {
+    let mut tuple = tuple.to_owned();
+    tuple.values.push(eval_expr(&tuple.values, expr));
+    (*dst, tuple)
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
@@ -447,18 +439,17 @@ pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
 }
 
 pub fn constraint_map(
-    _src: &Key<Node>,
     (dst, map): &(Key<Node>, IndexList),
     tuple: &Tuple,
-) -> ((Key<Node>, Values), Option<Condition>) {
+) -> ((Key<Node>, Values), Option<Key<Condition>>) {
     let key = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
-    ((*dst, key), tuple.condition.clone())
+    ((*dst, key), tuple.condition)
 }
 
 pub fn constraint_reduce(
     _key: &(Key<Node>, Values),
-    input: &[(&Option<Condition>, Diff)],
-    output: &mut Vec<(Vec<Condition>, Diff)>,
+    input: &[(&Option<Key<Condition>>, Diff)],
+    output: &mut Vec<(Vec<Key<Condition>>, Diff)>,
 ) {
     let mut terms = Vec::new();
 
@@ -476,7 +467,7 @@ pub fn constraint_reduce(
 #[allow(clippy::ptr_arg)]
 pub fn constraint_clause(
     _dst: &Key<Node>,
-    terms: &Vec<Condition>,
+    terms: &Vec<Key<Condition>>,
     (weight, kind): &(ConstraintWeight, ConstraintKind),
 ) -> Clause {
     Clause::ConstraintGroup {
