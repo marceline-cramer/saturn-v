@@ -18,18 +18,37 @@ use std::fmt::Display;
 
 use super::*;
 
-impl<R> Program<R> {
+impl<R: Clone + Eq + Hash> Program<R> {
     /// Validates this program.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<(), R> {
+        // build a table of all relation types
+        let mut relation_tys = HashMap::new();
+        for (new, r) in self.relations.values().enumerate() {
+            if let Some((old, _ty)) = relation_tys.insert(r.store.clone(), (new, r.ty.clone())) {
+                return Err(ErrorKind::DuplicateRelationUserdata {
+                    userdata: r.store.clone(),
+                    old,
+                    new,
+                }
+                .into());
+            }
+        }
+
+        // strip out indices from relations now that we've validated duplicates
+        let relation_tys: HashMap<_, _> = relation_tys
+            .into_iter()
+            .map(|(r, (_idx, ty))| (r, ty))
+            .collect();
+
         // validate all of the relations
         for r in self.relations.values() {
-            // TODO: add relation context
-            r.validate()?;
+            r.validate(&relation_tys)?;
         }
 
         // validate all of the constraints
         for (idx, c) in self.constraints.iter().enumerate() {
-            c.validate().with_context(ErrorContext::Constraint(idx))?;
+            c.validate(&relation_tys)
+                .with_context(ErrorContext::Constraint(idx))?;
         }
 
         // all done!
@@ -37,11 +56,12 @@ impl<R> Program<R> {
     }
 }
 
-impl<R> Constraint<R> {
+impl<R: Clone + Hash + Eq> Constraint<R> {
     /// Validates this constraint.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<(), R> {
         // first, confirm that all necessary variables are assigned
-        let assigned = self.instructions.validate(&self.loaded, &self.vars)?;
+        let relations = validate_load_relations(relations, &self.loaded)?;
+        let assigned = self.instructions.validate(&relations, &self.vars)?;
 
         // next, find which variables are needed and track the head type
         let mut needed = HashSet::new();
@@ -74,9 +94,9 @@ impl<R> Constraint<R> {
     }
 }
 
-impl<R> Relation<R> {
+impl<R: Clone + Eq + Hash> Relation<R> {
     /// Validates this relation.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<(), R> {
         // check that each fact matches this relation's type
         for fact in self.facts.iter() {
             let ty: Vec<_> = fact.iter().map(Value::ty).collect();
@@ -93,7 +113,9 @@ impl<R> Relation<R> {
         // validate each rule
         for (idx, rule) in self.rules.iter().enumerate() {
             // validate the rule itself
-            let ty = rule.validate().with_context(ErrorContext::Rule(idx))?;
+            let ty = rule
+                .validate(relations)
+                .with_context(ErrorContext::Rule(idx))?;
 
             // check the type of the head against this relation
             if ty != self.ty {
@@ -110,11 +132,12 @@ impl<R> Relation<R> {
     }
 }
 
-impl<R> Rule<R> {
+impl<R: Clone + Eq + Hash> Rule<R> {
     /// Validates this rule and returns the type of the head.
-    pub fn validate(&self) -> Result<Vec<Type>> {
+    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<Vec<Type>, R> {
         // first, confirm that all necessary variables are assigned
-        let assigned = self.instructions.validate(&self.loaded, &self.vars)?;
+        let relations = validate_load_relations(relations, &self.loaded)?;
+        let assigned = self.instructions.validate(&relations, &self.vars)?;
 
         // next, find which variables are needed and track the head type
         let mut ty = Vec::new();
@@ -163,13 +186,21 @@ impl<R> Rule<R> {
 
 impl Instruction {
     /// Validates this expression and returns its assigned variables.
-    pub fn validate<T>(&self, relations: &[T], variables: &[Type]) -> Result<HashSet<u32>> {
+    pub fn validate<R>(
+        &self,
+        relations: &[Vec<Type>],
+        variables: &[Type],
+    ) -> Result<HashSet<u32>, R> {
         self.validate_inner(relations, variables)
             .with_context(ErrorContext::Instruction(self.into()))
     }
 
     /// ACTUALLY validates, but doesn't wrap the error in the instruction kind context.
-    fn validate_inner<T>(&self, relations: &[T], variables: &[Type]) -> Result<HashSet<u32>> {
+    fn validate_inner<R>(
+        &self,
+        relations: &[Vec<Type>],
+        variables: &[Type],
+    ) -> Result<HashSet<u32>, R> {
         use Instruction::*;
         match self {
             Noop => Err(ErrorKind::Noop.into()),
@@ -200,35 +231,7 @@ impl Instruction {
 
                 Ok(vars)
             }
-            FromQuery { relation, terms } => {
-                // assert that the relation index is valid
-                if *relation >= relations.len() as u32 {
-                    return Err(ErrorKind::InvalidRelationIndex(*relation).into());
-                }
-
-                // collect list of assigned variables
-                let mut vars = HashSet::new();
-                for (idx, term) in terms.iter().enumerate() {
-                    // ignore value terms; we only care about variables
-                    let QueryTerm::Variable(var) = term else {
-                        continue;
-                    };
-
-                    // check that the variable exists
-                    variables
-                        .get(*var as usize)
-                        .ok_or(ErrorKind::InvalidVariableIndex(*var))
-                        .with_context(ErrorContext::QueryTerm(idx))?;
-
-                    // ensure that the variable is only used once per query
-                    if !vars.insert(*var) {
-                        return Err(ErrorKind::DuplicateQueryVariable(*var))
-                            .with_context(ErrorContext::QueryTerm(idx));
-                    }
-                }
-
-                Ok(vars)
-            }
+            FromQuery { relation, terms } => validate_query(relations, variables, *relation, terms),
             Let { var, expr, rest } => {
                 // typecast variable
                 let var = *var;
@@ -333,7 +336,7 @@ impl Instruction {
 
 impl Expr {
     /// Validates this expression and returns its type.
-    pub fn validate<T>(&self, relations: &[T], variables: &[Type]) -> Result<Type> {
+    pub fn validate<R>(&self, relations: &[Vec<Type>], variables: &[Type]) -> Result<Type, R> {
         use Expr::*;
         match self {
             Variable(idx) => variables
@@ -342,22 +345,7 @@ impl Expr {
                 .ok_or(ErrorKind::InvalidVariableIndex(*idx).into()),
             Value(val) => Ok(val.ty()),
             Load { relation, query } => {
-                if *relation >= relations.len() as u32 {
-                    return Err(ErrorKind::InvalidRelationIndex(*relation).into());
-                }
-
-                for (idx, term) in query.iter().enumerate() {
-                    match term {
-                        QueryTerm::Variable(var) => {
-                            if *var >= variables.len() as u32 {
-                                return Err(ErrorKind::InvalidVariableIndex(*var))
-                                    .with_context(ErrorContext::QueryTerm(idx));
-                            }
-                        }
-                        QueryTerm::Value(_) => {}
-                    }
-                }
-
+                validate_query(relations, variables, *relation, query)?;
                 Ok(Type::Boolean)
             }
             UnaryOp { op, term } => {
@@ -436,15 +424,91 @@ impl Expr {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Error>;
+/// Retrieves the types of loaded relations by userdata.
+pub fn validate_load_relations<R: Clone + Eq + Hash>(
+    types: &HashMap<R, Vec<Type>>,
+    relations: &[R],
+) -> Result<Vec<Vec<Type>>, R> {
+    let mut out = Vec::new();
+    for (idx, ud) in relations.iter().enumerate() {
+        if let Some((old, _ud)) = relations[0..idx]
+            .iter()
+            .enumerate()
+            .find(|(_idx, old)| *old == ud)
+        {
+            return Err(ErrorKind::DuplicateRelationUserdata {
+                userdata: ud.clone(),
+                old,
+                new: idx,
+            }
+            .into());
+        }
+
+        out.push(
+            types
+                .get(ud)
+                .ok_or(ErrorKind::RelationNotFound(ud.clone()))?
+                .clone(),
+        );
+    }
+
+    Ok(out)
+}
+
+/// Validate a query and return its used variables.
+pub fn validate_query<R>(
+    relations: &[Vec<Type>],
+    variables: &[Type],
+    relation: u32,
+    terms: &[QueryTerm],
+) -> Result<HashSet<u32>, R> {
+    // retrieve the type of the relation
+    let relation_ty = relations
+        .get(relation as usize)
+        .ok_or(ErrorKind::InvalidRelationIndex(relation))?
+        .iter()
+        .copied();
+
+    // collect list of assigned variables
+    let mut vars = HashSet::new();
+    for ((idx, term), expected) in terms.iter().enumerate().zip(relation_ty) {
+        // get the type of the term
+        let got = match term {
+            QueryTerm::Value(val) => val.ty(),
+            QueryTerm::Variable(var) => {
+                // ensure that the variable is only used once per query
+                if !vars.insert(*var) {
+                    return Err(ErrorKind::DuplicateQueryVariable(*var))
+                        .with_context(ErrorContext::QueryTerm(idx));
+                }
+
+                // retrieve the type of the variable
+                *variables
+                    .get(*var as usize)
+                    .ok_or(ErrorKind::InvalidVariableIndex(*var))
+                    .with_context(ErrorContext::QueryTerm(idx))?
+            }
+        };
+
+        // ensure that types match
+        if expected != got {
+            return Err(ErrorKind::ExpectedType { expected, got })
+                .with_context(ErrorContext::QueryTerm(idx))?;
+        }
+    }
+
+    Ok(vars)
+}
+
+pub type Result<T, R> = std::result::Result<T, Error<R>>;
 
 pub trait WithContext {
     type Output;
     fn with_context(self, ctx: ErrorContext) -> Self::Output;
 }
 
-impl<T> WithContext for std::result::Result<T, ErrorKind> {
-    type Output = Result<T>;
+impl<T, R> WithContext for std::result::Result<T, ErrorKind<R>> {
+    type Output = Result<T, R>;
 
     fn with_context(self, ctx: ErrorContext) -> Self::Output {
         self.map_err(|kind| Error {
@@ -454,7 +518,7 @@ impl<T> WithContext for std::result::Result<T, ErrorKind> {
     }
 }
 
-impl<T> WithContext for Result<T> {
+impl<T, R> WithContext for Result<T, R> {
     type Output = Self;
 
     fn with_context(mut self, ctx: ErrorContext) -> Self {
@@ -467,13 +531,13 @@ impl<T> WithContext for Result<T> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Error {
+pub struct Error<R> {
     pub context: Vec<ErrorContext>,
-    pub kind: Box<ErrorKind>,
+    pub kind: Box<ErrorKind<R>>,
 }
 
-impl From<ErrorKind> for Error {
-    fn from(kind: ErrorKind) -> Self {
+impl<R> From<ErrorKind<R>> for Error<R> {
+    fn from(kind: ErrorKind<R>) -> Self {
         Self {
             context: vec![],
             kind: Box::new(kind),
@@ -481,7 +545,7 @@ impl From<ErrorKind> for Error {
     }
 }
 
-impl Display for Error {
+impl<R: Display> Display for Error<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "validation error")?;
 
@@ -521,12 +585,18 @@ pub enum ErrorContext {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum ErrorKind {
+pub enum ErrorKind<R> {
     #[error("relation index #{0} is invalid")]
     InvalidRelationIndex(u32),
 
     #[error("variable index #{0} is invalid")]
     InvalidVariableIndex(u32),
+
+    #[error("duplicate relation userdata in #{old} and #{new}: {userdata}")]
+    DuplicateRelationUserdata { userdata: R, old: usize, new: usize },
+
+    #[error("could not find relation by userdata: {0}")]
+    RelationNotFound(R),
 
     #[error("invalid binary operation: {lhs:?} {op:?} {rhs:?}")]
     InvalidBinaryOp {

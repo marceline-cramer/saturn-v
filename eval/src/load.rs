@@ -16,6 +16,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     hash::Hash,
 };
 
@@ -36,7 +37,7 @@ pub struct Loader<R> {
     pub(crate) nodes: HashSet<Node>,
 }
 
-impl<R: Clone + Hash + Eq + 'static> Loader<R> {
+impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// Loads a program.
     pub fn load_program(program: &Program<R>) -> Self {
         // assert that the program is valid
