@@ -61,6 +61,14 @@ impl<R> Constraint<R> {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
         }
 
+        // if there are any unused relations, return an error
+        let used = self.instructions.relation_deps();
+        let declared: HashSet<u32> = (0..(self.loaded.len() as u32)).collect();
+        let unused: HashSet<_> = used.difference(&declared).copied().collect();
+        if !unused.is_empty() {
+            return Err(ErrorKind::UnusedRelations(unused).into());
+        }
+
         // otherwise, this constraint is valid
         Ok(())
     }
@@ -138,6 +146,14 @@ impl<R> Rule<R> {
         let unassigned: HashSet<_> = needed.difference(&assigned).copied().collect();
         if !unassigned.is_empty() {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
+        }
+
+        // if there are any unused relations, return an error
+        let used = self.instructions.relation_deps();
+        let declared: HashSet<u32> = (0..(self.loaded.len() as u32)).collect();
+        let unused: HashSet<_> = used.difference(&declared).copied().collect();
+        if !unused.is_empty() {
+            return Err(ErrorKind::UnusedRelations(unused).into());
         }
 
         // otherwise, this rule is valid
@@ -288,6 +304,31 @@ impl Instruction {
             }
         }
     }
+
+    /// Retrieves the set of relations used by this instruction.
+    pub fn relation_deps(&self) -> HashSet<u32> {
+        use Instruction::*;
+        match self {
+            Noop => HashSet::new(),
+            Sink { rest, .. } => rest.relation_deps(),
+            FromQuery { relation, .. } => HashSet::from_iter([*relation]),
+            Filter { test, rest } => {
+                let mut relations = rest.relation_deps();
+                relations.extend(test.relation_deps());
+                relations
+            }
+            Let { expr, rest, .. } => {
+                let mut relations = rest.relation_deps();
+                relations.extend(expr.relation_deps());
+                relations
+            }
+            Merge { lhs, rhs } | Join { lhs, rhs } => {
+                let mut relations = lhs.relation_deps();
+                relations.extend(rhs.relation_deps());
+                relations
+            }
+        }
+    }
 }
 
 impl Expr {
@@ -376,6 +417,21 @@ impl Expr {
                 vars.extend(rhs.variable_deps());
                 vars
             }
+        }
+    }
+
+    /// Retrieves the set of relations accessed by this expression.
+    pub fn relation_deps(&self) -> HashSet<u32> {
+        use Expr::*;
+        match self {
+            Load { relation, .. } => HashSet::from_iter([*relation]),
+            UnaryOp { term, .. } => term.relation_deps(),
+            BinaryOp { lhs, rhs, .. } => {
+                let mut vars = lhs.relation_deps();
+                vars.extend(rhs.relation_deps());
+                vars
+            }
+            _ => HashSet::new(),
         }
     }
 }
@@ -493,6 +549,9 @@ pub enum ErrorKind {
 
     #[error("unassigned variables: {0:?}")]
     UnassignedVariables(HashSet<u32>),
+
+    #[error("unused relations: {0:?}")]
+    UnusedRelations(HashSet<u32>),
 
     #[error("merge branches have mismatching variables. lhs: {lhs_only:?} rhs: {rhs_only:?}")]
     MergeVariableMismatch {
