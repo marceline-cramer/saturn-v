@@ -77,42 +77,54 @@ impl Solver {
 
         // remove clauses and force their gate variables
         // don't add the variable back to the queue because it is now forced
-        for clause in clauses_remove {
-            let gate = self.clauses.remove(&clause).unwrap();
-            self.sat.add_clause([-gate]);
-        }
+        log_time("removing old clauses...", || {
+            for clause in clauses_remove.iter() {
+                let gate = self.clauses.remove(clause).unwrap();
+                self.sat.add_clause([-gate]);
+            }
+        });
 
         // remove lookups for removed conditions
         // add variables back to pool because they aren't forced
-        for cond in conditions_remove {
-            let var = self.conditions.remove(&cond).unwrap();
-            self.free_vars.push(var);
-        }
+        log_time("removing old conditions...", || {
+            for cond in conditions_remove.iter() {
+                let var = self.conditions.remove(cond).unwrap();
+                self.free_vars.push(var);
+            }
+        });
 
         // create lookups for new conditions
-        for cond in conditions_insert {
-            let var = self.create_variable();
-            self.conditions.insert(cond, var);
-        }
+        log_time("adding new conditions...", || {
+            for cond in conditions_insert.iter() {
+                let var = self.create_variable();
+                self.conditions.insert(*cond, var);
+            }
+        });
 
         // create lookups for new clauses
-        for clause in clauses_insert {
-            self.insert_clause(clause);
-        }
+        log_time("inserting new clauses...", || {
+            for clause in clauses_insert.iter() {
+                self.insert_clause(clause);
+            }
+        });
 
         // forward removal of outputs
-        for output in outputs_remove {
-            if self.outputs.remove(&output).unwrap().0 {
-                let _ = self.output_tx.send(Update::Push(output, false));
+        log_time("removing old outputs...", || {
+            for output in outputs_remove.iter() {
+                if self.outputs.remove(output).unwrap().0 {
+                    let _ = self.output_tx.send(Update::Push(output.clone(), false));
+                }
             }
-        }
+        });
 
         // insert new outputs with default state of false
-        for output in outputs_insert {
-            let cond = Key::new(&Condition::from(output.clone()));
-            let var = self.conditions[&cond];
-            self.outputs.insert(output, (false, var));
-        }
+        log_time("inserting new outputs...", || {
+            for output in outputs_insert.iter() {
+                let cond = Key::new(&Condition::from(output.clone()));
+                let var = self.conditions[&cond];
+                self.outputs.insert(output.clone(), (false, var));
+            }
+        });
 
         // done
         Some(())
@@ -147,40 +159,40 @@ impl Solver {
         })
     }
 
-    fn insert_clause(&mut self, clause: Clause) {
+    fn insert_clause(&mut self, clause: &Clause) {
         use Clause::*;
         let gate = self.create_variable();
         self.clauses.insert(clause.clone(), -gate);
         match clause {
             And { lhs, rhs, out } => {
-                let lhs = self.conditions[&lhs];
-                let rhs = self.conditions[&rhs];
-                let out = self.conditions[&out];
+                let lhs = self.conditions[lhs];
+                let rhs = self.conditions[rhs];
+                let out = self.conditions[out];
                 self.sat.add_clause([gate, -lhs, -rhs, out]);
                 self.sat.add_clause([gate, lhs, -out]);
                 self.sat.add_clause([gate, rhs, -out]);
             }
             AndNot { lhs, rhs, out } => {
-                let lhs = self.conditions[&lhs];
-                let rhs = self.conditions[&rhs];
-                let out = self.conditions[&out];
+                let lhs = self.conditions[lhs];
+                let rhs = self.conditions[rhs];
+                let out = self.conditions[out];
                 self.sat.add_clause([gate, -lhs, rhs, out]);
                 self.sat.add_clause([gate, lhs, -out]);
                 self.sat.add_clause([gate, -rhs, -out]);
             }
             Implies { term, out } => {
-                let term = self.conditions[&term];
-                let out = self.conditions[&out];
+                let term = self.conditions[term];
+                let out = self.conditions[out];
                 self.sat.add_clause([gate, -term, out]);
             }
             Or { terms, out } => {
-                let out = self.conditions[&out];
+                let out = self.conditions[out];
                 let mut all_false = Vec::with_capacity(terms.len() + 2);
                 all_false.push(gate);
                 all_false.push(-out);
 
                 for term in terms {
-                    let term = self.conditions[&term];
+                    let term = self.conditions[term];
                     self.sat.add_clause([gate, -term, out]);
                     all_false.push(term);
                 }
@@ -190,10 +202,10 @@ impl Solver {
             Decision { terms, out } => {
                 let mut clause = Vec::with_capacity(terms.len() + 2);
                 clause.push(gate);
-                clause.push(-self.conditions[&out]);
+                clause.push(-self.conditions[out]);
 
                 for term in terms {
-                    clause.push(self.conditions[&term]);
+                    clause.push(self.conditions[term]);
                 }
 
                 self.sat.add_clause(clause);
@@ -211,7 +223,7 @@ impl Solver {
                 clause.push(gate);
 
                 for term in terms {
-                    clause.push(self.conditions[&term]);
+                    clause.push(self.conditions[term]);
                 }
 
                 self.sat.add_clause(clause);
@@ -237,7 +249,7 @@ impl Solver {
                 }
 
                 // if cardinality =1 (not <=1), add completed "OR" clause
-                if kind == CardinalityConstraintKind::Only {
+                if *kind == CardinalityConstraintKind::Only {
                     self.sat.add_clause(clause);
                 }
             }
@@ -276,4 +288,11 @@ pub fn split_batch<T>(batch: Vec<(T, bool)>) -> (Vec<T>, Vec<T>) {
     }
 
     (insert, remove)
+}
+
+fn log_time(message: &str, mut cb: impl FnMut()) {
+    eprintln!("{message}");
+    let start = std::time::Instant::now();
+    cb();
+    eprintln!("done in {:?}", start.elapsed());
 }
