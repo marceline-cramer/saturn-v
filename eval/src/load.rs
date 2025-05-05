@@ -216,10 +216,28 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
             Merge { lhs, rhs } => {
                 // add the nodes for each branch
                 let (lhs, lhs_map) = self.load_instruction(loaded, lhs);
-                let (rhs, rhs_map) = self.load_instruction(loaded, rhs);
+                let (mut rhs, rhs_map) = self.load_instruction(loaded, rhs);
 
                 // assert that the variable maps are equal
                 assert_eq!(lhs_map, rhs_map);
+
+                // ensure that the right-hand side is projected to the left-hand map
+                let mut rhs_proj = Vec::with_capacity(rhs_map.len());
+                for var in lhs_map.iter() {
+                    let rhs_idx = rhs_map.get_index_of(var).unwrap();
+                    rhs_proj.push(rhs_idx);
+                }
+
+                // but only project if needed
+                if rhs_proj.iter().enumerate().any(|(idx, var)| idx != *var) {
+                    let (new_rhs, node) = Key::pair(Node::Project {
+                        src: rhs,
+                        map: rhs_proj.into(),
+                    });
+
+                    self.nodes.insert(node);
+                    rhs = new_rhs;
+                }
 
                 // create the merge node
                 let (dst, node) = Key::pair(Node::Merge { lhs, rhs });
