@@ -44,7 +44,7 @@ pub fn backend(
         let nodes = nodes_in.to_collection(scope).map(Key::pair);
 
         // generate the semantics
-        let (facts, clauses, implies, conditions) = scope.iterative::<u32, _, _>(|scope| {
+        let (clauses, implies, conditions, outputs) = scope.iterative::<u32, _, _>(|scope| {
             // enter inputs into iterative scope
             let relations = relations.enter(scope);
             let facts = facts.enter(scope);
@@ -59,6 +59,9 @@ pub fn backend(
 
             // arrange tuples for all fetch operations
             let tuples_arranged = tuples.arrange_by_key();
+
+            // arrange facts
+            let facts_arranged = facts.arrange_by_key();
 
             // extract left and right sides of join operation
             let join_lhs = nodes
@@ -112,15 +115,18 @@ pub fn backend(
                 .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
                 .join_core(&tuples_arranged, |_, rhs, val| [push(rhs, val)]);
 
+            // filter output facts from all facts
+            let outputs = facts
+                .semijoin(&relations.filter(|(_key, rel)| rel.is_output).map(key))
+                .map(value);
+
             // load relation operation
             let load = nodes
                 .flat_map(map_value(Node::load_relation))
                 .map(|(node, (rel, _query))| (rel, node)) // TODO: hack
                 .inspect(inspect("load input"))
-                .join(&facts)
                 .join(&relations)
-                .map(value)
-                .map(load);
+                .join_core(&facts_arranged, |_, dst, fact| [load(dst, fact)]);
 
             let load_cond = load.flat_map(value);
             let load = load.map(key);
@@ -151,6 +157,7 @@ pub fn backend(
             // the keys of stored contain new tuples
             let store = stored.map(key).map(Fact::relation_pair);
             let new_implies = stored.flat_map(value);
+            facts.set_concat(&store).inspect(inspect("facts"));
 
             // all new clauses
             let new_clauses = join_clauses
@@ -162,13 +169,13 @@ pub fn backend(
 
             // return outputs of all extended collections
             (
-                facts.set_concat(&store).inspect(inspect("facts")).leave(),
                 clauses.set_concat(&new_clauses).leave(),
                 implies
                     .set_concat(&new_implies)
                     .inspect(inspect("implies"))
                     .leave(),
                 conditions.leave(),
+                outputs.leave(),
             )
         });
 
@@ -197,11 +204,6 @@ pub fn backend(
             )
             .map(value)
             .reduce(conditional_clause)
-            .map(value);
-
-        // filter output facts from all facts
-        let outputs = facts
-            .semijoin(&relations.filter(|(_key, rel)| rel.is_output).map(key))
             .map(value);
 
         // extend clauses
@@ -291,7 +293,8 @@ pub fn project((dst, map): &(Key<Node>, IndexList), tuple: &Tuple) -> (Key<Node>
 }
 
 pub fn load(
-    ((node, fact), relation): ((Key<Node>, Fact), Relation),
+    (node, relation): &(Key<Node>, Relation),
+    fact: &Fact,
 ) -> ((Key<Node>, Tuple), Option<Condition>) {
     let condition_data = match relation.kind {
         RelationKind::Conditional | RelationKind::Decision => Some(Condition {
@@ -303,7 +306,7 @@ pub fn load(
 
     let values = fact.values.to_vec();
     let condition = condition_data.as_ref().map(Key::new);
-    ((node, Tuple { values, condition }), condition_data)
+    ((*node, Tuple { values, condition }), condition_data)
 }
 
 pub fn store(

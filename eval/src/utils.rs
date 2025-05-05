@@ -36,7 +36,7 @@ use timely::{
     worker::Worker,
 };
 
-pub type Time = i64;
+pub type Time = u32;
 pub type Diff = isize;
 
 pub fn run_pumps(
