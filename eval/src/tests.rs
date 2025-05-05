@@ -39,25 +39,14 @@ async fn run(loader: Loader<String>) {
 
     std::thread::spawn(move || drop(workers));
 
-    let mut facts = routers.facts_in.into_source();
-    for fact in loader.facts {
-        facts.insert(fact);
-    }
-
     let mut relations = routers.relations_in.into_source();
-    for relation in loader.relations.values() {
-        relations.insert(relation.clone());
-    }
-
+    let mut facts = routers.facts_in.into_source();
     let mut nodes = routers.nodes_in.into_source();
-    for node in loader.nodes {
-        nodes.insert(node);
-    }
 
-    nodes.flush();
+    loader.add_to_dataflow(&mut relations, &mut facts, &mut nodes);
 
-    facts.forget();
     relations.forget();
+    facts.forget();
     nodes.forget();
 
     let (output_tx, output_rx) = flume::unbounded();

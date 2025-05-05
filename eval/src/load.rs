@@ -24,12 +24,12 @@ use saturn_v_ir::{self as ir, Instruction, Program, QueryTerm, Rule};
 
 use crate::{
     types::{Fact, Node, Relation},
-    utils::Key,
+    utils::{InputSource, Key},
 };
 
 pub type VariableMap = IndexSet<u32>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Loader<R> {
     pub(crate) relations: HashMap<R, Relation>,
     pub(crate) facts: HashSet<Fact>,
@@ -59,6 +59,28 @@ impl<R: Clone + Hash + Eq + 'static> Loader<R> {
 
         // return the completely loaded program
         loader
+    }
+
+    /// Inserts the contents of this loader into dataflow inputs.
+    pub fn add_to_dataflow(
+        self,
+        relations: &mut InputSource<Relation>,
+        facts: &mut InputSource<Fact>,
+        nodes: &mut InputSource<Node>,
+    ) {
+        for relation in self.relations.into_values() {
+            relations.insert(relation);
+        }
+
+        for fact in self.facts {
+            facts.insert(fact);
+        }
+
+        for node in self.nodes {
+            nodes.insert(node);
+        }
+
+        nodes.flush();
     }
 
     /// Creates a new loader with the given set of indexed relations.
