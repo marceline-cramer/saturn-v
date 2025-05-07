@@ -52,8 +52,9 @@ async fn run(loader: Loader<String>) {
     let (output_tx, output_rx) = flume::unbounded();
 
     let mut solver = Solver::new(
-        routers.conditions_out.into_sink(),
-        routers.clauses_out.into_sink(),
+        routers.conditional_out.into_sink(),
+        routers.gates_out.into_sink(),
+        routers.constraints_out.into_sink(),
         routers.outputs_out.into_sink(),
         output_tx,
     );

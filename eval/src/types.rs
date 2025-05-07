@@ -36,64 +36,30 @@ impl Fact {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Clause {
-    And {
-        lhs: Key<Condition>,
-        rhs: Key<Condition>,
-        out: Key<Condition>,
-    },
-    AndNot {
-        lhs: Key<Condition>,
-        /// Negated.
-        rhs: Key<Condition>,
-        out: Key<Condition>,
-    },
-    Implies {
-        term: Key<Condition>,
-        out: Key<Condition>,
-    },
-    Or {
-        terms: Vec<Key<Condition>>,
-        out: Key<Condition>,
-    },
-    Decision {
-        terms: Vec<Key<Condition>>,
-        out: Key<Condition>,
-    },
+pub enum Gate {
+    And { lhs: Condition, rhs: Condition },
+    Or { terms: Vec<Condition> },
+    Decision { terms: Vec<Condition> },
+}
 
-    /// Constrains a group of constraint conditions.
-    ConstraintGroup {
-        terms: Vec<Key<Condition>>,
-        weight: ConstraintWeight,
-        kind: ConstraintKind,
-    },
+/// Constrains a group of constraint conditions.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub struct ConstraintGroup {
+    pub terms: Vec<Condition>,
+    pub weight: ConstraintWeight,
+    pub kind: ConstraintKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Tuple {
     pub values: Values,
-    pub condition: Option<Key<Condition>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct Condition {
-    pub kind: ConditionKind,
-    pub values: Arc<[Value]>,
-}
-
-impl From<Fact> for Condition {
-    fn from(fact: Fact) -> Self {
-        Self {
-            kind: ConditionKind::Relation(fact.relation),
-            values: fact.values,
-        }
-    }
+    pub condition: Option<Condition>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum ConditionKind {
-    Node(Key<Node>),
-    Relation(Key<Relation>),
+pub enum Condition {
+    Gate(Key<Gate>),
+    Fact(Key<Fact>),
 }
 
 pub type IndexList = Arc<[usize]>;

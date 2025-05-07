@@ -23,8 +23,11 @@ use std::{
 
 use differential_dataflow::{
     input::InputSession,
-    operators::{arrange::ArrangeBySelf, Threshold},
-    trace::{Cursor, TraceReader},
+    operators::arrange::ArrangeBySelf,
+    trace::{
+        implementations::{KeyBuilder, KeySpine},
+        Cursor, TraceReader,
+    },
     Collection, Data, ExchangeData, Hashable, IntoOwned,
 };
 use flume::{Receiver, RecvError, Sender, TryRecvError};
@@ -340,7 +343,10 @@ impl<T: ExchangeData + Hashable> OutputRouter<T> {
     where
         G: Scope<Timestamp = Time>,
     {
-        let arranged = collection.distinct().arrange_by_self();
+        // inline of .distinct() in order to maintain only one arrangement
+        let arranged = collection
+            .arrange_by_self()
+            .reduce_abelian::<_, T, (), KeyBuilder<T, G::Timestamp, Diff>, KeySpine<T, G::Timestamp, Diff>>("distinct", |_k, _s, t| t.push(((), Diff::from(1i8))));
 
         OutputSource {
             tx: self.tx.clone(),
@@ -451,6 +457,12 @@ pub enum Update<T> {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct Key<T>(u64, PhantomData<T>);
+
+impl<T: Hashable<Output = u64>> From<T> for Key<T> {
+    fn from(value: T) -> Self {
+        Key::new(&value)
+    }
+}
 
 impl<T> Copy for Key<T> {}
 

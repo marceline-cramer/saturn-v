@@ -25,20 +25,21 @@ use rustsat::{
     },
     instances::ManageVars,
     solvers::{Solve, SolveIncremental, SolverResult},
-    types::{constraints::CardConstraint, Lit, Var},
+    types::{constraints::CardConstraint, Clause, Lit, Var},
 };
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind};
 
 pub type Oracle = rustsat_batsat::BasicSolver;
 
 use crate::{
-    types::{Clause, Condition, Fact},
+    types::{Condition, ConstraintGroup, Fact, Gate},
     utils::{Key, OutputSink, Update},
 };
 
 pub struct Solver {
-    conditions_sink: OutputSink<Key<Condition>>,
-    clauses_sink: OutputSink<Clause>,
+    conditional_sink: OutputSink<(Key<Fact>, Option<Condition>)>,
+    gates_sink: OutputSink<Gate>,
+    constraints_sink: OutputSink<ConstraintGroup>,
     outputs_sink: OutputSink<Fact>,
     output_tx: Sender<Update<Fact>>,
     model: Model,
@@ -46,14 +47,16 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(
-        conditions_sink: OutputSink<Key<Condition>>,
-        clauses_sink: OutputSink<Clause>,
+        conditional_sink: OutputSink<(Key<Fact>, Option<Condition>)>,
+        gates_sink: OutputSink<Gate>,
+        constraints_sink: OutputSink<ConstraintGroup>,
         outputs_sink: OutputSink<Fact>,
         output_tx: Sender<Update<Fact>>,
     ) -> Self {
         Self {
-            conditions_sink,
-            clauses_sink,
+            conditional_sink,
+            gates_sink,
+            constraints_sink,
             outputs_sink,
             output_tx,
             model: Model::default(),
@@ -66,12 +69,13 @@ impl Solver {
 
     pub async fn step(&mut self) -> Option<bool> {
         // fetch updates
-        let conditions = self.conditions_sink.next_batch().await?;
-        let clauses = self.clauses_sink.next_batch().await?;
+        let conditional = self.conditional_sink.next_batch().await?;
+        let gates = self.gates_sink.next_batch().await?;
+        let constraints = self.constraints_sink.next_batch().await?;
         let outputs = self.outputs_sink.next_batch().await?;
 
         // update model
-        let removed_outputs = self.model.update(conditions, clauses, outputs);
+        let removed_outputs = self.model.update(conditional, gates, constraints, outputs);
 
         // remove any outputs just removed
         for output in removed_outputs {
@@ -114,8 +118,8 @@ impl Solver {
 pub struct Model {
     oracle: Oracle,
     vars: VariablePool,
-    clauses: HashMap<Clause, Var>,
-    conditions: HashMap<Key<Condition>, Var>,
+    conditions: HashMap<Condition, EncodedGate>,
+    constraints: HashMap<ConstraintGroup, Var>,
     outputs: BTreeMap<Fact, (bool, Var)>,
 }
 
@@ -124,19 +128,24 @@ impl Model {
         // time solving
         let start = std::time::Instant::now();
 
+        // assume conditions and constraint guards
+        let condition_guards = self.conditions.values().map(|enc| enc.guard.neg_lit());
+        let constraint_guards = self.constraints.values().map(|guard| guard.neg_lit());
+        let assumptions: Vec<_> = condition_guards.chain(constraint_guards).collect();
+
         // display statistics
         eprintln!("starting SAT solving...");
-        eprintln!("  {} pending var recycs", self.vars.free_vars.len());
-        eprintln!("  {} active clauses", self.clauses.len());
+        eprintln!("  {} assumptions", assumptions.len());
         eprintln!("  {} active conditions", self.conditions.len());
+        eprintln!("  {} active constraints", self.constraints.len());
         eprintln!("  {} outputs", self.outputs.len());
+        eprintln!("  {} recycleable variables", self.vars.free_vars.len());
 
-        // solve SAT, assuming clause gates
-        let assumptions: Vec<_> = self.clauses.values().map(|var| var.neg_lit()).collect();
+        // solve SAT
         let result = self.oracle.solve_assumps(&assumptions).unwrap();
 
         // display solve time and SAT stats
-        eprintln!("solved in {:?}", start.elapsed());
+        eprintln!("finished SAT in {:?}", start.elapsed());
 
         // return result
         match result {
@@ -146,56 +155,69 @@ impl Model {
         }
     }
 
+    /// Atomically updates the model based on incremental changes to the parameters.
+    ///
     /// Returns the list of outputs that have been disabled and removed.
     pub fn update(
         &mut self,
-        conditions: Vec<(Key<Condition>, bool)>,
-        clauses: Vec<(Clause, bool)>,
+        conditional: Vec<((Key<Fact>, Option<Condition>), bool)>,
+        gates: Vec<(Gate, bool)>,
+        constraints: Vec<(ConstraintGroup, bool)>,
         outputs: Vec<(Fact, bool)>,
     ) -> Vec<Fact> {
         // split update batches into insertions and removals
-        let (conditions_insert, conditions_remove) = split_batch(conditions);
-        let (clauses_insert, clauses_remove) = split_batch(clauses);
+        let (gates_insert, gates_remove) = split_batch(gates);
         let (outputs_insert, outputs_remove) = split_batch(outputs);
 
-        // mapping constraints into clauses goes here...
-
-        // remove clauses and force their gate variables
-        // don't add the variable back to the queue because it is now forced
-        log_time("removing old clauses...", || {
-            for clause in clauses_remove.iter() {
-                let gate = self.clauses.remove(clause).unwrap();
-                self.oracle.add_unit(gate.pos_lit()).unwrap();
+        // remove gates and force their guard variables
+        // don't add the guard back to the queue because it is now forced
+        log_time("removing old gates", || {
+            for gate in gates_remove.iter() {
+                let key = Condition::Gate(Key::new(gate));
+                let enc = self.conditions.remove(&key).unwrap();
+                self.vars.recycle(enc.output);
+                self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
             }
         });
 
-        // remove lookups for removed conditions
-        // add variables back to pool because they aren't forced
-        log_time("removing old conditions...", || {
-            for cond in conditions_remove.iter() {
-                let var = self.conditions.remove(cond).unwrap();
-                self.vars.recycle(var);
+        // update conditionals, tracking links that need to be added
+        let conditional_links = self.update_conditional(conditional);
+
+        // create lookups for new gates
+        log_time("inserting new gates", || {
+            for gate in gates_insert.iter() {
+                // encode the gate
+                let guard = self.vars.new_var();
+                let output = self.vars.new_var();
+                self.encode_gate(gate, guard, output).unwrap();
+
+                // insert it into the conditions
+                let key = Condition::Gate(Key::new(gate));
+                self.conditions.insert(key, EncodedGate { guard, output });
             }
         });
 
-        // create lookups for new conditions
-        log_time("adding new conditions...", || {
-            for cond in conditions_insert.iter() {
-                let var = self.vars.new_var();
-                self.conditions.insert(*cond, var);
+        // now that gates are updated, encode conditional links
+        log_time("linking updated conditionals", || {
+            for (guard, lhs, rhs) in conditional_links.iter() {
+                let guard = guard.pos_lit();
+                let lhs = self.conditions[lhs].output;
+                let rhs = self.conditions[rhs].output;
+                self.oracle
+                    .add_ternary(guard, lhs.pos_lit(), rhs.neg_lit())
+                    .unwrap();
+                self.oracle
+                    .add_ternary(guard, lhs.neg_lit(), rhs.pos_lit())
+                    .unwrap();
             }
         });
 
-        // create lookups for new clauses
-        log_time("inserting new clauses...", || {
-            for clause in clauses_insert.iter() {
-                self.insert_clause(clause);
-            }
-        });
+        // update constraint groups
+        self.update_constraint_groups(constraints);
 
         // forward removal of outputs
         let mut removed_outputs = Vec::with_capacity(outputs_remove.len());
-        log_time("removing old outputs...", || {
+        log_time("removing old outputs", || {
             for output in outputs_remove.iter() {
                 if self.outputs.remove(output).unwrap().0 {
                     removed_outputs.push(output.clone());
@@ -204,10 +226,10 @@ impl Model {
         });
 
         // insert new outputs with default state of false
-        log_time("inserting new outputs...", || {
+        log_time("inserting new outputs", || {
             for output in outputs_insert.iter() {
-                let cond = Key::new(&Condition::from(output.clone()));
-                let var = self.conditions[&cond];
+                let key = Condition::Fact(Key::new(output));
+                let var = self.conditions[&key].output;
                 self.outputs.insert(output.clone(), (false, var));
             }
         });
@@ -216,88 +238,157 @@ impl Model {
         removed_outputs
     }
 
-    fn insert_clause(&mut self, clause: &Clause) {
-        use Clause::*;
-        let gate = self.vars.new_var();
-        self.clauses.insert(clause.clone(), gate);
+    /// Atomically updates the conditional facts in the model.
+    ///
+    /// Returns the list of links that need to be built after dependent gates are
+    /// updated and encoded with their guard variable.
+    pub fn update_conditional(
+        &mut self,
+        conditional: Vec<((Key<Fact>, Option<Condition>), bool)>,
+    ) -> Vec<(Var, Condition, Condition)> {
+        // split update batch
+        let (conditional_insert, conditional_remove) = split_batch(conditional);
 
-        let mut enc = GatedEncoder {
+        // for every condition that has been removed, remove its current encoding
+        // dependent conditions are removed separately, so just ignore them
+        // recycle the output variables for each fact
+        let mut conditional_vars = HashMap::new();
+        log_time("removing old conditionals", || {
+            for (fact, _cond) in conditional_remove.iter() {
+                let key = Condition::Fact(*fact);
+                let enc = self.conditions.remove(&key).unwrap();
+                self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
+                conditional_vars.insert(key, enc.output);
+            }
+        });
+
+        // insert and encode new conditionals, recycling output variables
+        // track which links need to be built
+        let mut links = Vec::with_capacity(conditional_insert.len());
+        log_time("inserting new conditionals", || {
+            for (fact, cond) in conditional_insert.iter() {
+                let key = Condition::Fact(*fact);
+
+                // recycle an output variable for a removed conditional if possible
+                let output = conditional_vars
+                    .remove(&key)
+                    .unwrap_or_else(|| self.vars.new_var());
+
+                // create a new guard variable for the link
+                let guard = self.vars.new_var();
+
+                // insert the encoding
+                self.conditions.insert(key, EncodedGate { guard, output });
+
+                // if the conditional has a condition, link the condition
+                if let Some(cond) = cond {
+                    links.push((guard, key, *cond));
+                }
+            }
+        });
+
+        // recycle all conditional vars that were not recycled into conditions
+        for var in conditional_vars.into_values() {
+            self.vars.recycle(var);
+        }
+
+        // return the list of links to encode later
+        links
+    }
+
+    /// Incrementally update constraint groups.
+    pub fn update_constraint_groups(&mut self, constraints: Vec<(ConstraintGroup, bool)>) {
+        // split update batch
+        let (constraints_insert, constraints_remove) = split_batch(constraints);
+
+        // remove old constraints and disable their guards
+        // don't recycle guards because they have been forced
+        log_time("removing constraint groups", || {
+            for constraint in constraints_remove.iter() {
+                let guard = self.constraints.remove(constraint).unwrap();
+                self.oracle.add_unit(guard.pos_lit()).unwrap();
+            }
+        });
+
+        // add new constraints
+        log_time("inserting constraint groups", || {
+            for constraint in constraints_insert.iter() {
+                let guard = self.vars.new_var();
+                self.encode_constraint_group(guard, constraint);
+                self.constraints.insert(constraint.clone(), guard);
+            }
+        });
+    }
+
+    /// Encodes a gate with the given guard and output variables.
+    pub fn encode_gate(
+        &mut self,
+        gate: &Gate,
+        guard: Var,
+        output: Var,
+    ) -> Result<(), rustsat::OutOfMemory> {
+        let mut enc = GuardEncoder {
             inner: &mut self.oracle,
-            gate: gate.pos_lit(),
+            guard: guard.pos_lit(),
         };
 
-        match clause {
-            And { lhs, rhs, out } => {
-                let lhs = self.conditions[lhs];
-                let rhs = self.conditions[rhs];
-                let out = self.conditions[out];
-                enc.add_clause([lhs.neg_lit(), rhs.neg_lit(), out.pos_lit()].into())
-                    .unwrap();
-                enc.add_clause([lhs.pos_lit(), out.neg_lit()].into())
-                    .unwrap();
-                enc.add_clause([rhs.pos_lit(), out.neg_lit()].into())
-                    .unwrap();
-            }
-            AndNot { lhs, rhs, out } => {
-                let lhs = self.conditions[lhs];
-                let rhs = self.conditions[rhs];
-                let out = self.conditions[out];
-                enc.add_clause([lhs.neg_lit(), rhs.pos_lit(), out.pos_lit()].into())
-                    .unwrap();
-                enc.add_clause([lhs.pos_lit(), out.neg_lit()].into())
-                    .unwrap();
-                enc.add_clause([rhs.neg_lit(), out.neg_lit()].into())
-                    .unwrap();
-            }
-            Implies { term, out } => {
-                let term = self.conditions[term];
-                let out = self.conditions[out];
-                enc.add_clause([term.neg_lit(), out.pos_lit()].into())
-                    .unwrap();
-            }
-            Or { terms, out } => {
-                let out = self.conditions[out];
-                let mut all_false = Vec::with_capacity(terms.len() + 2);
-                all_false.push(out.neg_lit());
+        let cond = |key: &Condition| {
+            let encoded = self.conditions[key];
+            // TODO: minimize assumptions. this breaks when conditionals are updated with new guards
+            // enc.add_clause([encoded.guard.pos_lit()].into());
+            encoded.output
+        };
 
+        use Gate::*;
+        match gate {
+            And { lhs, rhs } => {
+                let lhs = cond(lhs);
+                let rhs = cond(rhs);
+                enc.add_clause([lhs.neg_lit(), rhs.neg_lit(), output.pos_lit()].into())?;
+                enc.add_clause([lhs.pos_lit(), output.neg_lit()].into())?;
+                enc.add_clause([rhs.pos_lit(), output.neg_lit()].into())?;
+            }
+            Or { terms } => {
+                let mut all_false = Vec::with_capacity(terms.len() + 2);
+                all_false.push(output.neg_lit());
+
+                let terms: Vec<_> = terms.iter().map(cond).collect();
                 for term in terms {
-                    let term = self.conditions[term];
-                    enc.add_clause([term.neg_lit(), out.pos_lit()].into())
-                        .unwrap();
+                    enc.add_clause([term.neg_lit(), output.pos_lit()].into())?;
                     all_false.push(term.pos_lit());
                 }
 
                 enc.add_clause(all_false.as_slice().into()).unwrap();
             }
-            Decision { terms, out } => {
+            Decision { terms } => {
                 let mut clause = Vec::with_capacity(terms.len() + 2);
-                clause.push(self.conditions[out].neg_lit());
+                clause.push(output.neg_lit());
 
                 for term in terms {
-                    clause.push(self.conditions[term].pos_lit());
+                    clause.push(cond(term).pos_lit());
                 }
 
                 enc.add_clause(clause.as_slice().into()).unwrap();
             }
-            ConstraintGroup { terms, kind, .. } => self.encode_constraint(
-                gate.pos_lit(),
-                terms
-                    .iter()
-                    .map(|key| self.conditions[key].pos_lit())
-                    .collect(),
-                kind,
-            ),
         }
+
+        Ok(())
     }
 
-    /// Encodes a constraint.
-    pub fn encode_constraint(&mut self, gate: Lit, terms: Vec<Lit>, kind: &ConstraintKind) {
-        let mut enc = GatedEncoder {
+    /// Encodes a constraint group.
+    pub fn encode_constraint_group(&mut self, guard: Var, constraint: &ConstraintGroup) {
+        let mut enc = GuardEncoder {
             inner: &mut self.oracle,
-            gate,
+            guard: guard.pos_lit(),
         };
 
-        match kind {
+        // map term conditions into output variables
+        let terms = constraint
+            .terms
+            .iter()
+            .map(|cond| self.conditions[cond].output.pos_lit());
+
+        match &constraint.kind {
             ConstraintKind::Cardinality {
                 kind: CardinalityConstraintKind::AtLeast,
                 threshold: 1,
@@ -326,23 +417,33 @@ impl Model {
     }
 }
 
-/// Helper struct to add clauses with a gate literal.
-pub struct GatedEncoder<'a> {
-    inner: &'a mut Oracle,
-    gate: Lit,
+/// Tracks an encoded gate.
+#[derive(Copy, Clone, Debug)]
+pub struct EncodedGate {
+    /// The guard variable for this gate.
+    pub guard: Var,
+
+    /// The output variable for this gate.
+    pub output: Var,
 }
 
-impl CollectClauses for GatedEncoder<'_> {
+/// Helper struct to add clauses with a guard literal.
+pub struct GuardEncoder<'a> {
+    inner: &'a mut Oracle,
+    guard: Lit,
+}
+
+impl CollectClauses for GuardEncoder<'_> {
     fn n_clauses(&self) -> usize {
         self.inner.n_clauses()
     }
 
     fn extend_clauses<T>(&mut self, cl_iter: T) -> Result<(), rustsat::OutOfMemory>
     where
-        T: IntoIterator<Item = rustsat::types::Clause>,
+        T: IntoIterator<Item = Clause>,
     {
         self.inner.extend_clauses(cl_iter.into_iter().map(|mut cl| {
-            cl.add(self.gate);
+            cl.add(self.guard);
             cl
         }))
     }
@@ -412,5 +513,5 @@ fn log_time(message: &str, mut cb: impl FnMut()) {
     eprintln!("{message}");
     let start = std::time::Instant::now();
     cb();
-    eprintln!("done in {:?}", start.elapsed());
+    eprintln!("{message} took {:?}", start.elapsed());
 }
