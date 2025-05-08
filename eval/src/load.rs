@@ -186,8 +186,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
             Filter { test, rest } => {
                 let (src, map) = self.load_instruction(loaded, rest);
                 let expr = map_variables(test.clone(), &map);
-                let (dst, node) = Key::pair(Node::Filter { src, expr });
-                self.nodes.insert(node);
+                let dst = self.insert(Node::Filter { src, expr });
                 (dst, map)
             }
             FromQuery {
@@ -214,12 +213,11 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                 }
 
                 // create node
-                let (dst, node) = Key::pair(Node::LoadRelation {
+                let dst = self.insert(Node::LoadRelation {
                     relation,
                     query: query.into(),
                 });
 
-                self.nodes.insert(node);
                 (dst, map)
             }
             Let { var, expr, rest } => {
@@ -233,14 +231,13 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                 map.insert(*var);
 
                 // create the push node
-                let (dst, node) = Key::pair(Node::Push { src, expr });
-                self.nodes.insert(node);
+                let dst = self.insert(Node::Push { src, expr });
                 (dst, map)
             }
             Merge { lhs, rhs } => {
                 // add the nodes for each branch
                 let (lhs, lhs_map) = self.load_instruction(loaded, lhs);
-                let (mut rhs, rhs_map) = self.load_instruction(loaded, rhs);
+                let (rhs, rhs_map) = self.load_instruction(loaded, rhs);
 
                 // assert that the variable maps are equal
                 assert_eq!(lhs_map, rhs_map);
@@ -252,20 +249,11 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                     rhs_proj.push(rhs_idx);
                 }
 
-                // but only project if needed
-                if rhs_proj.iter().enumerate().any(|(idx, var)| idx != *var) {
-                    let (new_rhs, node) = Key::pair(Node::Project {
-                        src: rhs,
-                        map: rhs_proj.into(),
-                    });
-
-                    self.nodes.insert(node);
-                    rhs = new_rhs;
-                }
+                // create new project node if needed
+                let rhs = self.insert_project(rhs, rhs_proj);
 
                 // create the merge node
-                let (dst, node) = Key::pair(Node::Merge { lhs, rhs });
-                self.nodes.insert(node);
+                let dst = self.insert(Node::Merge { lhs, rhs });
                 (dst, lhs_map)
             }
             Join { lhs, rhs } => {
@@ -306,23 +294,36 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                     }
                 }
 
-                // create the projection nodes
-                let (lhs, lhs_node) = Key::pair(Node::Project {
-                    src: lhs,
-                    map: lhs_proj.into(),
-                });
-
-                let (rhs, rhs_node) = Key::pair(Node::Project {
-                    src: rhs,
-                    map: rhs_proj.into(),
-                });
+                // project nodes
+                let lhs = self.insert_project(lhs, lhs_proj);
+                let rhs = self.insert_project(rhs, rhs_proj);
 
                 // create the join node
-                let (dst, node) = Key::pair(Node::Join { lhs, rhs, num });
-                self.nodes.extend([lhs_node, rhs_node, node]);
+                let dst = self.insert(Node::Join { lhs, rhs, num });
                 (dst, joined)
             }
         }
+    }
+
+    /// Optionally inserts a project node if needed.
+    pub fn insert_project(&mut self, src: Key<Node>, map: Vec<usize>) -> Key<Node> {
+        // if the map does not swizzle, just return the source key
+        if map.iter().copied().enumerate().all(|(idx, var)| idx == var) {
+            return src;
+        }
+
+        // otherwise, insert new project node
+        self.insert(Node::Project {
+            src,
+            map: map.into(),
+        })
+    }
+
+    /// Inserts a new node, returning its key.
+    pub fn insert(&mut self, node: Node) -> Key<Node> {
+        let key = Key::new(&node);
+        self.nodes.insert(node);
+        key
     }
 }
 
