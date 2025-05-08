@@ -21,12 +21,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::Key;
 
-pub type Values = Vec<Value>;
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Fact {
     pub relation: Key<Relation>,
-    pub values: Arc<[Value]>,
+    pub values: FixedValues,
 }
 
 impl Fact {
@@ -71,6 +69,20 @@ pub type Query = Arc<[Option<Value>]>;
 
 /// The head of a relation store operation.
 pub type StoreHead = Arc<[QueryTerm]>;
+
+/// The head of a load operation.
+pub type LoadHead = (Key<Relation>, LoadMask, FixedValues);
+
+/// The type of a "load mask": a selection of which columns of a relation to join by in load operations.
+///
+/// A `true` represents a variable binding and a `false` represents a static value.
+pub type LoadMask = bitvec::boxed::BitBox;
+
+/// Everyday, mutable value storage in a node, typically in [Tuple].
+pub type Values = Vec<Value>;
+
+/// Immutable value storage. Lower overhead to arrange.
+pub type FixedValues = Arc<[Value]>;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Node {
@@ -211,9 +223,22 @@ impl Node {
         }
     }
 
-    pub fn load_relation(self) -> Option<(Key<Relation>, Query)> {
+    pub fn load_mask(self) -> Option<(Key<Relation>, LoadMask)> {
         match self {
-            Node::LoadRelation { relation, query } => Some((relation, query)),
+            Node::LoadRelation { relation, query } => {
+                Some((relation, query.iter().map(Option::is_none).collect()))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn load_head(self) -> Option<LoadHead> {
+        match self {
+            Node::LoadRelation { relation, query } => Some((
+                relation,
+                query.iter().map(Option::is_none).collect(),
+                query.iter().flatten().cloned().collect(),
+            )),
             _ => None,
         }
     }

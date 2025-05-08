@@ -24,7 +24,8 @@ use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::
 
 use crate::{
     types::{
-        Condition, ConstraintGroup, Fact, Gate, IndexList, Node, Relation, StoreHead, Tuple, Values,
+        Condition, ConstraintGroup, Fact, FixedValues, Gate, IndexList, LoadHead, LoadMask, Node,
+        Relation, StoreHead, Tuple, Values,
     },
     utils::*,
 };
@@ -120,13 +121,20 @@ pub fn backend(
                 .map(value)
                 .inspect(inspect("output"));
 
-            // load relation operation
+            // arrange masked facts
+            let load_mask = nodes
+                .flat_map(map_value(Node::load_mask))
+                .map(value)
+                .join_core(&facts_arranged, load_mask);
+
+            // join masked facts with load nodes to populate them
             let load = nodes
-                .flat_map(map_value(Node::load_relation))
-                .map(|(node, (rel, _query))| (rel, node)) // TODO: hack
-                .inspect(inspect("load input"))
-                .join_core(&relations_arranged, |k, v1, v2| [(*k, (*v1, v2.clone()))])
-                .join_core(&facts_arranged, |_, dst, fact| [load(dst, fact)]);
+                .flat_map(map_value(Node::load_head))
+                .map(|(dst, (rel, mask, vals))| (rel, (dst, mask, vals)))
+                .join_core(&relations_arranged, |rel, (dst, mask, vals), relation| {
+                    [((*rel, mask.clone(), vals.clone()), (*dst, relation.kind))]
+                })
+                .join_map(&load_mask, load);
 
             // store tuples to corresponding relations
             let stored = nodes
@@ -255,13 +263,44 @@ pub fn project((dst, map): &(Key<Node>, IndexList), tuple: &Tuple) -> (Key<Node>
     (*dst, Tuple { values, condition })
 }
 
-pub fn load((node, relation): &(Key<Node>, Relation), fact: &Fact) -> (Key<Node>, Tuple) {
-    let condition = match relation.kind {
-        RelationKind::Conditional | RelationKind::Decision => Some(Condition::Fact(Key::new(fact))),
+pub fn load_mask(
+    relation: &Key<Relation>,
+    mask: &LoadMask,
+    fact: &Fact,
+) -> Option<(LoadHead, (Key<Fact>, FixedValues))> {
+    let values = fact
+        .values
+        .iter()
+        .enumerate()
+        .map(|(idx, val)| (mask[idx], val));
+
+    let head = values
+        .clone()
+        .filter(|(masked, _)| !*masked)
+        .map(value)
+        .cloned()
+        .collect();
+
+    let tail = values
+        .filter(|(masked, _)| *masked)
+        .map(value)
+        .cloned()
+        .collect();
+
+    Some(((*relation, mask.clone(), head), (Key::new(fact), tail)))
+}
+
+pub fn load(
+    _head: &LoadHead,
+    (node, kind): &(Key<Node>, RelationKind),
+    (fact, tail): &(Key<Fact>, FixedValues),
+) -> (Key<Node>, Tuple) {
+    let condition = match kind {
+        RelationKind::Conditional | RelationKind::Decision => Some(Condition::Fact(*fact)),
         RelationKind::Basic => None,
     };
 
-    let values = fact.values.to_vec();
+    let values = tail.to_vec();
     (*node, Tuple { values, condition })
 }
 
