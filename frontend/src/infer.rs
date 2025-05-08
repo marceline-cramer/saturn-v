@@ -24,14 +24,32 @@ use saturn_v_ir::BinaryOpCategory;
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
-    parse::{
-        file_relations, AbstractRule, AbstractRuleBody, Expr, ExprKind, Pattern,
-        RelationDefinition, UnaryOpKind,
-    },
+    parse::*,
     resolve::{resolve_relation_type, ResolvedRelationType, ResolvedType, ResolvedTypeAlias},
     toplevel::AstNode,
     types::{PrimitiveType, WithAst},
 };
+
+#[salsa::tracked]
+pub fn typed_constraint<'db>(
+    db: &'db dyn Database,
+    constraint: AbstractConstraint<'db>,
+) -> TypedConstraint<'db> {
+    // simply type the rule body
+    let table = full_rule_body_type_table(db, constraint.body(db));
+
+    // create the typed constraint
+    TypedConstraint::new(db, table, constraint)
+}
+
+#[salsa::tracked]
+pub struct TypedConstraint<'db> {
+    /// The [TypeTable] providing type information for the constraint.
+    pub table: TypeTable<'db>,
+
+    /// The abstract constraint to be typed.
+    pub constraint: AbstractConstraint<'db>,
+}
 
 #[salsa::tracked]
 pub fn typed_rule_bodies<'db>(

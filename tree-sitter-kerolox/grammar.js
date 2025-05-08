@@ -80,7 +80,7 @@ module.exports = grammar({
       "."
     ),
 
-    constraint_kind: $ => choice($.cardinality),
+    constraint_kind: $ => choice(field("cardinality", $.cardinality)),
 
     cardinality: $ => seq(
       field("kind", choice($.only, $.at_most, $.at_least)),

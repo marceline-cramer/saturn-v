@@ -589,8 +589,12 @@
       "type": "CHOICE",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "cardinality"
+          "type": "FIELD",
+          "name": "cardinality",
+          "content": {
+            "type": "SYMBOL",
+            "name": "cardinality"
+          }
         }
       ]
     },

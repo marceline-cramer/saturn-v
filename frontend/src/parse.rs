@@ -21,7 +21,7 @@ use std::{
 };
 
 use salsa::Database;
-use saturn_v_ir::{BinaryOpCategory, Value};
+use saturn_v_ir::{BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
@@ -112,10 +112,18 @@ pub fn file_rules(db: &dyn Database, file: File) -> HashMap<String, HashSet<Abst
     rules
 }
 
+/// Parses all constraints in a file.
+pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstraint<'_>> {
+    file_item_kind_ast(db, file, ItemKind::Constraint)
+        .into_iter()
+        .map(|item| parse_constraint(db, item))
+        .collect()
+}
+
 /// Gets the full relation table of a file.
 #[salsa::tracked]
 pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, RelationDefinition<'_>> {
-    // iterate over all definition items
+    // iterate over all relation items
     let mut relations = HashMap::new();
     for node in file_item_kind_ast(db, file, ItemKind::Definition) {
         let def = parse_relation_def(db, node);
@@ -206,6 +214,57 @@ pub enum ItemKind {
     Definition,
     Rule,
     Constraint,
+}
+
+/// Parses an abstract constraint from an AST.
+#[salsa::tracked]
+pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'_> {
+    // parse each capture into the head
+    let head = ast
+        .get_fields(db, "capture")
+        .map(|node| WithAst::new(ast, node.contents(db).to_owned().unwrap()))
+        .collect();
+
+    // match the constraint kind
+    let kind = {
+        let cardinality = ast.expect_field(db, "kind").expect_field(db, "cardinality");
+
+        let kind = match cardinality.expect_field(db, "kind").symbol(db) {
+            "only" => CardinalityConstraintKind::Only,
+            "at_most" => CardinalityConstraintKind::AtMost,
+            "at_least" => CardinalityConstraintKind::AtLeast,
+            other => panic!("unexpected cardinality kind node {other:?}"),
+        };
+
+        let threshold = cardinality
+            .expect_field(db, "threshold")
+            .contents(db)
+            .as_ref()
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        WithAst::new(cardinality, ConstraintKind::Cardinality { kind, threshold })
+    };
+
+    // parse the body
+    let body = parse_rule_body(db, ast.expect_field(db, "body"));
+
+    // initialize the constraint
+    AbstractConstraint::new(db, head, kind, body)
+}
+
+/// An abstract constraint (syntax representation).
+#[salsa::tracked]
+pub struct AbstractConstraint<'db> {
+    /// The constraint's head variables.
+    pub head: Vec<WithAst<String>>,
+
+    /// The kind of constraint.
+    pub kind: WithAst<ConstraintKind>,
+
+    /// The rule body of this constraint.
+    pub body: AbstractRuleBody<'db>,
 }
 
 /// Parses an abstract rule from an AST.

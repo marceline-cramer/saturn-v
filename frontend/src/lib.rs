@@ -35,6 +35,10 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
                 infer::typed_rule_bodies(db, rule);
             }
         }
+
+        for constraint in parse::file_constraints(db, *file) {
+            infer::typed_constraint(db, constraint);
+        }
     }
 }
 
