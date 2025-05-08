@@ -61,12 +61,9 @@ async fn run(loader: Loader<String>) {
 
     assert_eq!(solver.step().await, Some(true), "failed to run solver");
 
-    let mut batch = Vec::new();
     while let Ok(crate::utils::Update::Push(output, true)) = output_rx.recv() {
-        batch.push(output);
+        println!("{output:?}");
     }
-
-    eprintln!("outputs: {batch:#?}");
 }
 
 #[tokio::test]
@@ -126,7 +123,7 @@ async fn test_pick_pairs() {
                     test: Expr::BinaryOp {
                         op: BinaryOpKind::Lt,
                         lhs: Arc::new(Expr::Variable(1)),
-                        rhs: Arc::new(Expr::Value(Value::Integer(1000))),
+                        rhs: Arc::new(Expr::Value(Value::Integer(100))),
                     },
                     rest: Box::new(Instruction::FromQuery {
                         relation: 0,
