@@ -26,7 +26,7 @@ impl<R: Clone + Eq + Hash> Program<R> {
         for (new, r) in self.relations.values().enumerate() {
             if let Some((old, _ty)) = relation_tys.insert(r.store.clone(), (new, r.ty.clone())) {
                 return Err(ErrorKind::DuplicateRelationUserdata {
-                    userdata: r.store.clone(),
+                    relation: r.store.clone(),
                     old,
                     new,
                 }
@@ -51,8 +51,78 @@ impl<R: Clone + Eq + Hash> Program<R> {
                 .with_context(ErrorContext::Constraint(idx))?;
         }
 
+        // create a map of each relation to a decision relation dependency, if any
+        let decision_dependencies: HashMap<&R, Option<&R>> = self
+            .indirect_dependencies()
+            .into_iter()
+            .map(|(dependent, dependencies)| {
+                let decision = dependencies
+                    .into_iter()
+                    .find(|dep| self.relations[*dep].kind == RelationKind::Decision);
+
+                (dependent, decision)
+            })
+            .collect();
+
+        // validate of each relation's kind
+        for (relation, decision) in decision_dependencies {
+            match (self.relations[relation].kind, decision) {
+                // basic relations must not have indirect decision dependencies
+                (RelationKind::Basic, Some(decision)) => {
+                    return Err(ErrorKind::BasicRelationDependsOnDecision {
+                        basic: relation.clone(),
+                        decision: decision.clone(),
+                    }
+                    .into())
+                }
+                // conditional relations must be dependent on decisions
+                (RelationKind::Conditional, None) => {
+                    return Err(ErrorKind::ConditionalRelationHasNoDecisions {
+                        conditional: relation.clone(),
+                    }
+                    .into())
+                }
+                // all other relation kinds are valid!
+                _ => {}
+            }
+        }
+
         // all done!
         Ok(())
+    }
+
+    /// Create a map of each relation's indirect dependencies.
+    pub fn indirect_dependencies(&self) -> HashMap<&R, HashSet<&R>> {
+        // initialize an empty indirect dep map
+        let mut indirect: HashMap<_, HashSet<_>> = HashMap::new();
+
+        // create the initial stack of new deps out of direct deps
+        let mut stack: Vec<_> = self
+            .relations
+            .iter()
+            .flat_map(|(key, relation)| {
+                relation
+                    .direct_dependencies()
+                    .into_iter()
+                    .map(move |dep| (key, dep))
+            })
+            .collect();
+
+        // until the stack is empty, add dependencies
+        while let Some((dependent, dependency)) = stack.pop() {
+            // if the dependency is already in the map, skip adding indirect deps
+            if !indirect.entry(dependent).or_default().insert(dependency) {
+                continue;
+            }
+
+            // otherwise, add the indirect dependencies to the stack
+            for indirect_dep in self.relations[dependency].direct_dependencies() {
+                stack.push((dependent, indirect_dep));
+            }
+        }
+
+        // we've reached a fixed point; return the complete dependency map
+        indirect
     }
 }
 
@@ -129,6 +199,14 @@ impl<R: Clone + Eq + Hash> Relation<R> {
 
         // this relation is valid!
         Ok(())
+    }
+
+    /// Get the set of direct dependencies this relation possesses.
+    pub fn direct_dependencies(&self) -> HashSet<&R> {
+        self.rules
+            .iter()
+            .flat_map(|rule| rule.loaded.iter())
+            .collect()
     }
 }
 
@@ -430,14 +508,14 @@ pub fn validate_load_relations<R: Clone + Eq + Hash>(
     relations: &[R],
 ) -> Result<Vec<Vec<Type>>, R> {
     let mut out = Vec::new();
-    for (idx, ud) in relations.iter().enumerate() {
-        if let Some((old, _ud)) = relations[0..idx]
+    for (idx, relation) in relations.iter().enumerate() {
+        if let Some((old, _decision)) = relations[0..idx]
             .iter()
             .enumerate()
-            .find(|(_idx, old)| *old == ud)
+            .find(|(_idx, old)| *old == relation)
         {
             return Err(ErrorKind::DuplicateRelationUserdata {
-                userdata: ud.clone(),
+                relation: relation.clone(),
                 old,
                 new: idx,
             }
@@ -446,8 +524,8 @@ pub fn validate_load_relations<R: Clone + Eq + Hash>(
 
         out.push(
             types
-                .get(ud)
-                .ok_or(ErrorKind::RelationNotFound(ud.clone()))?
+                .get(relation)
+                .ok_or(ErrorKind::RelationNotFound(relation.clone()))?
                 .clone(),
         );
     }
@@ -592,8 +670,14 @@ pub enum ErrorKind<R> {
     #[error("variable index #{0} is invalid")]
     InvalidVariableIndex(u32),
 
-    #[error("duplicate relation userdata in #{old} and #{new}: {userdata}")]
-    DuplicateRelationUserdata { userdata: R, old: usize, new: usize },
+    #[error("duplicate relation in #{old} and #{new}: {relation}")]
+    DuplicateRelationUserdata { relation: R, old: usize, new: usize },
+
+    #[error("the basic relation {basic} depends on decision relation {decision}")]
+    BasicRelationDependsOnDecision { basic: R, decision: R },
+
+    #[error("conditional relation {conditional} has no dependencies on decisions")]
+    ConditionalRelationHasNoDecisions { conditional: R },
 
     #[error("could not find relation by userdata: {0}")]
     RelationNotFound(R),
