@@ -18,7 +18,8 @@ use std::sync::Arc;
 
 use saturn_v_ir::{
     self as ir, BinaryOpKind, CardinalityConstraintKind, Constraint, ConstraintKind,
-    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, Type, Value,
+    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, RuleBody, Type,
+    Value,
 };
 
 use crate::{dataflow::DataflowRouters, load::Loader, solve::Solver, utils::run_pumps};
@@ -81,16 +82,18 @@ async fn test_pick_one() {
 
     program.constraints.push(Constraint {
         head: vec![],
-        loaded: vec!["Choice".to_string()],
-        vars: vec![Type::Integer],
         weight: ConstraintWeight::Hard,
         kind: ConstraintKind::Cardinality {
             kind: CardinalityConstraintKind::Only,
             threshold: 1,
         },
-        instructions: Instruction::FromQuery {
-            relation: 0,
-            terms: vec![QueryTerm::Variable(0)],
+        body: RuleBody {
+            loaded: vec!["Choice".to_string()],
+            vars: vec![Type::Integer],
+            instructions: Instruction::FromQuery {
+                relation: 0,
+                terms: vec![QueryTerm::Variable(0)],
+            },
         },
     });
 
@@ -109,27 +112,29 @@ async fn test_pick_pairs() {
         kind: RelationKind::Basic,
         is_output: false,
         rules: vec![Rule {
-            vars: vec![Type::Integer, Type::Integer],
             head: vec![QueryTerm::Variable(0)],
-            loaded: vec!["Base".to_string()],
-            instructions: Instruction::Let {
-                var: 0,
-                expr: Expr::BinaryOp {
-                    op: saturn_v_ir::BinaryOpKind::Add,
-                    lhs: Arc::new(Expr::Variable(1)),
-                    rhs: Arc::new(Expr::Value(Value::Integer(1))),
-                },
-                rest: Box::new(Instruction::Filter {
-                    test: Expr::BinaryOp {
-                        op: BinaryOpKind::Lt,
+            body: RuleBody {
+                vars: vec![Type::Integer, Type::Integer],
+                loaded: vec!["Base".to_string()],
+                instructions: Instruction::Let {
+                    var: 0,
+                    expr: Expr::BinaryOp {
+                        op: saturn_v_ir::BinaryOpKind::Add,
                         lhs: Arc::new(Expr::Variable(1)),
-                        rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                        rhs: Arc::new(Expr::Value(Value::Integer(1))),
                     },
-                    rest: Box::new(Instruction::FromQuery {
-                        relation: 0,
-                        terms: vec![QueryTerm::Variable(1)],
+                    rest: Box::new(Instruction::Filter {
+                        test: Expr::BinaryOp {
+                            op: BinaryOpKind::Lt,
+                            lhs: Arc::new(Expr::Variable(1)),
+                            rhs: Arc::new(Expr::Value(Value::Integer(100))),
+                        },
+                        rest: Box::new(Instruction::FromQuery {
+                            relation: 0,
+                            terms: vec![QueryTerm::Variable(1)],
+                        }),
                     }),
-                }),
+                },
             },
         }],
     });
@@ -141,49 +146,53 @@ async fn test_pick_pairs() {
         kind: RelationKind::Decision,
         is_output: true,
         rules: vec![Rule {
-            vars: vec![Type::Integer, Type::Integer],
             head: vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
-            loaded: vec!["Base".to_string()],
-            instructions: Instruction::Filter {
-                test: Expr::BinaryOp {
-                    op: BinaryOpKind::Lt,
-                    lhs: Arc::new(Expr::Variable(0)),
-                    rhs: Arc::new(Expr::Variable(1)),
+            body: RuleBody {
+                vars: vec![Type::Integer, Type::Integer],
+                loaded: vec!["Base".to_string()],
+                instructions: Instruction::Filter {
+                    test: Expr::BinaryOp {
+                        op: BinaryOpKind::Lt,
+                        lhs: Arc::new(Expr::Variable(0)),
+                        rhs: Arc::new(Expr::Variable(1)),
+                    },
+                    rest: Box::new(Instruction::Join {
+                        lhs: Box::new(Instruction::FromQuery {
+                            relation: 0,
+                            terms: vec![QueryTerm::Variable(0)],
+                        }),
+                        rhs: Box::new(Instruction::FromQuery {
+                            relation: 0,
+                            terms: vec![QueryTerm::Variable(1)],
+                        }),
+                    }),
                 },
-                rest: Box::new(Instruction::Join {
-                    lhs: Box::new(Instruction::FromQuery {
-                        relation: 0,
-                        terms: vec![QueryTerm::Variable(0)],
-                    }),
-                    rhs: Box::new(Instruction::FromQuery {
-                        relation: 0,
-                        terms: vec![QueryTerm::Variable(1)],
-                    }),
-                }),
             },
         }],
     });
 
     program.constraints.push(Constraint {
         head: vec![0],
-        loaded: vec!["Pair".to_string()],
-        vars: vec![Type::Integer, Type::Integer, Type::Integer],
         weight: ConstraintWeight::Hard,
         kind: saturn_v_ir::ConstraintKind::Cardinality {
             kind: CardinalityConstraintKind::Only,
             threshold: 1,
         },
-        instructions: Instruction::Let {
-            var: 0,
-            expr: Expr::BinaryOp {
-                op: BinaryOpKind::Div,
-                lhs: Arc::new(Expr::Variable(1)),
-                rhs: Arc::new(Expr::Value(Value::Integer(10))),
+        body: RuleBody {
+            loaded: vec!["Pair".to_string()],
+            vars: vec![Type::Integer, Type::Integer, Type::Integer],
+            instructions: Instruction::Let {
+                var: 0,
+                expr: Expr::BinaryOp {
+                    op: BinaryOpKind::Div,
+                    lhs: Arc::new(Expr::Variable(1)),
+                    rhs: Arc::new(Expr::Value(Value::Integer(10))),
+                },
+                rest: Box::new(Instruction::FromQuery {
+                    relation: 0,
+                    terms: vec![QueryTerm::Variable(1), QueryTerm::Variable(2)],
+                }),
             },
-            rest: Box::new(Instruction::FromQuery {
-                relation: 0,
-                terms: vec![QueryTerm::Variable(1), QueryTerm::Variable(2)],
-            }),
         },
     });
 

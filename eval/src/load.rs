@@ -115,7 +115,8 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// Loads a constraint.
     fn load_constraint(&mut self, constraint: &ir::Constraint<R>) {
         // load the instructions
-        let (src, map) = self.load_instruction(&constraint.loaded, &constraint.instructions);
+        let (src, map) =
+            self.load_instruction(&constraint.body.loaded, &constraint.body.instructions);
 
         // map the constraint head
         let mut head = Vec::with_capacity(constraint.head.len());
@@ -153,7 +154,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// Loads a rule.
     fn load_rule(&mut self, relation: &R, rule: &Rule<R>) {
         // load the instructions
-        let (src, map) = self.load_instruction(&rule.loaded, &rule.instructions);
+        let (src, map) = self.load_instruction(&rule.body.loaded, &rule.body.instructions);
 
         // build the head of the relation
         let mut head = Vec::with_capacity(rule.head.len());

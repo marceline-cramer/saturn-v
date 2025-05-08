@@ -62,17 +62,11 @@ pub struct Constraint<R> {
     /// The kind of constraint that this is.
     pub kind: ConstraintKind,
 
-    /// The type of each variable.
-    pub vars: Vec<Type>,
-
     /// The variables to group this constraint over.
     pub head: Vec<u32>,
 
-    /// The lookups for custom relation types loaded by the filter.
-    pub loaded: Vec<R>,
-
-    /// The desugared instructions in this constraint.
-    pub instructions: Instruction,
+    /// This constraint's [RuleBody].
+    pub body: RuleBody<R>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -149,6 +143,13 @@ pub struct Rule<R> {
     /// relation this rule is for.
     pub head: Vec<QueryTerm>,
 
+    /// The rule's body.
+    pub body: RuleBody<R>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+pub struct RuleBody<R> {
     /// The type of each variable.
     pub vars: Vec<Type>,
 

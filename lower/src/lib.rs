@@ -20,7 +20,7 @@ use egglog::EGraph;
 use indexmap::IndexSet;
 use saturn_v_ir::{
     sexp::{self, Doc, Sexp},
-    Instruction, Rule,
+    Instruction, RuleBody,
 };
 
 pub type RelationTable<R> = IndexSet<R>;
@@ -39,8 +39,8 @@ pub fn init_lower_egraph() -> EGraph {
     graph
 }
 
-/// Defines the egglog representation to lower a rule.
-pub fn extract_rule<R>(name: &str, rule: &Rule<R>) -> String {
+/// Defines the egglog representation to lower a rule body.
+pub fn extract_rule_body<R>(name: &str, rule: &RuleBody<R>) -> String {
     let instr = Instruction::Sink {
         vars: HashSet::from_iter(0..(rule.vars.len() as u32)),
         rest: Box::new(rule.instructions.clone()),
@@ -75,9 +75,9 @@ pub mod tests {
     use chumsky::prelude::*;
     use saturn_v_ir::{sexp::Token, *};
 
-    fn test_rule(rule: Rule<()>) -> Instruction {
+    fn test_rule_body(rule: RuleBody<()>) -> Instruction {
         let name = "test_rule";
-        let extract = extract_rule(name, &rule);
+        let extract = extract_rule_body(name, &rule);
         println!("{extract}");
         let mut egg = init_lower_egraph();
         let msgs = egg.parse_and_run_program(None, &extract).unwrap();
@@ -131,14 +131,13 @@ pub mod tests {
             }),
         };
 
-        let rule = Rule::<()> {
+        let rule = RuleBody::<()> {
             instructions: filter_to_instructions(filter),
-            head: vec![QueryTerm::Variable(0)],
             loaded: vec![()],
             vars: vec![Type::Integer, Type::Integer],
         };
 
-        eprintln!("{:#?}", test_rule(rule));
+        eprintln!("{:#?}", test_rule_body(rule));
     }
 
     #[test]
@@ -155,13 +154,12 @@ pub mod tests {
             }),
         };
 
-        let rule = Rule::<()> {
+        let rule = RuleBody::<()> {
             instructions: filter_to_instructions(filter),
-            head: vec![QueryTerm::Variable(0)],
             loaded: vec![(), ()],
             vars: vec![Type::Integer],
         };
 
-        eprintln!("{:#?}", test_rule(rule));
+        eprintln!("{:#?}", test_rule_body(rule));
     }
 }

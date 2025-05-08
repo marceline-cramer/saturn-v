@@ -129,15 +129,15 @@ impl<R: Clone + Eq + Hash> Program<R> {
 impl<R: Clone + Hash + Eq> Constraint<R> {
     /// Validates this constraint.
     pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<(), R> {
-        // first, confirm that all necessary variables are assigned
-        let relations = validate_load_relations(relations, &self.loaded)?;
-        let assigned = self.instructions.validate(&relations, &self.vars)?;
+        // first, validate the rule body
+        let assigned = self.body.validate(relations)?;
 
         // next, find which variables are needed and track the head type
         let mut needed = HashSet::new();
         for idx in self.head.iter().copied() {
             // check that the variable exists
-            self.vars
+            self.body
+                .vars
                 .get(idx as usize)
                 .ok_or(ErrorKind::InvalidVariableIndex(idx))?;
 
@@ -149,14 +149,6 @@ impl<R: Clone + Hash + Eq> Constraint<R> {
         let unassigned: HashSet<_> = needed.difference(&assigned).copied().collect();
         if !unassigned.is_empty() {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
-        }
-
-        // if there are any unused relations, return an error
-        let used = self.instructions.relation_deps();
-        let declared: HashSet<u32> = (0..(self.loaded.len() as u32)).collect();
-        let unused: HashSet<_> = used.difference(&declared).copied().collect();
-        if !unused.is_empty() {
-            return Err(ErrorKind::UnusedRelations(unused).into());
         }
 
         // otherwise, this constraint is valid
@@ -205,7 +197,7 @@ impl<R: Clone + Eq + Hash> Relation<R> {
     pub fn direct_dependencies(&self) -> HashSet<&R> {
         self.rules
             .iter()
-            .flat_map(|rule| rule.loaded.iter())
+            .flat_map(|rule| rule.body.loaded.iter())
             .collect()
     }
 }
@@ -213,9 +205,8 @@ impl<R: Clone + Eq + Hash> Relation<R> {
 impl<R: Clone + Eq + Hash> Rule<R> {
     /// Validates this rule and returns the type of the head.
     pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<Vec<Type>, R> {
-        // first, confirm that all necessary variables are assigned
-        let relations = validate_load_relations(relations, &self.loaded)?;
-        let assigned = self.instructions.validate(&relations, &self.vars)?;
+        // first, validate the rule body
+        let assigned = self.body.validate(relations)?;
 
         // next, find which variables are needed and track the head type
         let mut ty = Vec::new();
@@ -232,6 +223,7 @@ impl<R: Clone + Eq + Hash> Rule<R> {
                     let var = *var;
 
                     let var_ty = self
+                        .body
                         .vars
                         .get(var as usize)
                         .ok_or(ErrorKind::InvalidVariableIndex(var))
@@ -249,6 +241,18 @@ impl<R: Clone + Eq + Hash> Rule<R> {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
         }
 
+        // otherwise, this rule is valid
+        Ok(ty)
+    }
+}
+
+impl<R: Clone + Eq + Hash> RuleBody<R> {
+    /// Validates this rule body, returning the set of assigned variables.
+    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<HashSet<u32>, R> {
+        // first, confirm that all necessary variables are assigned
+        let relations = validate_load_relations(relations, &self.loaded)?;
+        let assigned = self.instructions.validate(&relations, &self.vars)?;
+
         // if there are any unused relations, return an error
         let used = self.instructions.relation_deps();
         let declared: HashSet<u32> = (0..(self.loaded.len() as u32)).collect();
@@ -257,8 +261,8 @@ impl<R: Clone + Eq + Hash> Rule<R> {
             return Err(ErrorKind::UnusedRelations(unused).into());
         }
 
-        // otherwise, this rule is valid
-        Ok(ty)
+        // otherwise, this rule body is valid
+        Ok(assigned)
     }
 }
 
