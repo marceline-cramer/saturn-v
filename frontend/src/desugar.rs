@@ -20,7 +20,7 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use salsa::Database;
+use salsa::{Database, Update};
 
 use saturn_v_ir as ir;
 
@@ -33,32 +33,26 @@ use crate::{
 
 pub fn desugar_rule_body<'db>(
     db: &'db dyn Database,
-    needed_vars: HashSet<u32>,
     rule_body: TypedRuleBody<'db>,
-) -> ir::RuleBody<RelationDefinition<'db>> {
+) -> Desugarer<'db> {
     // look up the abstract rule body
     let inner = rule_body.inner(db);
 
     // create the desugarer
-    let mut desugarer = Desugarer::new(db, inner.ast(db).file(db), rule_body.table(db));
+    let mut desugarer = Desugarer::new(inner.ast(db).file(db), rule_body.table(db));
 
     // desugar each of the clauses in turn
-    let mut clauses = Vec::with_capacity(inner.clauses(db).len());
     for clause in inner.clauses(db).iter() {
-        let exprs = desugarer.desugar_expr(*clause);
-        assert_eq!(exprs.len(), 1, "desugared clause does not have length 1");
-        clauses.push(exprs[0].clone());
+        desugarer.add_clause(db, *clause);
     }
 
-    // finalize the rule body
-    desugarer.to_rule_body(needed_vars, clauses)
+    // return the completed desugarer
+    desugarer
 }
 
 /// A structure used to track the mutable state used in desugaring a rule body.
+#[derive(Clone, PartialEq, Eq, Update)]
 pub struct Desugarer<'db> {
-    /// The reference to the database being used.
-    db: &'db dyn Database,
-
     /// The file that desugaring is being done in. Used to resolve relation names.
     file: File,
 
@@ -75,43 +69,29 @@ pub struct Desugarer<'db> {
     /// An index set of all loaded relations.
     relations: IndexSet<RelationDefinition<'db>>,
 
-    /// A backlog of equality clauses for binding relation variables to expressions.
-    relation_bindings: Vec<(u32, ir::Expr)>,
+    /// Clauses that have been added to this desugarer.
+    clauses: Vec<ir::Expr>,
 }
 
 impl<'db> Desugarer<'db> {
     /// Creates a new desugarer.
-    pub fn new(db: &'db dyn Database, file: File, table: TypeTable<'db>) -> Self {
+    pub fn new(file: File, table: TypeTable<'db>) -> Self {
         Self {
-            db,
             file,
             table,
-            lowered_vars: vec![],
+            lowered_vars: Vec::new(),
             typed_vars: HashMap::new(),
             relations: IndexSet::new(),
-            relation_bindings: vec![],
+            clauses: Vec::new(),
         }
     }
 
     /// Creates an IR rule body out of given clauses and this desugarer's relation bindings.
-    pub fn to_rule_body(
-        &self,
-        needed_vars: HashSet<u32>,
-        mut clauses: Vec<ir::Expr>,
-    ) -> ir::RuleBody<RelationDefinition<'db>> {
-        // add each of the relation bindings as clauses
-        clauses.extend(
-            self.relation_bindings
-                .iter()
-                .map(|(idx, expr)| ir::Expr::BinaryOp {
-                    op: ir::BinaryOpKind::Eq,
-                    lhs: Arc::new(ir::Expr::Variable(*idx)),
-                    rhs: Arc::new(expr.clone()),
-                }),
-        );
-
+    pub fn to_rule_body(&self, needed_vars: HashSet<u32>) -> ir::RuleBody<RelationDefinition<'db>> {
         // reduce clauses into a single conjunctive filter expression
-        let test = clauses
+        let test = self
+            .clauses
+            .clone()
             .into_iter()
             .reduce(|lhs, rhs| ir::Expr::BinaryOp {
                 op: ir::BinaryOpKind::And,
@@ -144,32 +124,42 @@ impl<'db> Desugarer<'db> {
         }
     }
 
+    /// Adds an expression as a clause.
+    pub fn add_clause(&mut self, db: &'db dyn Database, expr: Expr<'db>) {
+        let exprs = self.desugar_expr(db, expr);
+        assert_eq!(exprs.len(), 1, "desugared clause does not have length 1");
+        self.clauses.push(exprs[0].clone());
+    }
+
     /// Desugars an expression, returning its flattened list of sub-expressions.
-    pub fn desugar_expr(&mut self, expr: Expr<'db>) -> Vec<ir::Expr> {
+    pub fn desugar_expr(&mut self, db: &'db dyn Database, expr: Expr<'db>) -> Vec<ir::Expr> {
         use ExprKind::*;
-        match expr.kind(self.db) {
+        match expr.kind(db) {
             // tuples simply concatenate their desugared elements
-            Tuple(els) => els.iter().flat_map(|el| self.desugar_expr(*el)).collect(),
+            Tuple(els) => els
+                .iter()
+                .flat_map(|el| self.desugar_expr(db, *el))
+                .collect(),
             // wrap value literals directly in an expression
             Value(val) => vec![ir::Expr::Value(val.clone())],
             // pass variables to the dedicated method
             // wow, it's a method, huh? am I doing OOP again? mind-boggling.
-            Variable(name) => self.desugar_variable(name),
+            Variable(name) => self.desugar_variable(db, name),
             // desugar atoms in a dedicated method
             Atom { head, body } => {
-                let body = self.desugar_expr(body);
-                self.desugar_atom(head.inner, body)
+                let body = self.desugar_expr(db, body);
+                self.desugar_atom(db, head.inner, body)
             }
             // desugar unary operators in a dedicated method
             UnaryOp { op, term } => {
-                let term = self.desugar_expr(term);
-                self.desugar_unary_op(op.inner, term)
+                let term = self.desugar_expr(db, term);
+                self.desugar_unary_op(db, op.inner, term)
             }
             // desugar binary operators in a dedicated method
             BinaryOp { op, lhs, rhs } => {
-                let lhs = self.desugar_expr(lhs);
-                let rhs = self.desugar_expr(rhs);
-                self.desugar_binary_op(op.inner, lhs, rhs)
+                let lhs = self.desugar_expr(db, lhs);
+                let rhs = self.desugar_expr(db, rhs);
+                self.desugar_binary_op(db, op.inner, lhs, rhs)
             }
         }
     }
@@ -177,7 +167,7 @@ impl<'db> Desugarer<'db> {
     /// Flattens a high-level, typed variable into lowered variables.
     ///
     /// Panics if the variable name is not in the type table.
-    pub fn desugar_variable(&mut self, name: String) -> DesugaredExpr {
+    pub fn desugar_variable(&mut self, _db: &'db dyn Database, name: String) -> DesugaredExpr {
         // create the type key
         let key = TypeKey::Variable(name.clone());
 
@@ -203,7 +193,12 @@ impl<'db> Desugarer<'db> {
     }
 
     /// Desugars an atom expression.
-    pub fn desugar_atom(&mut self, head: String, body: DesugaredExpr) -> DesugaredExpr {
+    pub fn desugar_atom(
+        &mut self,
+        db: &'db dyn Database,
+        head: String,
+        body: DesugaredExpr,
+    ) -> DesugaredExpr {
         // lookup the flattened type of the relation itself
         let ty = self
             .table
@@ -228,7 +223,7 @@ impl<'db> Desugarer<'db> {
                 expr => {
                     let idx = self.lowered_vars.len() as u32;
                     self.lowered_vars.push(ty);
-                    self.relation_bindings.push((idx, expr));
+                    self.bind_relation(idx, expr);
                     ir::QueryTerm::Variable(idx)
                 }
             });
@@ -236,7 +231,7 @@ impl<'db> Desugarer<'db> {
 
         // look up the index of the loaded relation
         let (relation, _old) = self.relations.insert_full(
-            file_relation(self.db, self.file, head).expect("failed to find relation definition"),
+            file_relation(db, self.file, head).expect("failed to find relation definition"),
         );
 
         // create the final relation evaluation
@@ -246,9 +241,19 @@ impl<'db> Desugarer<'db> {
         }]
     }
 
+    /// Helper function to bind a fresh relation variable to an expression.
+    fn bind_relation(&mut self, var: u32, expr: ir::Expr) {
+        self.clauses.push(ir::Expr::BinaryOp {
+            op: ir::BinaryOpKind::Eq,
+            lhs: Arc::new(ir::Expr::Variable(var)),
+            rhs: Arc::new(expr),
+        })
+    }
+
     /// Desugars a binary operation.
     pub fn desugar_binary_op(
         &mut self,
+        db: &'db dyn Database,
         op: BinaryOpKind,
         lhs: DesugaredExpr,
         rhs: DesugaredExpr,
@@ -265,12 +270,12 @@ impl<'db> Desugarer<'db> {
             (Ge, (lhs, rhs)) => (IR::Le, (rhs, lhs)),
             // the does-not-equal operator is the negation of equality
             (Ne, (lhs, rhs)) => {
-                let inner = self.desugar_binary_op(BinaryOpKind::Eq, lhs, rhs);
-                return self.desugar_unary_op(UnaryOpKind::Not, inner);
+                let inner = self.desugar_binary_op(db, BinaryOpKind::Eq, lhs, rhs);
+                return self.desugar_unary_op(db, UnaryOpKind::Not, inner);
             }
             // subtraction is implementing using addition, negating the rhs
             (Sub, (lhs, rhs)) => {
-                let rhs = self.desugar_unary_op(UnaryOpKind::Negate, rhs);
+                let rhs = self.desugar_unary_op(db, UnaryOpKind::Negate, rhs);
                 (IR::Add, (lhs, rhs))
             }
             // all other operators can be kept as-is
@@ -313,7 +318,12 @@ impl<'db> Desugarer<'db> {
     }
 
     /// Desugars a unary operation.
-    pub fn desugar_unary_op(&mut self, op: UnaryOpKind, term: DesugaredExpr) -> DesugaredExpr {
+    pub fn desugar_unary_op(
+        &mut self,
+        _db: &'db dyn Database,
+        op: UnaryOpKind,
+        term: DesugaredExpr,
+    ) -> DesugaredExpr {
         // unary operations just pass through their operators
         // this should only ever work on single flattened expressions
         // but... in the case it shouldn't later, it's not this code's problem

@@ -16,10 +16,11 @@
 
 use std::collections::HashSet;
 
+use chumsky::prelude::*;
 use egglog::EGraph;
 use indexmap::IndexSet;
 use saturn_v_ir::{
-    sexp::{self, Doc, Sexp},
+    sexp::{self, Doc, Sexp, Token},
     Instruction, RuleBody,
 };
 
@@ -66,41 +67,49 @@ pub fn extract_rule_body<R>(name: &str, rule: &RuleBody<R>) -> String {
     out
 }
 
+/// Actually runs the computation to lower a rule body.
+pub fn lower_rule_body<R>(rule: RuleBody<R>) -> RuleBody<R> {
+    let name = "test_rule";
+    let extract = extract_rule_body(name, &rule);
+
+    let mut egg = init_lower_egraph();
+    let msgs = egg.parse_and_run_program(None, &extract).unwrap();
+
+    let output = &msgs[0];
+
+    // lexing should never fail
+    let tokens = Token::lexer()
+        .parse(output.as_str())
+        .expect("failed to lex");
+
+    let stream = chumsky::Stream::from_iter(
+        tokens.len()..tokens.len(),
+        tokens
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(idx, tok)| (tok, idx..idx)),
+    );
+
+    // parsing egglog output should never fail
+    let instructions = Instruction::parser()
+        .parse(stream)
+        .expect("failed to parse");
+
+    // return lowered body
+    RuleBody {
+        instructions,
+        ..rule
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
     use std::sync::Arc;
 
     use super::*;
 
-    use chumsky::prelude::*;
-    use saturn_v_ir::{sexp::Token, *};
-
-    fn test_rule_body(rule: RuleBody<()>) -> Instruction {
-        let name = "test_rule";
-        let extract = extract_rule_body(name, &rule);
-        println!("{extract}");
-        let mut egg = init_lower_egraph();
-        let msgs = egg.parse_and_run_program(None, &extract).unwrap();
-
-        let output = &msgs[0];
-
-        let tokens = Token::lexer()
-            .parse(output.as_str())
-            .expect("failed to lex");
-
-        let stream = chumsky::Stream::from_iter(
-            tokens.len()..tokens.len(),
-            tokens
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(idx, tok)| (tok, idx..idx)),
-        );
-
-        Instruction::parser()
-            .parse(stream)
-            .expect("failed to parse")
-    }
+    use saturn_v_ir::*;
 
     fn filter_to_instructions(test: Expr) -> Instruction {
         Instruction::Sink {
@@ -137,7 +146,7 @@ pub mod tests {
             vars: vec![Type::Integer, Type::Integer],
         };
 
-        eprintln!("{:#?}", test_rule_body(rule));
+        eprintln!("{:#?}", lower_rule_body(rule));
     }
 
     #[test]
@@ -160,6 +169,6 @@ pub mod tests {
             vars: vec![Type::Integer],
         };
 
-        eprintln!("{:#?}", test_rule_body(rule));
+        eprintln!("{:#?}", lower_rule_body(rule));
     }
 }

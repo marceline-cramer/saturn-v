@@ -1919,6 +1919,7 @@ dependencies = [
  "ariadne",
  "clap",
  "saturn-v-frontend",
+ "saturn-v-lower",
  "saturn-v-lsp",
  "tokio",
  "tower-lsp",

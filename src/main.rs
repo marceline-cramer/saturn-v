@@ -93,26 +93,19 @@ async fn main() {
                     .iter()
                     .flat_map(|rule| rule.bodies(&db))
                 {
-                    let expr = saturn_v_frontend::desugar::desugar_rule_body(
-                        &db,
-                        Default::default(),
-                        body,
-                    );
-
-                    eprintln!("{expr:#?}");
+                    let desugarer = saturn_v_frontend::desugar::desugar_rule_body(&db, body);
+                    let body = desugarer.to_rule_body(Default::default());
+                    let lowered = saturn_v_lower::lower_rule_body(body);
+                    eprintln!("{lowered:#?}");
                 }
             }
 
             for constraint in saturn_v_frontend::parse::file_constraints(&db, file) {
                 let typed = saturn_v_frontend::infer::typed_constraint(&db, constraint);
-
-                let expr = saturn_v_frontend::desugar::desugar_rule_body(
-                    &db,
-                    Default::default(),
-                    typed.body(&db),
-                );
-
-                eprintln!("{expr:#?}");
+                let desugarer = saturn_v_frontend::desugar::desugar_rule_body(&db, typed.body(&db));
+                let body = desugarer.to_rule_body(Default::default());
+                let lowered = saturn_v_lower::lower_rule_body(body);
+                eprintln!("{lowered:#?}");
             }
         }
     }

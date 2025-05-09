@@ -75,20 +75,5 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
         msg.push_str(&format!("{name}: {ty}\n"));
     }
 
-    for (name, rules) in parse::file_rules(db, file) {
-        for rule in rules.iter() {
-            let pat = rule.head(db).clone();
-            msg.push_str(&format!("{name}: {pat:?}\n"));
-
-            for body in infer::typed_rule(db, *rule)
-                .iter()
-                .flat_map(|rule| rule.bodies(db))
-            {
-                let expr = desugar::desugar_rule_body(db, Default::default(), body);
-                msg.push_str(&format!("{expr:#?}\n"));
-            }
-        }
-    }
-
     Some((span, msg))
 }
