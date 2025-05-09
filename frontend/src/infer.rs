@@ -66,9 +66,7 @@ pub fn typed_rule_bodies<'db>(
         .map(|body| (body, full_rule_body_type_table(db, body)));
 
     // resolve the relation definition
-    let Some(def) = file_relations(db, rule.relation(db).ast.file(db))
-        .get(rule.relation(db).as_ref())
-        .copied()
+    let Some(def) = file_relation(db, rule.relation(db).ast.file(db), rule.relation(db).inner)
     else {
         // TODO: log an error
         return BTreeSet::new();
@@ -118,7 +116,7 @@ pub fn full_rule_body_type_table<'db>(
     // iterate over each key in the table
     for (key, entry) in table.map.clone().iter() {
         // filter out only relations
-        let Key::Relation(relation) = key else {
+        let TypeKey::Relation(relation) = key else {
             continue;
         };
 
@@ -154,7 +152,7 @@ pub fn base_rule_body_type_table<'db>(
     // simply merge each clause's type table
     body.clauses(db)
         .into_iter()
-        .map(|clause| clause_type_table(db, clause))
+        .map(|clause| clause_type_table(db, *clause))
         .fold(TypeTable::default(), |acc, table| acc.merge(db, table))
 }
 
@@ -212,13 +210,13 @@ pub fn infer_resolved_type<'db>(
 
 #[derive(Clone, Default, PartialEq, Eq, Hash, Update)]
 pub struct TypeTable<'db> {
-    map: BTreeMap<Key<'db>, WithAst<TableType<'db>>>,
+    map: BTreeMap<TypeKey<'db>, WithAst<TableType<'db>>>,
     relations: BTreeSet<String>,
 }
 
 impl<'db> TypeTable<'db> {
     /// Type-infers an expression. Returns its key.
-    pub fn infer_expr(&mut self, db: &'db dyn Database, expr: Expr<'db>) -> WithAst<Key<'db>> {
+    pub fn infer_expr(&mut self, db: &'db dyn Database, expr: Expr<'db>) -> WithAst<TypeKey<'db>> {
         // determine what type this expression should be based on kind
         use ExprKind::*;
         let ty = match expr.kind(db) {
@@ -229,7 +227,7 @@ impl<'db> TypeTable<'db> {
                     .collect(),
             ),
             Value(value) => TableType::Primitive(value.ty().into()),
-            Variable(name) => TableType::Key(Key::Variable(name.clone())),
+            Variable(name) => TableType::Key(TypeKey::Variable(name.clone())),
             BinaryOp { op, lhs, rhs } => {
                 // type-infer operands
                 let lhs = self.infer_expr(db, lhs).map(Into::into);
@@ -290,7 +288,7 @@ impl<'db> TypeTable<'db> {
                 let body = self.infer_expr(db, body).map(Into::into);
 
                 // unify body with relation key type
-                let relation = Key::Relation(head.inner.clone()).into();
+                let relation = TypeKey::Relation(head.inner.clone()).into();
                 let ty = head.with(relation);
                 self.unify(db, &body, &ty);
 
@@ -300,7 +298,7 @@ impl<'db> TypeTable<'db> {
         };
 
         // unify this expression with its type
-        let key = WithAst::new(expr.ast(db), Key::Expr(expr));
+        let key = WithAst::new(expr.ast(db), TypeKey::Expr(expr));
         let lhs = key.with(TableType::Key(key.inner.clone()));
         let rhs = key.with(ty);
         self.unify(db, &lhs, &rhs);
@@ -326,6 +324,34 @@ impl<'db> TypeTable<'db> {
                 }
             },
             _ => ty.clone(),
+        }
+    }
+
+    /// Gets the flattened type of a given type.
+    ///
+    /// Returns `None` if any unknown types were encountered.
+    ///
+    /// No AST is necessary because this is intended to be used by desugaring.
+    pub fn flatten(&self, ty: &TableType<'db>) -> Option<Vec<PrimitiveType>> {
+        use TableType::*;
+        match ty {
+            // recursively concatenate flattened tuple elements
+            Tuple(els) => {
+                let mut tys = Vec::with_capacity(els.len());
+
+                for el in els.iter() {
+                    let el_ty = self.flatten(el)?;
+                    tys.extend(el_ty);
+                }
+
+                Some(tys)
+            }
+            // primitive base case
+            Primitive(ty) => Some(vec![*ty]),
+            // recursively dereference and flatten keys
+            Key(key) => self.flatten(self.map.get(key)?),
+            // unknown types are a failure
+            Unknown => None,
         }
     }
 
@@ -416,7 +442,7 @@ impl<'db> TypeTable<'db> {
     pub fn insert(
         &mut self,
         db: &'db dyn Database,
-        key: Key<'db>,
+        key: TypeKey<'db>,
         ty: WithAst<TableType<'db>>,
     ) -> bool {
         // ignore the tautological case
@@ -463,12 +489,12 @@ impl<'db> TypeTable<'db> {
 pub enum TableType<'db> {
     Tuple(Vec<WithAst<TableType<'db>>>),
     Primitive(PrimitiveType),
-    Key(Key<'db>),
+    Key(TypeKey<'db>),
     Unknown,
 }
 
-impl<'db> From<Key<'db>> for TableType<'db> {
-    fn from(key: Key<'db>) -> Self {
+impl<'db> From<TypeKey<'db>> for TableType<'db> {
+    fn from(key: TypeKey<'db>) -> Self {
         TableType::Key(key)
     }
 }
@@ -483,7 +509,7 @@ impl From<Pattern> for TableType<'_> {
     fn from(pat: Pattern) -> Self {
         use Pattern::*;
         match pat {
-            Variable(name) => Key::Variable(name).into(),
+            Variable(name) => TypeKey::Variable(name).into(),
             Value(value) => PrimitiveType::from(value.ty()).into(),
             Tuple(els) => TableType::Tuple(
                 els.iter()
@@ -496,7 +522,7 @@ impl From<Pattern> for TableType<'_> {
 
 impl<'db> TableType<'db> {
     /// Tests if a key occurs in this type.
-    pub fn occurs(&self, key: &Key<'db>) -> bool {
+    pub fn occurs(&self, key: &TypeKey<'db>) -> bool {
         use TableType::*;
         match self {
             Tuple(els) => els.iter().any(|el| el.occurs(key)),
@@ -518,7 +544,7 @@ impl<'db> TableType<'db> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Update)]
-pub enum Key<'db> {
+pub enum TypeKey<'db> {
     Variable(String),
     Relation(String),
     Expr(Expr<'db>),

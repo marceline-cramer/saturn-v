@@ -21,7 +21,7 @@ use std::{
 };
 
 use salsa::Database;
-use saturn_v_ir::{BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
+use saturn_v_ir::{self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
@@ -32,6 +32,7 @@ use crate::{
 /// A definition of a relation.
 // TODO: add commment above definition AST node for documentation
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct RelationDefinition<'db> {
     /// The AST node this relation corresponds to.
     pub ast: AstNode,
@@ -118,6 +119,16 @@ pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstr
         .into_iter()
         .map(|item| parse_constraint(db, item))
         .collect()
+}
+
+/// Looks up a relation definition in a file by name.
+#[salsa::tracked]
+pub fn file_relation(
+    db: &dyn Database,
+    file: File,
+    name: String,
+) -> Option<RelationDefinition<'_>> {
+    file_relations(db, file).get(&name).copied()
 }
 
 /// Gets the full relation table of a file.
@@ -320,6 +331,7 @@ pub struct AbstractRuleBody<'db> {
     pub ast: AstNode,
 
     /// Each clause in the body is an expression.
+    #[return_ref]
     pub clauses: Vec<Expr<'db>>,
 }
 
@@ -522,5 +534,15 @@ impl FromStr for UnaryOpKind {
             "-" => Negate,
             _ => return Err(()),
         })
+    }
+}
+
+impl From<UnaryOpKind> for ir::UnaryOpKind {
+    fn from(op: UnaryOpKind) -> Self {
+        use ir::UnaryOpKind::*;
+        match op {
+            UnaryOpKind::Not => Not,
+            UnaryOpKind::Negate => Negate,
+        }
     }
 }

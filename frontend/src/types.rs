@@ -110,3 +110,16 @@ impl From<saturn_v_ir::Type> for PrimitiveType {
         }
     }
 }
+
+impl From<PrimitiveType> for saturn_v_ir::Type {
+    fn from(ty: PrimitiveType) -> Self {
+        use saturn_v_ir::Type::*;
+        match ty {
+            PrimitiveType::Boolean => Boolean,
+            PrimitiveType::Integer => Integer,
+            PrimitiveType::Real => Real,
+            PrimitiveType::Symbol => Symbol,
+            PrimitiveType::String => String,
+        }
+    }
+}

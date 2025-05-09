@@ -1963,6 +1963,7 @@ name = "saturn-v-frontend"
 version = "0.1.0"
 dependencies = [
  "ariadne",
+ "indexmap",
  "lsp-types",
  "ropey",
  "salsa",

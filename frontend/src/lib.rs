@@ -17,6 +17,7 @@
 use salsa::Database;
 use toplevel::{File, Point, Span, Workspace};
 
+pub mod desugar;
 pub mod diagnostic;
 pub mod infer;
 pub mod parse;
@@ -61,6 +62,11 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
         for rule in rules.iter() {
             let pat = rule.head(db).clone();
             msg.push_str(&format!("{name}: {pat:?}\n"));
+
+            for body in infer::typed_rule_bodies(db, *rule) {
+                let expr = desugar::desugar_rule_body(db, Default::default(), body);
+                msg.push_str(&format!("{expr:#?}\n"));
+            }
         }
     }
 
