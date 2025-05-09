@@ -22,15 +22,18 @@ use std::{
 use indexmap::IndexSet;
 use salsa::{Database, Update};
 
-use saturn_v_ir as ir;
+use saturn_v_ir::{self as ir, QueryTerm};
 
 use crate::{
     infer::{TypeKey, TypeTable, TypedRuleBody},
-    parse::{file_relation, BinaryOpKind, Expr, ExprKind, RelationDefinition, UnaryOpKind},
+    parse::{
+        file_relation, BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind,
+    },
     toplevel::File,
     types::PrimitiveType,
 };
 
+#[salsa::tracked]
 pub fn desugar_rule_body<'db>(
     db: &'db dyn Database,
     rule_body: TypedRuleBody<'db>,
@@ -83,6 +86,27 @@ impl<'db> Desugarer<'db> {
             typed_vars: HashMap::new(),
             relations: IndexSet::new(),
             clauses: Vec::new(),
+        }
+    }
+
+    /// Desugars a pattern into a set of query terms and needed variables.
+    pub fn desugar_pattern(
+        &mut self,
+        db: &'db dyn Database,
+        pattern: &Pattern,
+        query: &mut Vec<QueryTerm>,
+        needed: &mut HashSet<u32>,
+    ) {
+        match pattern {
+            Pattern::Tuple(els) => els
+                .iter()
+                .for_each(|el| self.desugar_pattern(db, el.as_ref(), query, needed)),
+            Pattern::Variable(name) => {
+                let vars = self.allocate_variable(db, name.clone());
+                needed.extend(vars.iter().copied());
+                query.extend(vars.into_iter().map(QueryTerm::Variable));
+            }
+            Pattern::Value(val) => query.push(QueryTerm::Value(val.clone())),
         }
     }
 
@@ -167,7 +191,17 @@ impl<'db> Desugarer<'db> {
     /// Flattens a high-level, typed variable into lowered variables.
     ///
     /// Panics if the variable name is not in the type table.
-    pub fn desugar_variable(&mut self, _db: &'db dyn Database, name: String) -> DesugaredExpr {
+    pub fn desugar_variable(&mut self, db: &'db dyn Database, name: String) -> DesugaredExpr {
+        self.allocate_variable(db, name)
+            .into_iter()
+            .map(ir::Expr::Variable)
+            .collect()
+    }
+
+    /// Flattens a high-level, typed variable into a list of indices of lowered varaibles.
+    ///
+    /// Panics if the variable name is not in the type table.
+    pub fn allocate_variable(&mut self, _db: &'db dyn Database, name: String) -> Vec<u32> {
         // create the type key
         let key = TypeKey::Variable(name.clone());
 
@@ -186,10 +220,8 @@ impl<'db> Desugarer<'db> {
             (idx as u32, len)
         });
 
-        // map flattened types into variable lookups
-        (0..*len)
-            .map(|idx| ir::Expr::Variable(*start + idx as u32))
-            .collect()
+        // map flattened types into variable indices
+        (0..*len).map(|idx| *start + idx as u32).collect()
     }
 
     /// Desugars an atom expression.

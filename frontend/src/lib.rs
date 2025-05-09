@@ -23,6 +23,7 @@ use toplevel::{File, Point, Span, Workspace};
 pub mod desugar;
 pub mod diagnostic;
 pub mod infer;
+pub mod lower;
 pub mod parse;
 pub mod resolve;
 pub mod toplevel;

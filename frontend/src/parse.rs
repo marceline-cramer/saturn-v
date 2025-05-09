@@ -21,7 +21,10 @@ use std::{
 };
 
 use salsa::Database;
-use saturn_v_ir::{self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
+use saturn_v_ir::{
+    self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, ConstraintWeight,
+    Value,
+};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},

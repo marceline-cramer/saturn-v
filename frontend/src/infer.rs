@@ -90,13 +90,19 @@ pub fn typed_rule<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Option
         .collect();
 
     // create the total rule
-    Some(TypedRule::new(db, def, bodies))
+    Some(TypedRule::new(db, def, ty, rule, bodies))
 }
 
 #[salsa::tracked]
 pub struct TypedRule<'db> {
     /// The relation that this rule targets.
     pub relation: RelationDefinition<'db>,
+
+    /// The type of the head.
+    pub head: WithAst<TableType<'db>>,
+
+    /// The abstract rule that this rule is based on.
+    pub inner: AbstractRule<'db>,
 
     /// The typed rule bodies.
     pub bodies: Vec<TypedRuleBody<'db>>,
@@ -594,6 +600,26 @@ impl Display for NaiveType {
             }
             Primitive(prim) => prim.fmt(f),
             Unknown => write!(f, "<unknown>"),
+        }
+    }
+}
+
+impl NaiveType {
+    /// Flattens a naive type into a series of literals. Returns `None` if there
+    /// is an unknown type.
+    pub fn flatten(&self) -> Option<Vec<PrimitiveType>> {
+        use NaiveType::*;
+        match self {
+            Tuple(els) => {
+                let mut prims = Vec::new();
+                for el in els {
+                    prims.extend(el.flatten()?);
+                }
+
+                Some(prims)
+            }
+            Primitive(ty) => Some(vec![*ty]),
+            Unknown => None,
         }
     }
 }

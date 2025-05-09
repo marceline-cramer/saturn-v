@@ -278,8 +278,6 @@ impl Instruction {
             .validate_inner(relations, variables)
             .with_context(ErrorContext::Instruction(self.into()))?;
 
-        println!("{:?}: {vars:?}", InstructionKind::from(self));
-
         Ok(vars)
     }
 

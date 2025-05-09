@@ -31,21 +31,107 @@ use arbitrary::Arbitrary;
 pub mod sexp;
 pub mod validate;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 #[cfg_attr(
     feature = "fuzz",
     arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")
 )]
-pub struct Program<R> {
+pub struct Program<R: Eq + Hash> {
     pub relations: HashMap<R, Relation<R>>,
     pub constraints: Vec<Constraint<R>>,
+}
+
+impl<R: Eq + Hash> Default for Program<R> {
+    fn default() -> Self {
+        Self {
+            relations: HashMap::new(),
+            constraints: Vec::new(),
+        }
+    }
 }
 
 impl<R: Clone + Hash + Eq> Program<R> {
     /// Easy shorthand to add a relation to this program.
     pub fn insert_relation(&mut self, relation: Relation<R>) {
         self.relations.insert(relation.store.clone(), relation);
+    }
+
+    /// Merges another program into this one.
+    pub fn merge(mut self, other: Self) -> Self {
+        // constraints simply get added
+        self.constraints.extend(other.constraints);
+
+        // relations need to be tree-merged
+        use std::collections::hash_map::Entry;
+        for (key, relation) in other.relations {
+            match self.relations.entry(key) {
+                Entry::Occupied(mut entry) => {
+                    // move relation contents into this one
+                    // TODO: assert that properties of the relations match
+                    let old = entry.get_mut();
+                    old.rules.extend(relation.rules);
+                    old.facts.extend(relation.facts);
+                }
+                Entry::Vacant(entry) => {
+                    // simply add the new relation
+                    entry.insert(relation);
+                }
+            }
+        }
+
+        // return the mutated self
+        self
+    }
+
+    /// Translates all of the relation values in this program into another type.
+    pub fn map_relations<O: Hash + Eq>(self, mut cb: impl FnMut(R) -> O) -> Program<O> {
+        // map relations
+        let relations = self
+            .relations
+            .into_iter()
+            .map(|(key, relation)| {
+                let key = cb(key);
+
+                let rules = relation
+                    .rules
+                    .into_iter()
+                    .map(|rule| Rule {
+                        head: rule.head,
+                        body: rule.body.map_relations(&mut cb),
+                    })
+                    .collect();
+
+                let relation = Relation {
+                    ty: relation.ty,
+                    kind: relation.kind,
+                    is_output: relation.is_output,
+                    facts: relation.facts,
+                    store: cb(relation.store),
+                    rules,
+                };
+
+                (key, relation)
+            })
+            .collect();
+
+        // map constraints
+        let constraints = self
+            .constraints
+            .into_iter()
+            .map(|constraint| Constraint {
+                weight: constraint.weight,
+                kind: constraint.kind,
+                head: constraint.head,
+                body: constraint.body.map_relations(&mut cb),
+            })
+            .collect();
+
+        // return mapped items
+        Program {
+            relations,
+            constraints,
+        }
     }
 }
 
@@ -158,6 +244,17 @@ pub struct RuleBody<R> {
 
     /// The desugared instructions for this rule.
     pub instructions: Instruction,
+}
+
+impl<R> RuleBody<R> {
+    /// Translates all of the relation values in this rule into another type.
+    pub fn map_relations<O: Hash + Eq>(self, cb: impl FnMut(R) -> O) -> RuleBody<O> {
+        RuleBody {
+            vars: self.vars,
+            instructions: self.instructions,
+            loaded: self.loaded.into_iter().map(cb).collect(),
+        }
+    }
 }
 
 /// A recursive, branching instruction representation that evaluates to some

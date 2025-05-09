@@ -85,27 +85,14 @@ async fn main() {
                 return;
             }
 
-            for rule in saturn_v_frontend::parse::file_rules(&db, file)
-                .into_values()
-                .flatten()
-            {
-                for body in saturn_v_frontend::infer::typed_rule(&db, rule)
-                    .iter()
-                    .flat_map(|rule| rule.bodies(&db))
-                {
-                    let desugarer = saturn_v_frontend::desugar::desugar_rule_body(&db, body);
-                    let body = desugarer.to_rule_body(Default::default());
-                    let lowered = saturn_v_lower::lower_rule_body(body);
-                    eprintln!("{lowered:#?}");
-                }
-            }
+            // TODO: relation names should be mangled in programs with more than one file
+            let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
+                .map_relations(|def| def.name(&db));
 
-            for constraint in saturn_v_frontend::parse::file_constraints(&db, file) {
-                let typed = saturn_v_frontend::infer::typed_constraint(&db, constraint);
-                let desugarer = saturn_v_frontend::desugar::desugar_rule_body(&db, typed.body(&db));
-                let body = desugarer.to_rule_body(Default::default());
-                let lowered = saturn_v_lower::lower_rule_body(body);
-                eprintln!("{lowered:#?}");
+            eprintln!("{program:#?}");
+
+            if let Err(err) = program.validate() {
+                eprintln!("{err}");
             }
         }
     }

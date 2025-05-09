@@ -1974,6 +1974,7 @@ dependencies = [
  "ropey",
  "salsa",
  "saturn-v-ir",
+ "saturn-v-lower",
  "smallvec",
  "strum",
  "url",
