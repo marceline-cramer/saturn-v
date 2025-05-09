@@ -42,7 +42,8 @@ impl<R: Clone + Eq + Hash> Program<R> {
 
         // validate all of the relations
         for r in self.relations.values() {
-            r.validate(&relation_tys)?;
+            r.validate(&relation_tys)
+                .with_context(ErrorContext::Relation(r.store.clone()))?;
         }
 
         // validate all of the constraints
@@ -273,8 +274,13 @@ impl Instruction {
         relations: &[Vec<Type>],
         variables: &[Type],
     ) -> Result<HashSet<u32>, R> {
-        self.validate_inner(relations, variables)
-            .with_context(ErrorContext::Instruction(self.into()))
+        let vars = self
+            .validate_inner(relations, variables)
+            .with_context(ErrorContext::Instruction(self.into()))?;
+
+        println!("{:?}: {vars:?}", InstructionKind::from(self));
+
+        Ok(vars)
     }
 
     /// ACTUALLY validates, but doesn't wrap the error in the instruction kind context.
@@ -551,6 +557,16 @@ pub fn validate_query<R>(
         .iter()
         .copied();
 
+    // if the lengths of the relation and terms are different, the type cannot match
+    if relation_ty.len() != terms.len() {
+        return Err(ErrorKind::QuerySizeMismatch {
+            relation,
+            expected: relation_ty.len(),
+            got: terms.len(),
+        }
+        .into());
+    }
+
     // collect list of assigned variables
     let mut vars = HashSet::new();
     for ((idx, term), expected) in terms.iter().enumerate().zip(relation_ty) {
@@ -584,15 +600,15 @@ pub fn validate_query<R>(
 
 pub type Result<T, R> = std::result::Result<T, Error<R>>;
 
-pub trait WithContext {
+pub trait WithContext<R> {
     type Output;
-    fn with_context(self, ctx: ErrorContext) -> Self::Output;
+    fn with_context(self, ctx: ErrorContext<R>) -> Self::Output;
 }
 
-impl<T, R> WithContext for std::result::Result<T, ErrorKind<R>> {
+impl<T, R> WithContext<R> for std::result::Result<T, ErrorKind<R>> {
     type Output = Result<T, R>;
 
-    fn with_context(self, ctx: ErrorContext) -> Self::Output {
+    fn with_context(self, ctx: ErrorContext<R>) -> Self::Output {
         self.map_err(|kind| Error {
             kind: Box::new(kind),
             context: vec![ctx],
@@ -600,10 +616,10 @@ impl<T, R> WithContext for std::result::Result<T, ErrorKind<R>> {
     }
 }
 
-impl<T, R> WithContext for Result<T, R> {
+impl<T, R> WithContext<R> for Result<T, R> {
     type Output = Self;
 
-    fn with_context(mut self, ctx: ErrorContext) -> Self {
+    fn with_context(mut self, ctx: ErrorContext<R>) -> Self {
         if let Err(error) = self.as_mut() {
             error.context.push(ctx);
         }
@@ -614,7 +630,7 @@ impl<T, R> WithContext for Result<T, R> {
 
 #[derive(Clone, Debug)]
 pub struct Error<R> {
-    pub context: Vec<ErrorContext>,
+    pub context: Vec<ErrorContext<R>>,
     pub kind: Box<ErrorKind<R>>,
 }
 
@@ -640,9 +656,12 @@ impl<R: Display> Display for Error<R> {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
-pub enum ErrorContext {
+pub enum ErrorContext<R> {
     #[error("in {0:?} instruction")]
     Instruction(InstructionKind),
+
+    #[error("in relation {0}")]
+    Relation(R),
 
     #[error("in {0:?} binary operation")]
     BinaryOp(BinaryOpKind),
@@ -695,6 +714,13 @@ pub enum ErrorKind<R> {
 
     #[error("invalid unary operation: {op:?} {term:?}")]
     InvalidUnaryOp { op: UnaryOpKind, term: Type },
+
+    #[error("relation query has length {got} but relation #{relation} is length {expected}")]
+    QuerySizeMismatch {
+        relation: u32,
+        expected: usize,
+        got: usize,
+    },
 
     #[error("expected {expected:?}, got {got:?}")]
     ExpectedType { expected: Type, got: Type },
