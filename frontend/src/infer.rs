@@ -151,7 +151,7 @@ pub fn base_rule_body_type_table<'db>(
 ) -> TypeTable<'db> {
     // simply merge each clause's type table
     body.clauses(db)
-        .into_iter()
+        .iter()
         .map(|clause| clause_type_table(db, *clause))
         .fold(TypeTable::default(), |acc, table| acc.merge(db, table))
 }
@@ -212,6 +212,7 @@ pub fn infer_resolved_type<'db>(
 pub struct TypeTable<'db> {
     map: BTreeMap<TypeKey<'db>, WithAst<TableType<'db>>>,
     relations: BTreeSet<String>,
+    sound: bool,
 }
 
 impl<'db> TypeTable<'db> {
@@ -368,6 +369,7 @@ impl<'db> TypeTable<'db> {
         // try the unification and restore if necessary
         if !self.try_unify(db, lhs, rhs) {
             self.map = backup;
+            self.sound = false;
         }
     }
 
@@ -482,6 +484,15 @@ impl<'db> TypeTable<'db> {
 
         // return modified self
         self
+    }
+
+    /// Performs final checks on a type table, emitting any errors or warnings
+    /// encountered along the way.
+    pub fn finalize(&mut self) {}
+
+    /// Returns if the type table is sound, i.e. there are no type errors.
+    pub fn is_sound(&self) -> bool {
+        self.sound
     }
 }
 
