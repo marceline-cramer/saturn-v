@@ -14,9 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::{collections::HashMap, path::PathBuf};
+
 use clap::{Parser, Subcommand};
-use saturn_v_lsp::LspBackend;
+use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
+use saturn_v_lsp::{Editor, LspBackend};
 use tower_lsp::{LspService, Server};
+use tree_sitter::Language;
 
 #[derive(Parser)]
 pub struct Args {
@@ -28,6 +32,12 @@ pub struct Args {
 pub enum Command {
     /// Run the Kerolox language server over stdio.
     Lsp,
+
+    /// Checks a Kerolox source file.
+    Check {
+        /// The path to the source file.
+        path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -40,6 +50,34 @@ async fn main() {
             let stdout = tokio::io::stdout();
             let (service, socket) = LspService::new(LspBackend::new);
             Server::new(stdin, stdout, socket).serve(service).await;
+        }
+        Command::Check { path } => {
+            let mut db = saturn_v_frontend::toplevel::Db::new();
+            let src = std::fs::read_to_string(&path).unwrap();
+            let absolute_path = path.canonicalize().unwrap();
+            let url = url::Url::from_file_path(absolute_path).unwrap();
+            let language = Language::new(tree_sitter_kerolox::LANGUAGE);
+            let ed = Editor::new(&mut db, url.clone(), &language, &src);
+
+            let mut file_urls = HashMap::new();
+            file_urls.insert(url, ed.get_file());
+
+            let workspace = Workspace::new(&db, file_urls);
+
+            let diagnostics = saturn_v_frontend::check_all_diagnostics(&db, workspace);
+            let mut cache = ReportCache::new(&db);
+            let mut fatal_errors = 0;
+            for d in diagnostics {
+                if d.is_fatal() {
+                    fatal_errors += 1;
+                }
+
+                for report in d.to_ariadne(&db) {
+                    report.eprint(&mut cache).unwrap();
+                }
+            }
+
+            eprintln!("finished with {fatal_errors} errors");
         }
     }
 }

@@ -1916,10 +1916,15 @@ dependencies = [
 name = "saturn-v"
 version = "0.1.0"
 dependencies = [
+ "ariadne",
  "clap",
+ "saturn-v-frontend",
  "saturn-v-lsp",
  "tokio",
  "tower-lsp",
+ "tree-sitter",
+ "tree-sitter-kerolox",
+ "url",
 ]
 
 [[package]]

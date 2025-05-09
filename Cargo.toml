@@ -37,7 +37,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
+saturn-v-frontend.workspace = true
 saturn-v-lsp.workspace = true
 tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
 tower-lsp.workspace = true
+tree-sitter.workspace = true
+tree-sitter-kerolox.workspace = true
+url.workspace = true

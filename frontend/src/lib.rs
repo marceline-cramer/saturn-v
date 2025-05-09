@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
+use diagnostic::DynDiagnostic;
 use salsa::Database;
 use toplevel::{File, Point, Span, Workspace};
 
@@ -24,6 +27,20 @@ pub mod parse;
 pub mod resolve;
 pub mod toplevel;
 pub mod types;
+
+/// Returns the set of diagnostics returned by [check_all].
+///
+/// rust-analyzer doesn't like to type accumulated Salsa values, so this helps
+/// diagnostics code be written with the help of LSP.
+pub fn check_all_diagnostics(db: &dyn Database, ws: Workspace) -> Vec<&DynDiagnostic> {
+    // read the dynamic diagnostics from workspace checking
+    check_all::accumulated::<DynDiagnostic>(db, ws)
+        .into_iter()
+        .map(|d| (d.dyn_eq(), d))
+        .collect::<HashMap<_, _>>()
+        .into_values()
+        .collect()
+}
 
 #[salsa::tracked]
 pub fn check_all(db: &dyn Database, ws: Workspace) {

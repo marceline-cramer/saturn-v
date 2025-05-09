@@ -24,7 +24,6 @@ use std::{
 
 use ariadne::{Color, Label, Report, ReportKind};
 use lsp_types::{Diagnostic as LspDiagnostic, DiagnosticRelatedInformation};
-use ropey::Rope;
 use salsa::{Accumulator, Database};
 
 use crate::{
@@ -63,6 +62,10 @@ impl BasicDiagnostic for SimpleError {
     fn source(&self) -> Option<String> {
         None
     }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
 }
 
 pub trait BasicDiagnostic: DynEq + UnwindSafe + Send + Sync + 'static {
@@ -79,10 +82,12 @@ pub trait BasicDiagnostic: DynEq + UnwindSafe + Send + Sync + 'static {
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![]
     }
+
+    fn is_fatal(&self) -> bool;
 }
 
 impl<T: BasicDiagnostic> Diagnostic for T {
-    fn to_lsp(&self, db: &dyn Database, _src: &FileSources) -> Vec<(File, LspDiagnostic)> {
+    fn to_lsp(&self, db: &dyn Database) -> Vec<(File, LspDiagnostic)> {
         let notes = self
             .notes()
             .into_iter()
@@ -107,12 +112,17 @@ impl<T: BasicDiagnostic> Diagnostic for T {
         vec![(self.range().start.file(db), d)]
     }
 
-    fn to_ariadne(&self, db: &dyn Database, src: &FileSources) -> Vec<Report<'_, ReportSpan>> {
+    fn to_ariadne(&self, db: &dyn Database) -> Vec<Report<'_, ReportSpan>> {
         // create span
         let span = ReportSpan {
             file: self.range().start.file(db),
-            range: ast_to_range(db, src, self.range()),
+            range: ast_to_range(db, self.range()),
         };
+
+        // configure the report
+        let config = ariadne::Config::new()
+            .with_cross_gap(true)
+            .with_compact(true);
 
         // pick color based on kind
         use DiagnosticKind::*;
@@ -123,26 +133,43 @@ impl<T: BasicDiagnostic> Diagnostic for T {
             Note => (ReportKind::Custom("note", Color::Blue), Color::Blue),
         };
 
+        // create labels
+        let labels = self.notes().clone().into_iter().map(|msg| {
+            let span = ReportSpan {
+                file: self.range().start.file(db),
+                range: ast_to_range(db, msg.ast..msg.ast),
+            };
+
+            Label::new(span)
+                .with_message(&msg.inner)
+                .with_color(Color::Blue)
+                .with_order(1)
+        });
+
         // build report
         let report = Report::build(kind, span.clone())
+            .with_config(config)
             .with_message(self.message())
             .with_label(Label::new(span).with_color(color))
+            .with_labels(labels)
             .finish();
 
         // return only one report
         vec![report]
     }
+
+    fn is_fatal(&self) -> bool {
+        self.is_fatal()
+    }
 }
 
-pub fn ast_to_range(db: &dyn Database, src: &FileSources, ast: Range<AstNode>) -> Range<usize> {
+pub fn ast_to_range(db: &dyn Database, ast: Range<AstNode>) -> Range<usize> {
     // retrieve the file corresponding to the range
     let file = ast.start.file(db);
     assert!(file == ast.end.file(db), "AST node files do not match");
 
     // lookup the file source
-    let src = src
-        .get(&file)
-        .expect("file did not have corresponding source");
+    let src = file.contents(db);
 
     // calculate character offsets within file source
     let span = ast_span(db, ast);
@@ -161,8 +188,6 @@ pub fn ast_span(db: &dyn Database, ast: Range<AstNode>) -> Span {
     // combine them
     Span { start, end }
 }
-
-pub type FileSources = HashMap<File, Rope>;
 
 #[salsa::accumulator]
 pub struct DynDiagnostic(pub Box<dyn Diagnostic>);
@@ -186,8 +211,9 @@ impl<T: Diagnostic + Sized> AccumulateDiagnostic for T {
 }
 
 pub trait Diagnostic: DynEq + UnwindSafe + Send + Sync + 'static {
-    fn to_lsp(&self, db: &dyn Database, files: &FileSources) -> Vec<(File, LspDiagnostic)>;
-    fn to_ariadne(&self, db: &dyn Database, files: &FileSources) -> Vec<Report<'_, ReportSpan>>;
+    fn to_lsp(&self, db: &dyn Database) -> Vec<(File, LspDiagnostic)>;
+    fn to_ariadne(&self, db: &dyn Database) -> Vec<Report<'_, ReportSpan>>;
+    fn is_fatal(&self) -> bool;
 }
 
 /// A trait to allow a value to be compared against value-erased others.
@@ -248,5 +274,41 @@ impl ariadne::Span for ReportSpan {
 
     fn end(&self) -> usize {
         self.range.end
+    }
+}
+
+/// Custom Ariadne type to implement `Cache` with [File].
+///
+/// [File] doesn't implement [Display], so a manual implementation is needed.
+pub struct ReportCache<'db> {
+    /// The database to look up file properties with.
+    db: &'db dyn Database,
+
+    /// The cache of file strings.
+    files: HashMap<File, ariadne::Source<String>>,
+}
+
+impl ariadne::Cache<File> for ReportCache<'_> {
+    type Storage = String;
+
+    fn fetch(&mut self, id: &File) -> Result<&ariadne::Source<String>, impl std::fmt::Debug> {
+        Ok::<_, ()>(self.files.entry(*id).or_insert_with(|| {
+            let contents = id.contents(self.db).to_string();
+            ariadne::Source::from(contents)
+        }))
+    }
+
+    fn display<'a>(&self, id: &'a File) -> Option<impl std::fmt::Display + 'a> {
+        Some(id.url(self.db).clone())
+    }
+}
+
+impl<'db> ReportCache<'db> {
+    /// Creates an empty report cache.
+    pub fn new(db: &'db dyn Database) -> Self {
+        Self {
+            db,
+            files: HashMap::new(),
+        }
     }
 }

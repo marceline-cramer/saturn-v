@@ -18,11 +18,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use ropey::Rope;
 use salsa::Setter;
-use saturn_v_frontend::{
-    check_all,
-    diagnostic::DynDiagnostic,
-    toplevel::{AstNode, Children, Db, File, Point, Span, Workspace},
-};
+use saturn_v_frontend::toplevel::{AstNode, Children, Db, File, Point, Span, Workspace};
 use tokio::sync::Mutex;
 use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
 use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
@@ -59,33 +55,22 @@ impl LspBackend {
         // lock the database
         let db = self.db.lock().await;
 
-        // read the dynamic diagnostics from workspace checking
-        let diagnostics = check_all::accumulated::<DynDiagnostic>(&*db, self.workspace);
-
-        // deduplicate identical diagnostics
-        let diagnostics = diagnostics
-            .into_iter()
-            .map(|d| (d.dyn_eq(), d))
-            .collect::<HashMap<_, _>>()
-            .into_values();
-
-        // create a file source map
-        let mut src = HashMap::new();
-        let mut by_file: HashMap<_, Vec<_>> = HashMap::new();
-        for ed in self.editors.lock().await.values() {
-            let ed = ed.lock().await;
-            src.insert(ed.file, ed.contents.clone());
-
-            // even if a file doesn't receive diagnostics, publish them
-            by_file.entry(ed.file).or_default();
-        }
+        // load all workspace diagnostics
+        let diagnostics = saturn_v_frontend::check_all_diagnostics(&*db, self.workspace);
 
         // convert the diagnostics into a set of LSP diagnostics
-        let diagnostics = diagnostics.into_iter().flat_map(|d| d.to_lsp(&*db, &src));
+        let diagnostics = diagnostics.into_iter().flat_map(|d| d.to_lsp(&*db));
 
         // batch diagnostics by file
+        let mut by_file: HashMap<_, Vec<_>> = HashMap::new();
         for (file, d) in diagnostics {
             by_file.entry(file).or_default().push(d);
+        }
+
+        // even if a file doesn't receive diagnostics, publish them
+        for ed in self.editors.lock().await.values() {
+            let ed = ed.lock().await;
+            by_file.entry(ed.file).or_default();
         }
 
         // update all diagnostics
@@ -128,7 +113,12 @@ impl LanguageServer for LspBackend {
 
         // create the editor struct
         let url = params.text_document.uri.clone();
-        let ed = Editor::new(&mut db, url.clone(), &self.language, params.clone());
+        let ed = Editor::new(
+            &mut db,
+            url.clone(),
+            &self.language,
+            &params.text_document.text,
+        );
 
         // insert editor file into workspace
         let mut files = self.workspace.files(&*db).to_owned();
@@ -197,12 +187,7 @@ pub struct Editor {
 
 impl Editor {
     /// Creates a new editor.
-    pub fn new(
-        db: &mut Db,
-        url: Url,
-        language: &Language,
-        params: DidOpenTextDocumentParams,
-    ) -> Self {
+    pub fn new(db: &mut Db, url: Url, language: &Language, text: &str) -> Self {
         // initialize the tree-sitter parser and tree
         let mut parser = Parser::new();
 
@@ -211,15 +196,16 @@ impl Editor {
             .expect("failed to set parser language");
 
         let tree = parser
-            .parse(&params.text_document.text, None)
+            .parse(text, None)
             .expect("failed to create initial tree");
 
         // create the initial file
-        let file = File::new(db, url, None);
+        let contents = Rope::from_str(text);
+        let file = File::new(db, contents.clone(), url, None);
 
         // create the editor
         let mut ed = Self {
-            contents: Rope::from_str(&params.text_document.text),
+            contents,
             parser,
             tree,
             file,
@@ -253,6 +239,9 @@ impl Editor {
             .parser
             .parse_with_options(&mut lookup, Some(&self.tree), None)
             .expect("failed to parse");
+
+        // update the text contents
+        self.file.set_contents(db).to(self.contents.clone());
 
         // update AST
         self.update_ast(db);
@@ -407,5 +396,15 @@ impl Editor {
             contents: HoverContents::Scalar(MarkedString::String(contents)),
             range: Some(range.into()),
         }))
+    }
+
+    /// Retrieves the handle to the editor's file.
+    pub fn get_file(&self) -> File {
+        self.file
+    }
+
+    /// Retrieves an immutable reference to this editor's contents.
+    pub fn get_contents(&self) -> &Rope {
+        &self.contents
     }
 }

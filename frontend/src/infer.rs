@@ -617,6 +617,10 @@ impl BasicDiagnostic for TypeMismatch {
             self.rhs.with(format!("this has type {}", self.rhs)),
         ]
     }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -635,6 +639,10 @@ impl BasicDiagnostic for SelfReferencingType {
 
     fn kind(&self) -> DiagnosticKind {
         DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
     }
 }
 
@@ -666,5 +674,9 @@ impl BasicDiagnostic for TupleSizeMismatch {
             self.lhs.with(format!("this tuple has length {}", self.lhs)),
             self.rhs.with(format!("this tuple has length {}", self.rhs)),
         ]
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
     }
 }

@@ -16,6 +16,7 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
+use ropey::Rope;
 use salsa::Database;
 use smallvec::SmallVec;
 
@@ -33,6 +34,7 @@ pub struct Workspace {
 
 #[salsa::input]
 pub struct File {
+    pub contents: Rope,
     #[return_ref]
     pub url: Url,
     pub root: Option<AstNode>,
@@ -188,6 +190,10 @@ impl BasicDiagnostic for SyntaxError {
 
     fn kind(&self) -> DiagnosticKind {
         DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
     }
 }
 
