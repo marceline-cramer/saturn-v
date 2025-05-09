@@ -58,9 +58,10 @@ async fn main() {
             let url = url::Url::from_file_path(absolute_path).unwrap();
             let language = Language::new(tree_sitter_kerolox::LANGUAGE);
             let ed = Editor::new(&mut db, url.clone(), &language, &src);
+            let file = ed.get_file();
 
             let mut file_urls = HashMap::new();
-            file_urls.insert(url, ed.get_file());
+            file_urls.insert(url, file);
 
             let workspace = Workspace::new(&db, file_urls);
 
@@ -78,6 +79,41 @@ async fn main() {
             }
 
             eprintln!("finished with {fatal_errors} errors");
+
+            if fatal_errors > 0 {
+                eprintln!("check failed");
+                return;
+            }
+
+            for rule in saturn_v_frontend::parse::file_rules(&db, file)
+                .into_values()
+                .flatten()
+            {
+                for body in saturn_v_frontend::infer::typed_rule(&db, rule)
+                    .iter()
+                    .flat_map(|rule| rule.bodies(&db))
+                {
+                    let expr = saturn_v_frontend::desugar::desugar_rule_body(
+                        &db,
+                        Default::default(),
+                        body,
+                    );
+
+                    eprintln!("{expr:#?}");
+                }
+            }
+
+            for constraint in saturn_v_frontend::parse::file_constraints(&db, file) {
+                let typed = saturn_v_frontend::infer::typed_constraint(&db, constraint);
+
+                let expr = saturn_v_frontend::desugar::desugar_rule_body(
+                    &db,
+                    Default::default(),
+                    typed.body(&db),
+                );
+
+                eprintln!("{expr:#?}");
+            }
         }
     }
 }

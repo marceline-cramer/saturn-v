@@ -38,24 +38,25 @@ pub fn typed_constraint<'db>(
     // simply type the rule body
     let table = full_rule_body_type_table(db, constraint.body(db));
 
+    // unifying the rule body with the constraint head would go here, but...
+    // not sure exactly how to implement that quite yet
+    let body = TypedRuleBody::new(db, table, constraint.body(db));
+
     // create the typed constraint
-    TypedConstraint::new(db, table, constraint)
+    TypedConstraint::new(db, constraint, body)
 }
 
 #[salsa::tracked]
 pub struct TypedConstraint<'db> {
-    /// The [TypeTable] providing type information for the constraint.
-    pub table: TypeTable<'db>,
-
     /// The abstract constraint to be typed.
     pub constraint: AbstractConstraint<'db>,
+
+    /// The typed rule body.
+    pub body: TypedRuleBody<'db>,
 }
 
 #[salsa::tracked]
-pub fn typed_rule_bodies<'db>(
-    db: &'db dyn Database,
-    rule: AbstractRule<'db>,
-) -> BTreeSet<TypedRuleBody<'db>> {
+pub fn typed_rule<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Option<TypedRule<'db>> {
     // create the basic type tables for each rule
     // done first so that type errors inside bodies are caught even if their
     // heads are invalid
@@ -65,12 +66,8 @@ pub fn typed_rule_bodies<'db>(
         .copied()
         .map(|body| (body, full_rule_body_type_table(db, body)));
 
-    // resolve the relation definition
-    let Some(def) = file_relation(db, rule.relation(db).ast.file(db), rule.relation(db).inner)
-    else {
-        // TODO: log an error
-        return BTreeSet::new();
-    };
+    // resolve the relation definition, if available
+    let def = file_relation(db, rule.relation(db).ast.file(db), rule.relation(db).inner)?;
 
     // turn the head pattern into a type
     let head = rule.head(db).clone().map(|head| head.into());
@@ -82,24 +79,33 @@ pub fn typed_rule_bodies<'db>(
     let ty = infer_resolved_relation_type(db, ty);
 
     // for each body, unify the relation's type with the head
-    bodies
+    let bodies = bodies
         .map(|(body, mut table)| {
             // unify the head pattern's type with the relation
             table.unify(db, &ty, &head);
 
             // initialize the full, typed rule body
-            TypedRuleBody::new(db, table, def, body)
+            TypedRuleBody::new(db, table, body)
         })
-        .collect()
+        .collect();
+
+    // create the total rule
+    Some(TypedRule::new(db, def, bodies))
+}
+
+#[salsa::tracked]
+pub struct TypedRule<'db> {
+    /// The relation that this rule targets.
+    pub relation: RelationDefinition<'db>,
+
+    /// The typed rule bodies.
+    pub bodies: Vec<TypedRuleBody<'db>>,
 }
 
 #[salsa::tracked]
 pub struct TypedRuleBody<'db> {
     /// The [TypeTable] providing type information for this rule body.
     pub table: TypeTable<'db>,
-
-    /// The relation that this rule targets.
-    pub relation: RelationDefinition<'db>,
 
     /// The abstract rule body.
     pub inner: AbstractRuleBody<'db>,
@@ -291,7 +297,7 @@ impl<'db> TypeTable<'db> {
                 // unify body with relation key type
                 let relation = TypeKey::Relation(head.inner.clone()).into();
                 let ty = head.with(relation);
-                self.unify(db, &body, &ty);
+                self.unify(db, &ty, &body);
 
                 // expression evaluates to a boolean
                 PrimitiveType::Boolean.into()

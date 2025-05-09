@@ -179,7 +179,7 @@ impl<'db> Desugarer<'db> {
     /// Panics if the variable name is not in the type table.
     pub fn desugar_variable(&mut self, name: String) -> DesugaredExpr {
         // create the type key
-        let key = TypeKey::Variable(name);
+        let key = TypeKey::Variable(name.clone());
 
         // initialize this variable's lowered storage if it hasn't already been
         let (start, len) = self.typed_vars.entry(key.clone()).or_insert_with(|| {
@@ -187,7 +187,7 @@ impl<'db> Desugarer<'db> {
             let ty = self
                 .table
                 .flatten(&key.into())
-                .expect("failed to flatten variable");
+                .unwrap_or_else(|| panic!("failed to flatten variable {name:?}"));
 
             // extend the variable arrays with the flattened types
             let idx = self.lowered_vars.len();

@@ -50,7 +50,7 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
 
         for (_name, rules) in parse::file_rules(db, *file) {
             for rule in rules {
-                infer::typed_rule_bodies(db, rule);
+                infer::typed_rule(db, rule);
             }
         }
 
@@ -80,7 +80,10 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
             let pat = rule.head(db).clone();
             msg.push_str(&format!("{name}: {pat:?}\n"));
 
-            for body in infer::typed_rule_bodies(db, *rule) {
+            for body in infer::typed_rule(db, *rule)
+                .iter()
+                .flat_map(|rule| rule.bodies(db))
+            {
                 let expr = desugar::desugar_rule_body(db, Default::default(), body);
                 msg.push_str(&format!("{expr:#?}\n"));
             }
