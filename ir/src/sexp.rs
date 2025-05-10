@@ -132,20 +132,14 @@ impl Sexp for Expr {
             let expr = expr.map(Arc::new);
 
             // variable
-            // TODO typecast hack?
-            let variable =
-                parse_list("Variable", Token::integer()).map(|var| Expr::Variable(var as _));
+            let variable = parse_list("Variable", Token::unsigned()).map(Expr::Variable);
 
             // value
             let value = parse_list("Value", Value::parser()).map(Expr::Value);
 
             // load
-            let load = parse_list("Load", Token::integer().then(QueryTerm::parser())).map(
-                |(relation, query)| Expr::Load {
-                    relation: relation as _, // TODO hack?
-                    query,
-                },
-            );
+            let load = parse_list("Load", Token::unsigned().then(QueryTerm::parser()))
+                .map(|(relation, query)| Expr::Load { relation, query });
 
             // unary op
             let unary_op = parse_list("UnaryOp", UnaryOpKind::parser().then(expr.clone()))
@@ -231,7 +225,7 @@ impl QueryTerm {
 
             let variable = parse_list("QueryVariable", Token::unsigned().then(query)).map(
                 |(var, mut rest)| {
-                    rest.push(QueryTerm::Variable(var as _)); // TODO: cast?
+                    rest.push(QueryTerm::Variable(var));
                     rest
                 },
             );
