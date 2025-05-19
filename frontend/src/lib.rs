@@ -17,12 +17,14 @@
 use std::collections::HashMap;
 
 use diagnostic::DynDiagnostic;
+use locate::{entity_info, locate_entity};
 use salsa::Database;
 use toplevel::{File, Point, Span, Workspace};
 
 pub mod desugar;
 pub mod diagnostic;
 pub mod infer;
+pub mod locate;
 pub mod lower;
 pub mod parse;
 pub mod resolve;
@@ -63,18 +65,36 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
 
 #[salsa::tracked]
 pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {
-    let mut list = Vec::new();
-    let mut span = Span::default();
-    for node in toplevel::node_hierarchy_at(db, file, at) {
-        list.push(node.symbol(db));
-        span = node.span(db);
+    // locate the entity
+    let e = locate_entity(db, file, at)?;
+
+    // get the entity's info
+    let info = entity_info(db, e);
+
+    // format the info
+    let mut msg = String::new();
+
+    // add the name of the symbol
+    if let Some(name) = info.name {
+        msg.push_str(&format!("# {name}\n"));
     }
 
-    let mut msg = format!("node hierarchy symbols: {list:?}\n");
-    for (name, def) in parse::file_relations(db, file) {
-        let ty = def.ty(db);
-        msg.push_str(&format!("{name}: {ty}\n"));
+    // add the kind of symbol
+    msg.push_str(&format!("{}\n", info.kind));
+
+    // add the symbol's docs
+    if let Some(docs) = info.docs {
+        msg.push_str(&format!("__{docs}__\n"));
     }
 
+    // add the symbol's type.
+    if let Some(ty) = info.ty {
+        msg.push_str(&format!("`{ty}`\n"));
+    }
+
+    // create the span
+    let span = Span { start: at, end: at };
+
+    // return the complete hover info
     Some((span, msg))
 }

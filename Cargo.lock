@@ -1918,6 +1918,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "clap",
+ "salsa",
  "saturn-v-frontend",
  "saturn-v-lower",
  "saturn-v-lsp",

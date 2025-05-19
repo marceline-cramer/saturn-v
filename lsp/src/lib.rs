@@ -115,6 +115,7 @@ impl LanguageServer for LspBackend {
         let url = params.text_document.uri.clone();
         let ed = Editor::new(
             &mut db,
+            self.workspace,
             url.clone(),
             &self.language,
             &params.text_document.text,
@@ -187,7 +188,13 @@ pub struct Editor {
 
 impl Editor {
     /// Creates a new editor.
-    pub fn new(db: &mut Db, url: Url, language: &Language, text: &str) -> Self {
+    pub fn new(
+        db: &mut Db,
+        workspace: Workspace,
+        url: Url,
+        language: &Language,
+        text: &str,
+    ) -> Self {
         // initialize the tree-sitter parser and tree
         let mut parser = Parser::new();
 
@@ -201,7 +208,7 @@ impl Editor {
 
         // create the initial file
         let contents = Rope::from_str(text);
-        let file = File::new(db, contents.clone(), url, None);
+        let file = File::new(db, workspace, contents.clone(), url, None);
 
         // create the editor
         let mut ed = Self {

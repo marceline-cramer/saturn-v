@@ -24,7 +24,10 @@ use url::Url;
 
 pub use salsa::DatabaseImpl as Db;
 
-use crate::diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind};
+use crate::{
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
+    types::WithAst,
+};
 
 #[salsa::input]
 pub struct Workspace {
@@ -34,6 +37,7 @@ pub struct Workspace {
 
 #[salsa::input]
 pub struct File {
+    pub workspace: Workspace,
     pub contents: Rope,
     #[return_ref]
     pub url: Url,
@@ -69,6 +73,10 @@ impl Debug for AstNode {
 }
 
 impl AstNode {
+    pub fn with<T>(self, inner: T) -> WithAst<T> {
+        WithAst { ast: self, inner }
+    }
+
     pub fn get_field(&self, db: &dyn Database, name: &str) -> Option<AstNode> {
         for (field, ast) in self.fields(db).iter() {
             if *field == name {

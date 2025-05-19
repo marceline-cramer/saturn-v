@@ -17,6 +17,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use clap::{Parser, Subcommand};
+use salsa::Setter;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
 use tower_lsp::{LspService, Server};
@@ -57,13 +58,15 @@ async fn main() {
             let absolute_path = path.canonicalize().unwrap();
             let url = url::Url::from_file_path(absolute_path).unwrap();
             let language = Language::new(tree_sitter_kerolox::LANGUAGE);
-            let ed = Editor::new(&mut db, url.clone(), &language, &src);
-            let file = ed.get_file();
 
             let mut file_urls = HashMap::new();
-            file_urls.insert(url, file);
+            let workspace = Workspace::new(&db, file_urls.clone());
 
-            let workspace = Workspace::new(&db, file_urls);
+            let ed = Editor::new(&mut db, workspace, url.clone(), &language, &src);
+            let file = ed.get_file();
+
+            file_urls.insert(url, file);
+            workspace.set_files(&mut db).to(file_urls);
 
             let diagnostics = saturn_v_frontend::check_all_diagnostics(&db, workspace);
             let mut cache = ReportCache::new(&db);

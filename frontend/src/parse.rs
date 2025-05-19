@@ -21,10 +21,7 @@ use std::{
 };
 
 use salsa::Database;
-use saturn_v_ir::{
-    self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, ConstraintWeight,
-    Value,
-};
+use saturn_v_ir::{self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
@@ -42,7 +39,7 @@ pub struct RelationDefinition<'db> {
 
     /// The name of this relation.
     #[return_ref]
-    pub name: String,
+    pub name: WithAst<String>,
 
     /// Whether this relation is a decision.
     pub is_decision: bool,
@@ -142,7 +139,7 @@ pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, Relation
     for node in file_item_kind_ast(db, file, ItemKind::Definition) {
         let def = parse_relation_def(db, node);
         // TODO: emit error diagnostic when relation is already defined
-        relations.insert(def.name(db).clone(), def);
+        relations.insert(def.name(db).clone().inner, def);
     }
 
     // done!
@@ -154,7 +151,7 @@ pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, Relation
 pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
     // get the name
     let relation = node.expect_field(db, "relation");
-    let name = relation.contents(db).clone().unwrap();
+    let name = relation.with(relation.contents(db).clone().unwrap());
 
     // relation attributes
     let is_decision = node.get_field(db, "decision").is_some();
@@ -286,7 +283,7 @@ pub struct AbstractConstraint<'db> {
 pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
     // get the name of the relation
     let relation_node = ast.expect_field(db, "relation");
-    let relation = WithAst::new(ast, relation_node.contents(db).clone().unwrap());
+    let relation = relation_node.with(relation_node.contents(db).clone().unwrap());
 
     // parse the head
     let head = parse_pattern(db, ast.expect_field(db, "head"));

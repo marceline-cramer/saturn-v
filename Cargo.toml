@@ -39,6 +39,7 @@ edition = "2021"
 [dependencies]
 ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
+salsa.workspace = true
 saturn-v-frontend.workspace = true
 saturn-v-lower.workspace = true
 saturn-v-lsp.workspace = true
