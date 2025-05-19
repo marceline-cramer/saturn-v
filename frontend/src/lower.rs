@@ -21,12 +21,14 @@ use saturn_v_ir as ir;
 
 use crate::{
     desugar::desugar_rule_body,
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     infer::{
         infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
-    parse::{file_constraints, file_rules, RelationDefinition},
+    parse::{file_constraints, file_rules, Pattern, RelationDefinition},
     resolve::resolve_relation_type,
-    toplevel::{File, Workspace},
+    toplevel::{AstNode, File, Workspace},
+    types::WithAst,
 };
 
 pub fn lower_workspace<'db>(
@@ -141,8 +143,35 @@ pub fn lower_constraint<'db>(
 pub fn lower_rule<'db>(db: &'db dyn Database, rule: TypedRule<'db>) -> BodiesOrFact<'db> {
     // how to lower depends on whether the rule has bodies
     if rule.bodies(db).is_empty() {
-        // if the rule body is empty, it is either a fact or an implicit rule
-        BodiesOrFact::Bodies(vec![])
+        // recursively create a list of values
+        let mut stack = vec![rule.inner(db).head(db).clone()];
+        let mut values = Vec::new();
+        let mut failure = false;
+        while let Some(pat) = stack.pop() {
+            match pat.as_ref() {
+                // TODO: implicit rules
+                Pattern::Variable(name) => {
+                    // emit error diagnostic
+                    CannotAssignVariable {
+                        variable: pat.with(name.to_string()),
+                    }
+                    .accumulate(db);
+
+                    // make sure we track error to not push faulty facts
+                    failure = true;
+                }
+                Pattern::Value(val) => values.push(val.clone()),
+                Pattern::Tuple(els) => stack.extend(els.iter().rev().cloned()),
+            }
+        }
+
+        if failure {
+            // if failure, return empty bodies
+            BodiesOrFact::Bodies(vec![])
+        } else {
+            // otherwise, create the complete fact from the values
+            BodiesOrFact::Fact(values)
+        }
     } else {
         // if the rule has bodies, turn each rule body into an IR rule
         let mut bodies = Vec::new();
@@ -176,4 +205,27 @@ pub fn lower_rule<'db>(db: &'db dyn Database, rule: TypedRule<'db>) -> BodiesOrF
 pub enum BodiesOrFact<'db> {
     Bodies(Vec<ir::Rule<RelationDefinition<'db>>>),
     Fact(Vec<ir::Value>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CannotAssignVariable {
+    pub variable: WithAst<String>,
+}
+
+impl BasicDiagnostic for CannotAssignVariable {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.variable.ast..self.variable.ast
+    }
+
+    fn message(&self) -> String {
+        format!("cannot assign value to {:?}", self.variable)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
 }
