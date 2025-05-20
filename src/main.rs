@@ -39,6 +39,12 @@ pub enum Command {
         /// The path to the source file.
         path: PathBuf,
     },
+
+    /// Runs a Kerolox source file.
+    Run {
+        /// The path to the source file.
+        path: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -53,44 +59,9 @@ async fn main() {
             Server::new(stdin, stdout, socket).serve(service).await;
         }
         Command::Check { path } => {
-            let mut db = saturn_v_frontend::toplevel::Db::new();
-            let src = std::fs::read_to_string(&path).unwrap();
-            let absolute_path = path.canonicalize().unwrap();
-            let url = url::Url::from_file_path(absolute_path).unwrap();
-            let language = Language::new(tree_sitter_kerolox::LANGUAGE);
-
-            let mut file_urls = HashMap::new();
-            let workspace = Workspace::new(&db, file_urls.clone());
-
-            let ed = Editor::new(&mut db, workspace, url.clone(), &language, &src);
-            let file = ed.get_file();
-
-            file_urls.insert(url, file);
-            workspace.set_files(&mut db).to(file_urls);
-
-            let diagnostics = saturn_v_frontend::check_all_diagnostics(&db, workspace);
-            let mut cache = ReportCache::new(&db);
-            let mut fatal_errors = 0;
-            for d in diagnostics {
-                if d.is_fatal() {
-                    fatal_errors += 1;
-                }
-
-                for report in d.to_ariadne(&db) {
-                    report.eprint(&mut cache).unwrap();
-                }
-            }
-
-            eprintln!("finished with {fatal_errors} errors");
-
-            if fatal_errors > 0 {
-                eprintln!("check failed");
+            let Some(program) = build_file(&path) else {
                 return;
-            }
-
-            // TODO: relation names should be mangled in programs with more than one file
-            let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
-                .map_relations(|def| def.name(&db));
+            };
 
             eprintln!("{program:#?}");
 
@@ -98,5 +69,57 @@ async fn main() {
                 eprintln!("{err}");
             }
         }
+        Command::Run { path } => {
+            let Some(program) = build_file(&path) else {
+                return;
+            };
+
+            let loader = saturn_v_eval::load::Loader::load_program(&program);
+            saturn_v_eval::run(loader).await;
+        }
     }
+}
+
+pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
+    let mut db = saturn_v_frontend::toplevel::Db::new();
+    let src = std::fs::read_to_string(path).unwrap();
+    let absolute_path = path.canonicalize().unwrap();
+    let url = url::Url::from_file_path(absolute_path).unwrap();
+    let language = Language::new(tree_sitter_kerolox::LANGUAGE);
+
+    let mut file_urls = HashMap::new();
+    let workspace = Workspace::new(&db, file_urls.clone());
+
+    let ed = Editor::new(&mut db, workspace, url.clone(), &language, &src);
+    let file = ed.get_file();
+
+    file_urls.insert(url, file);
+    workspace.set_files(&mut db).to(file_urls);
+
+    let diagnostics = saturn_v_frontend::check_all_diagnostics(&db, workspace);
+    let mut cache = ReportCache::new(&db);
+    let mut fatal_errors = 0;
+    for d in diagnostics {
+        if d.is_fatal() {
+            fatal_errors += 1;
+        }
+
+        for report in d.to_ariadne(&db) {
+            report.eprint(&mut cache).unwrap();
+        }
+    }
+
+    eprintln!("finished with {fatal_errors} errors");
+
+    if fatal_errors > 0 {
+        eprintln!("check failed");
+        return None;
+    }
+
+    // TODO: relation names should be mangled in programs with more than one file
+    let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
+        .map_relations(|def| def.name(&db).inner.to_string());
+
+    // return built program
+    Some(program)
 }
