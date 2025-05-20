@@ -1,0 +1,26 @@
+define Member Symbol.
+Member Walter.
+Member Donny.
+Member TheDude.
+
+define Chore Symbol.
+Chore Mop.
+Chore Sweep.
+Chore Bowl.
+Chore GetInNOut.
+
+define Day Integer.
+Day 1.
+Day a :- Day b, b < 7, a = b + 1.
+
+define output decision Assignment(Day, Chore, Member).
+Assignment(d, c, m) :- Day d, Chore c, Member m.
+
+; Every chore needs to get done exactly once every day.
+constrain(day, chore) = 1 :- Assignment(day, chore, member).
+
+; Members cannot do the same chore two days in a row.
+constrain = 0 :-
+  start + 1 = end,
+  Assignment(start, chore, member),
+  Assignment(end, chore, member).

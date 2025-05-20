@@ -1,0 +1,20 @@
+; Each possible coordinate on the board.
+define Coord Integer.
+Coord 1.
+Coord a :- Coord b, b < 8, a = b + 1.
+
+; Each possible placement of a queen.
+define output decision Queen(Coord, Coord).
+Queen(row, col) :- Coord row, Coord col.
+
+; Exactly one queen goes on each row.
+constrain(row) = 1 :- Queen(row, col).
+
+; Exactly one queen goes on each column.
+constrain(col) = 1 :- Queen(row, col).
+
+; At most one queen can go along each main diagonal.
+constrain(diag) <= 1 :- Queen(row, col), diag = row + col.
+
+; At most one queen can go along each orthogonal diagonal.
+constrain(diag) <= 1 :- Queen(row, col), diag = row - col.
