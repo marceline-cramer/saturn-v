@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
-
 use chumsky::prelude::*;
 use egglog::EGraph;
 use indexmap::IndexSet;
@@ -42,14 +40,9 @@ pub fn init_lower_egraph() -> EGraph {
 
 /// Defines the egglog representation to lower a rule body.
 pub fn extract_rule_body<R>(name: &str, rule: &RuleBody<R>) -> String {
-    let instr = Instruction::Sink {
-        vars: HashSet::from_iter(0..(rule.vars.len() as u32)),
-        rest: Box::new(rule.instructions.clone()),
-    };
-
     let assignment = sexp::doc_indent(
         sexp::doc_pair("let", Doc::text(name.to_string())),
-        instr.to_doc(),
+        rule.instructions.to_doc(),
     );
 
     let run = Doc::text("(run 1000000)")

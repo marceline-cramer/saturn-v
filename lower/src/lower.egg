@@ -124,10 +124,10 @@
 
 ; Associativity
 (relation associative (BinaryOpKind))
-(set (associative (And)))
-(set (associative (Or)))
-(set (associative (Add)))
-(set (associative (Mul)))
+(set (associative (And)) ())
+(set (associative (Or)) ())
+(set (associative (Add)) ())
+(set (associative (Mul)) ())
 
 (rule
 	((= e (BinaryOp op a (BinaryOp op b c)))
@@ -137,9 +137,11 @@
 
 ; Commutativity
 (relation commutative (BinaryOpKind))
-(set (commutative (And)))
-(set (commutative (Or)))
-(set (commutative (Eq)))
+(set (commutative (And)) ())
+(set (commutative (Or)) ())
+(set (commutative (Eq)) ())
+(set (commutative (Add)) ())
+(set (commutative (Mul)) ())
 
 (rule
 	((= e (BinaryOp op a b))
@@ -178,35 +180,36 @@
 	(FromQuery i64 Query)
 	(Let i64 Expr Instr)
 	(Merge Instr Instr)
-	(Join Instr Instr :cost 100))
+	(Join Instr Instr))
 
 ; Properties of joins
 (rewrite (Join a b) (Join b a))
-(rewrite (Join a (Join b c)) (Join (Join a b) c))
 (rewrite (Join a (Noop)) a)
 (rewrite (Join (Filter e lhs) rhs) (Filter e (Join lhs rhs)))
 
 ; Two filters in series are equivalent to Boolean and
-(birewrite (Filter a (Filter b c)) (Filter (BinaryOp (And) a b) c))
+(rewrite (Filter (BinaryOp (And) a b) c) (Filter a (Filter b c)))
 
 ; A Boolean OR is equivalent to concatenation
-(birewrite
+(rewrite
 	(Filter (BinaryOp (Or) lhs rhs) rest)
 	(Merge (Filter lhs rest) (Filter rhs rest)))
 
-; Asserted relations can be loaded regardless of available variables
-(rule
-	((= i (Filter (Load r q) rest))
-	 (= vars (query-vars q)))
-	((union i (Join rest (FromQuery r q))))
-	:name "load queries")
+; Asserted relations on no-ops can be loaded regardless of available variables
+(rewrite (Filter (Load r q) rest) (Join rest (FromQuery r q)))
 
 ; Calculate the set of variables that are available in each instruction subtree
 (function instr-vars (Instr) VarSet :merge (set-union old new))
-(set (instr-vars (Noop)) (set-empty))
-(rule ((= i (Filter _ rest)) (= vars (instr-vars rest))) ((set (instr-vars i) vars)) :name "instr-vars for Filter")
 (rule ((= i (FromQuery _ q)) (= vars (query-vars q))) ((set (instr-vars i) vars)) :name "instr-vars for FromQuery")
 (rule ((= i (Let var _ rest)) (= vars (instr-vars rest))) ((set (instr-vars i) (set-insert vars var))) :name "instr-vars for Let")
+
+(rule
+	((= i (Filter test rest))
+	 (= needed (expr-vars test))
+	 (= available (instr-vars rest))
+	 (= 0 (set-length (set-diff needed available))))
+	((set (instr-vars i) available))
+	:name "instr-vars for Filter")
 
 (rule
 	((= i (Join lhs rhs))
@@ -238,6 +241,7 @@
 	((= i (Filter (BinaryOp (Eq) (Variable var) rhs) rest))
 	 (= needed (expr-vars rhs))
 	 (= available (instr-vars rest))
-	 (= 0 (set-length (set-diff needed available))))
+	 (= 0 (set-length (set-diff needed available)))
+	 (set-not-contains available var))
 	((union i (Let var rhs rest)))
 	:name "equality to let instruction")
