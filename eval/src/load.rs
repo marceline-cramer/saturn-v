@@ -69,6 +69,12 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         facts: &mut InputSource<Fact>,
         nodes: &mut InputSource<Node>,
     ) {
+        // display statistics
+        eprintln!("loading dataflow");
+        eprintln!("  {} relations", self.relations.len());
+        eprintln!("  {} facts", self.facts.len());
+        eprintln!("  {} unique nodes", self.nodes.len());
+
         for relation in self.relations.into_values() {
             relations.insert(relation);
         }

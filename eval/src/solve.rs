@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::{
+    collections::{BTreeMap, BinaryHeap, HashMap},
+    sync::atomic::AtomicU16,
+};
 
 use flume::Sender;
 use rustsat::{
@@ -68,14 +71,23 @@ impl Solver {
     }
 
     pub async fn step(&mut self) -> Option<bool> {
+        // track time that step started
+        let start = std::time::Instant::now();
+        eprintln!("stepping solver...");
+
         // fetch updates
         let conditional = self.conditional_sink.next_batch().await?;
         let gates = self.gates_sink.next_batch().await?;
         let constraints = self.constraints_sink.next_batch().await?;
         let outputs = self.outputs_sink.next_batch().await?;
 
+        // display how long dataflow took to process step
+        eprintln!("received solver step after {:?}", start.elapsed());
+
         // update model
-        let removed_outputs = self.model.update(conditional, gates, constraints, outputs);
+        let removed_outputs = log_time("updating SAT model", || {
+            self.model.update(conditional, gates, constraints, outputs)
+        });
 
         // remove any outputs just removed
         for output in removed_outputs {
@@ -125,16 +137,13 @@ pub struct Model {
 
 impl Model {
     pub fn solve(&mut self) -> Option<bool> {
-        // time solving
-        let start = std::time::Instant::now();
-
         // assume conditions and constraint guards
         let condition_guards = self.conditions.values().map(|enc| enc.guard.neg_lit());
         let constraint_guards = self.constraints.values().map(|guard| guard.neg_lit());
         let assumptions: Vec<_> = condition_guards.chain(constraint_guards).collect();
 
         // display statistics
-        eprintln!("starting SAT solving...");
+        eprintln!("SAT model statistics:");
         eprintln!("  {} assumptions", assumptions.len());
         eprintln!("  {} active conditions", self.conditions.len());
         eprintln!("  {} active constraints", self.constraints.len());
@@ -142,10 +151,9 @@ impl Model {
         eprintln!("  {} recycleable variables", self.vars.free_vars.len());
 
         // solve SAT
-        let result = self.oracle.solve_assumps(&assumptions).unwrap();
-
-        // display solve time and SAT stats
-        eprintln!("finished SAT in {:?}", start.elapsed());
+        let result = log_time("running SAT solver", || {
+            self.oracle.solve_assumps(&assumptions).unwrap()
+        });
 
         // return result
         match result {
@@ -509,9 +517,17 @@ pub fn split_batch<T>(batch: Vec<(T, bool)>) -> (Vec<T>, Vec<T>) {
     (insert, remove)
 }
 
-fn log_time(message: &str, mut cb: impl FnMut()) {
-    eprintln!("{message}");
+fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
+    static INDENT: AtomicU16 = AtomicU16::new(0);
+
+    let indent = "  ".repeat(INDENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as usize);
+    eprintln!("{indent}{message}...");
+
     let start = std::time::Instant::now();
-    cb();
-    eprintln!("{message} took {:?}", start.elapsed());
+    let result = cb();
+    eprintln!("{indent}{message} took {:?}", start.elapsed());
+
+    INDENT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+
+    result
 }
