@@ -7,7 +7,7 @@
 // @ts-check
 
 const list = el => seq(el, repeat(seq(",", el)))
-const list1 = el => seq(el, choice(",", repeat(seq(",", el))))
+const list1 = el => seq(el, choice(",", repeat1(seq(",", el))))
 const paren_list = (el) => seq("(", list(el), ")");
 const paren_list1 = (el) => seq("(", list1(el), ")");
 
@@ -19,7 +19,6 @@ module.exports = grammar({
   name: "kerolox",
 
   extras: $ => [$._whitespace, $.comment],
-  conflicts: $ => [[$.expr, $.tuple]],
 
   rules: {
     file: $ => repeat(choice($.import, $.definition, $.rule, $.constraint)),
@@ -98,7 +97,7 @@ module.exports = grammar({
       field("variable", $.variable),
       field("unary", $.unary_expr),
       field("binary", $.binary_expr),
-      seq('(', choice($.expr), ')')
+      seq('(', field("parens", $.expr), ')'),
     ),
 
     atom: $ => prec.right(2, seq(field("head", $.symbol), field("body", $.expr))),

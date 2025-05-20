@@ -409,6 +409,8 @@ pub fn parse_expr(db: &dyn Database, ast: AstNode) -> Expr<'_> {
         let head = WithAst::new(head, head.contents(db).to_owned().unwrap());
         let body = parse_expr(db, atom.expect_field(db, "body"));
         ExprKind::Atom { head, body }
+    } else if let Some(parens) = ast.get_field(db, "parens") {
+        return parse_expr(db, parens);
     } else {
         unreachable!("unrecognized expression node kind at {:?}", ast.symbol(db));
     };

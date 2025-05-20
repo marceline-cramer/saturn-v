@@ -140,7 +140,7 @@
                           "value": ","
                         },
                         {
-                          "type": "REPEAT",
+                          "type": "REPEAT1",
                           "content": {
                             "type": "SEQ",
                             "members": [
@@ -271,7 +271,7 @@
                       "value": ","
                     },
                     {
-                      "type": "REPEAT",
+                      "type": "REPEAT1",
                       "content": {
                         "type": "SEQ",
                         "members": [
@@ -392,7 +392,7 @@
                       "value": ","
                     },
                     {
-                      "type": "REPEAT",
+                      "type": "REPEAT1",
                       "content": {
                         "type": "SEQ",
                         "members": [
@@ -442,7 +442,7 @@
               "value": ","
             },
             {
-              "type": "REPEAT",
+              "type": "REPEAT1",
               "content": {
                 "type": "SEQ",
                 "members": [
@@ -703,13 +703,12 @@
               "value": "("
             },
             {
-              "type": "CHOICE",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "expr"
-                }
-              ]
+              "type": "FIELD",
+              "name": "parens",
+              "content": {
+                "type": "SYMBOL",
+                "name": "expr"
+              }
             },
             {
               "type": "STRING",
@@ -770,7 +769,7 @@
                   "value": ","
                 },
                 {
-                  "type": "REPEAT",
+                  "type": "REPEAT1",
                   "content": {
                     "type": "SEQ",
                     "members": [
@@ -1107,12 +1106,7 @@
       "name": "comment"
     }
   ],
-  "conflicts": [
-    [
-      "expr",
-      "tuple"
-    ]
-  ],
+  "conflicts": [],
   "precedences": [],
   "externals": [],
   "inline": [],
