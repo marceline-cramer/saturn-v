@@ -275,4 +275,7 @@ pub struct Relation {
 
     /// If this relation is an output.
     pub is_output: bool,
+
+    /// The formatting segments to display this relation.
+    pub formatting: Arc<[String]>,
 }

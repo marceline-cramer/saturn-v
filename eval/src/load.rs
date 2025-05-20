@@ -100,6 +100,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                         discriminant: idx as u64,
                         kind: rel.kind,
                         is_output: rel.is_output,
+                        formatting: rel.formatting.clone().into(),
                     },
                 )
             })

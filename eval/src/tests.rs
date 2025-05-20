@@ -30,6 +30,7 @@ async fn test_pick_one() {
 
     program.insert_relation(ir::Relation {
         ty: vec![Type::Integer],
+        formatting: vec!["Choice ".to_string(), ".".to_string()],
         store: "Choice".to_string(),
         facts: (1..=10).map(|idx| vec![Value::Integer(idx)]).collect(),
         kind: RelationKind::Decision,
@@ -64,6 +65,7 @@ async fn test_pick_pairs() {
 
     program.insert_relation(ir::Relation {
         ty: vec![Type::Integer],
+        formatting: vec!["Base ".to_string(), ".".to_string()],
         store: "Base".to_string(),
         facts: vec![vec![Value::Integer(0)]],
         kind: RelationKind::Basic,
@@ -98,6 +100,7 @@ async fn test_pick_pairs() {
 
     program.insert_relation(ir::Relation {
         ty: vec![Type::Integer, Type::Integer],
+        formatting: vec!["Pair(".to_string(), ", ".to_string(), ").".to_string()],
         store: "Pair".to_string(),
         facts: vec![],
         kind: RelationKind::Decision,

@@ -16,6 +16,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Display,
     hash::Hash,
     sync::Arc,
 };
@@ -104,6 +105,7 @@ impl<R: Clone + Hash + Eq> Program<R> {
 
                 let relation = Relation {
                     ty: relation.ty,
+                    formatting: relation.formatting,
                     kind: relation.kind,
                     is_output: relation.is_output,
                     facts: relation.facts,
@@ -192,6 +194,12 @@ pub enum CardinalityConstraintKind {
 pub struct Relation<R> {
     /// The relation's type.
     pub ty: Vec<Type>,
+
+    /// The formatting of this relation.
+    ///
+    /// The first segment is prepended to the formatted string, the rest of the
+    /// segments are appended to each value of every tuple.
+    pub formatting: Vec<String>,
 
     /// The custom relation data that this relation stores to.
     pub store: R,
@@ -418,6 +426,20 @@ pub enum Value {
     Real(OrderedFloat<f64>),
     Symbol(String),
     String(String),
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Value::*;
+        match self {
+            Boolean(true) => write!(f, "True"),
+            Boolean(false) => write!(f, "False"),
+            Integer(val) => write!(f, "{val}"),
+            Real(val) => write!(f, "{val}"),
+            Symbol(name) => write!(f, "{name}"),
+            String(val) => write!(f, "\"{val:?}\""),
+        }
+    }
 }
 
 impl Value {

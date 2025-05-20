@@ -14,10 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use dataflow::DataflowRouters;
 use load::Loader;
 use solve::Solver;
-use utils::run_pumps;
+use utils::{run_pumps, Key};
 
 pub mod dataflow;
 pub mod load;
@@ -43,6 +45,12 @@ pub async fn run(loader: Loader<String>) {
     .expect("failed to start dataflows");
 
     std::thread::spawn(move || drop(workers));
+
+    let formatting: HashMap<_, _> = loader
+        .relations
+        .values()
+        .map(|rel| (Key::new(rel), rel.formatting.clone()))
+        .collect();
 
     let mut relations = routers.relations_in.into_source();
     let mut facts = routers.facts_in.into_source();
@@ -74,6 +82,14 @@ pub async fn run(loader: Loader<String>) {
     outputs.sort();
 
     for output in outputs {
-        println!("{output:?}");
+        let mut format = formatting.get(&output.relation).unwrap().iter();
+
+        print!("{}", format.next().unwrap());
+
+        for (format, val) in format.zip(output.values.iter()) {
+            print!("{val}{format}");
+        }
+
+        println!();
     }
 }
