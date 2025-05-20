@@ -125,16 +125,11 @@ pub fn full_rule_body_type_table<'db>(
     // begin with the base type table, only inferring clauses
     let mut table = base_rule_body_type_table(db, body);
 
-    // iterate over each key in the table
-    for (key, entry) in table.map.clone().iter() {
-        // filter out only relations
-        let TypeKey::Relation(relation) = key else {
-            continue;
-        };
-
+    // load each relation used by the table
+    for relation in table.relations.clone() {
         // resolve the relation definition
         let Some(def) = file_relations(db, body.ast(db).file(db))
-            .get(relation)
+            .get(relation.as_ref())
             .copied()
         else {
             // TODO: log an error
@@ -148,8 +143,8 @@ pub fn full_rule_body_type_table<'db>(
         let ty = infer_resolved_relation_type(db, ty);
 
         // unify the relation in the type table with the inferred type
-        let rhs = entry.with(key.clone().into());
-        table.unify(db, &ty, &rhs);
+        let rhs = relation.map(|name| TypeKey::Relation(name).into());
+        table.unify(db, &rhs, &ty);
     }
 
     // return the inferred table
@@ -220,10 +215,10 @@ pub fn infer_resolved_type<'db>(
     ty.with(kind)
 }
 
-#[derive(Clone, Default, PartialEq, Eq, Hash, Update)]
+#[derive(Clone, Default, PartialEq, Eq, Hash, Update, Debug)]
 pub struct TypeTable<'db> {
     map: BTreeMap<TypeKey<'db>, WithAst<TableType<'db>>>,
-    relations: BTreeSet<String>,
+    relations: BTreeSet<WithAst<String>>,
     sound: bool,
 }
 
@@ -304,6 +299,9 @@ impl<'db> TypeTable<'db> {
                 let relation = TypeKey::Relation(head.inner.clone()).into();
                 let ty = head.with(relation);
                 self.unify(db, &ty, &body);
+
+                // be sure to load this relation type later
+                self.relations.insert(head);
 
                 // expression evaluates to a boolean
                 PrimitiveType::Boolean.into()
@@ -468,8 +466,9 @@ impl<'db> TypeTable<'db> {
         if ty.occurs(&key) {
             SelfReferencingType { ast: ty.ast }.accumulate(db);
             false
+        } else if let Some(old) = self.map.insert(key, ty.clone()) {
+            self.try_unify(db, &old, &ty)
         } else {
-            self.map.insert(key, ty);
             true
         }
     }
@@ -493,6 +492,9 @@ impl<'db> TypeTable<'db> {
                 }
             }
         }
+
+        // extend our relation dependencies with the other's
+        self.relations.extend(other.relations);
 
         // return modified self
         self

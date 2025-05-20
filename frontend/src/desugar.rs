@@ -334,19 +334,20 @@ impl<'db> Desugarer<'db> {
 
         // in the special case that this is a logical operation, collapse all
         // terms into a single conjunction of Boolean operations
-        if op.category() == ir::BinaryOpCategory::Logical {
-            // unwrap is okay because no desugaring base cases return empty tuples
-            return vec![terms
-                .reduce(|lhs, rhs| ir::Expr::BinaryOp {
-                    op: IR::And,
-                    lhs: Arc::new(lhs),
-                    rhs: Arc::new(rhs),
-                })
-                .unwrap()];
+        match op.category() {
+            ir::BinaryOpCategory::Logical | ir::BinaryOpCategory::Comparison => {
+                // unwrap is okay because no desugaring base cases return empty tuples
+                vec![terms
+                    .reduce(|lhs, rhs| ir::Expr::BinaryOp {
+                        op: IR::And,
+                        lhs: Arc::new(lhs),
+                        rhs: Arc::new(rhs),
+                    })
+                    .unwrap()]
+            }
+            // otherwise, return terms as they are
+            _ => terms.collect(),
         }
-
-        // otherwise, return terms as they are
-        terms.collect()
     }
 
     /// Desugars a unary operation.
