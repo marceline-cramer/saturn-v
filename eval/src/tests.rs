@@ -22,50 +22,7 @@ use saturn_v_ir::{
     Value,
 };
 
-use crate::{dataflow::DataflowRouters, load::Loader, solve::Solver, utils::run_pumps};
-
-async fn run(loader: Loader<String>) {
-    let config = timely::Config::thread();
-    let routers = DataflowRouters::default();
-
-    let workers = timely::execute(config, {
-        let handle = tokio::runtime::Handle::current();
-        let routers = routers.clone();
-        move |worker| {
-            let (input, output) = crate::dataflow::backend(worker, &routers);
-            run_pumps(worker, handle.clone(), input, output);
-        }
-    })
-    .expect("failed to start dataflows");
-
-    std::thread::spawn(move || drop(workers));
-
-    let mut relations = routers.relations_in.into_source();
-    let mut facts = routers.facts_in.into_source();
-    let mut nodes = routers.nodes_in.into_source();
-
-    loader.add_to_dataflow(&mut relations, &mut facts, &mut nodes);
-
-    relations.forget();
-    facts.forget();
-    nodes.forget();
-
-    let (output_tx, output_rx) = flume::unbounded();
-
-    let mut solver = Solver::new(
-        routers.conditional_out.into_sink(),
-        routers.gates_out.into_sink(),
-        routers.constraints_out.into_sink(),
-        routers.outputs_out.into_sink(),
-        output_tx,
-    );
-
-    assert_eq!(solver.step().await, Some(true), "failed to run solver");
-
-    while let Ok(crate::utils::Update::Push(output, true)) = output_rx.recv() {
-        println!("{output:?}");
-    }
-}
+use crate::{load::Loader, run};
 
 #[tokio::test]
 async fn test_pick_one() {
