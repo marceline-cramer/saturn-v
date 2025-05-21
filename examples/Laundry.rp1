@@ -1,0 +1,54 @@
+; Each possible shirt that can be worn.
+define Shirt Symbol.
+Shirt TankTop.
+Shirt TShirt.
+Shirt Sweater.
+Shirt Turtleneck.
+
+; Each possible pair of pants that can be worn.
+define Pants Symbol.
+Pants Cargo.
+Pants Jeans.
+Pants Khakis.
+Pants Shorts.
+
+; Each article of clothing.
+define Article(Symbol, Symbol).
+Article(Shirt, item) :- Shirt item.
+Article(Pants, item) :- Pants item.
+
+; Each day to be planned.
+define Day Integer.
+Day 1
+Day a :- Day b, b < 28, a = b + 1.
+
+; Whether to do laundry on each day.
+define output decision Laundry Day.
+Laundry day :- Day day.
+
+; Avoid doing laundry each day if possible.
+constrain soft(1) (day) = 0 :- Laundry day.
+
+; Each possible article of clothing to be worn each day.
+define output decision Outfit(Article, Day).
+Outfit(article, day) :- Article article, Day day.
+
+; The articles available in the wardrobe every day.
+define Wardrobe(Article, Day).
+
+; All articles are available before planning.
+Wardrobe(article, 0) :- Article article.
+
+; If laundry has been done today, all articles are available.
+Wardrobe(article, day) :- Article article, Laundry day.
+
+; Carry over wardrobe items from yesterday if they were not worn.
+Wardrobe(article, today) :-
+    Wardrobe(article, yesterday),
+    !Outfit(article, yesterday),
+    today = yesterday + 1.
+
+; Every day, out of every kind of article, exactly one item must be worn.
+constrain(day, kind) = 1 :-
+    Outfit((kind, item), day),
+    Wardrobe((kind, item), day).
