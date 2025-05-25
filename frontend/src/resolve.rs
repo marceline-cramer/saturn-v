@@ -61,6 +61,7 @@ fn resolve_abstract_type<'db>(
     // attempt to look up the resolved type
     let file = ty.ast.file(db);
     match file_unresolved_types(db, file).get(name) {
+        // TODO: throw an error if could not be found
         None => ty.with(ResolvedType::Unknown),
         Some(unresolved) => {
             // we're tracking a new unresolved type in the cycle
@@ -105,6 +106,7 @@ pub fn file_unresolved_types<'a>(
 
 /// A resolved relation type definition.
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct ResolvedRelationType<'db> {
     /// The relation definition this relation type corresponds to.
     pub def: RelationDefinition<'db>,
@@ -115,6 +117,7 @@ pub struct ResolvedRelationType<'db> {
 
 /// A resolved type alias definition.
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct ResolvedTypeAlias<'db> {
     /// The type alias definition this resolved alias corresponds to.
     pub def: TypeAlias<'db>,
@@ -124,7 +127,7 @@ pub struct ResolvedTypeAlias<'db> {
 }
 
 /// May contain tuples, primitives, and resolved alias or relation types.
-#[derive(Clone, PartialEq, Eq, Hash, Update)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
 pub enum ResolvedType<'db> {
     Primitive(PrimitiveType),
     Tuple(Vec<WithAst<ResolvedType<'db>>>),

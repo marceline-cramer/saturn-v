@@ -277,6 +277,7 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
 #[derive(Debug)]
 pub struct AbstractConstraint<'db> {
     /// The constraint's head variables.
+    #[return_ref]
     pub head: Vec<WithAst<String>>,
 
     /// The kind of constraint.

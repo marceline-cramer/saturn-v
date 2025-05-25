@@ -21,8 +21,9 @@ use salsa::{Database, Update};
 use crate::{
     infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
     parse::*,
-    resolve::resolve_relation_type,
+    resolve::{file_unresolved_types, resolve_relation_type, Unresolved},
     toplevel::{AstNode, File, Point},
+    types::WithAst,
 };
 
 /// Gets the [EntityInfo] for an [Entity].
@@ -32,8 +33,8 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     let kind = match e.kind(db) {
         EntityKind::Import(_) => "Import",
         EntityKind::File(_) => "File",
-        EntityKind::Relation(_) => "Relation definition",
-        EntityKind::Variable { .. } => "Rule body variable",
+        EntityKind::Relation(_) => "Relation",
+        EntityKind::Variable { .. } => "Variable",
     }
     .to_string();
 
@@ -83,7 +84,7 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // get the location of the entity's definition
     let def = match e.kind(db) {
         EntityKind::Relation(def) => Some(def.ast(db)),
-        // TODO: definitions of rule body variables
+        // TODO: definitions of variables
         _ => None,
     };
 
@@ -175,10 +176,38 @@ pub fn locate_definition<'db>(
         return Some(Entity::new(db, EntityKind::Relation(def)));
     }
 
-    // TODO: locate relation definition types
+    // locate within the abstract type
+    if def.ty(db).ast.span(db).contains(at) {
+        return locate_resolved_type(db, def.ty(db), at);
+    }
 
     // otherwise, no entity could be located
     None
+}
+
+/// Locates an entity within an abstract type.
+pub fn locate_resolved_type<'db>(
+    db: &'db dyn Database,
+    ty: &WithAst<AbstractType>,
+    at: Point,
+) -> Option<Entity<'db>> {
+    eprintln!("{ty}");
+    match ty.as_ref() {
+        AbstractType::Tuple(els) => {
+            for el in els.iter() {
+                if el.ast.span(db).contains(at) {
+                    return locate_resolved_type(db, el, at);
+                }
+            }
+
+            None
+        }
+        AbstractType::Named(name) => match file_unresolved_types(db, ty.ast.file(db)).get(name) {
+            Some(Unresolved::Relation(def)) => Some(Entity::new(db, EntityKind::Relation(*def))),
+            _ => None,
+        },
+        AbstractType::Primitive(_) => None,
+    }
 }
 
 /// Locates an entity within a rule.
@@ -196,7 +225,10 @@ pub fn locate_rule<'db>(
             .map(|kind| Entity::new(db, kind));
     }
 
-    // TODO: locate within the head
+    // attempt to locate within the head
+    if def.head(db).ast.span(db).contains(at) {
+        return locate_pattern(db, def, def.head(db), at);
+    }
 
     // attempt to locate within each rule body
     for (idx, body) in def.bodies(db).iter().enumerate() {
@@ -206,13 +238,40 @@ pub fn locate_rule<'db>(
                 body: Some(idx),
             };
 
-            // TODO: distinguish head variables from body variables
             return locate_rule_body(db, scope, *body, at);
         }
     }
 
     // otherwise, no entity could be located
     None
+}
+
+/// Locates an item within a pattern.
+pub fn locate_pattern<'db>(
+    db: &'db dyn Database,
+    rule: AbstractRule<'db>,
+    pat: &Pattern,
+    at: Point,
+) -> Option<Entity<'db>> {
+    match pat {
+        Pattern::Variable(name) => Some(Entity::new(
+            db,
+            EntityKind::Variable {
+                name: name.clone(),
+                scope: Scope::Rule { rule, body: None },
+            },
+        )),
+        Pattern::Tuple(els) => {
+            for el in els.iter() {
+                if el.ast.span(db).contains(at) {
+                    return locate_pattern(db, rule, el, at);
+                }
+            }
+
+            None
+        }
+        Pattern::Value(_) => None,
+    }
 }
 
 /// Locates an entity within a constraint.
@@ -222,9 +281,18 @@ pub fn locate_constraint<'db>(
     def: AbstractConstraint<'db>,
     at: Point,
 ) -> Option<Entity<'db>> {
-    // TODO: locate head bindings
-
-    // TODO: locate entities within the head
+    // try to locate within head bindings
+    for binding in def.head(db).iter() {
+        if binding.ast.span(db).contains(at) {
+            return Some(Entity::new(
+                db,
+                EntityKind::Variable {
+                    name: binding.inner.clone(),
+                    scope: Scope::Constraint(def),
+                },
+            ));
+        }
+    }
 
     // locate within the rule body
     let scope = Scope::Constraint(def);
