@@ -14,13 +14,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 
 use ropey::Rope;
-use salsa::Setter;
-use saturn_v_frontend::toplevel::{AstNode, Children, Db, File, Point, Span, Workspace};
+use salsa::{AsDynDatabase, Setter};
+use saturn_v_frontend::{
+    locate::{entity_info, locate_entity},
+    toplevel::{AstNode, Children, Db, File, Point, Span, Workspace},
+};
 use tokio::sync::Mutex;
-use tower_lsp::{jsonrpc::Result, lsp_types::*, Client, LanguageServer};
+use tower_lsp::{
+    jsonrpc::{Error, Result},
+    lsp_types::*,
+    Client, LanguageServer,
+};
 use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
@@ -47,6 +54,21 @@ impl LspBackend {
             workspace,
             language,
         }
+    }
+
+    pub async fn get_file(
+        &self,
+        params: &TextDocumentPositionParams,
+    ) -> Result<impl DerefMut<Target = Editor> + 'static> {
+        let ed = self
+            .editors
+            .lock()
+            .await
+            .get(&params.text_document.uri)
+            .cloned()
+            .ok_or_else(|| Error::invalid_params("file's editor was not loaded"))?;
+
+        Ok(ed.lock_owned().await)
     }
 }
 
@@ -96,7 +118,19 @@ impl LanguageServer for LspBackend {
                         ..Default::default()
                     },
                 )),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![",".to_string()]),
+                    work_done_progress_options: Default::default(),
+                    all_commit_characters: None,
+                    completion_item: Some(CompletionOptionsCompletionItem {
+                        label_details_support: Some(true),
+                    }),
+                }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Default::default(),
@@ -163,18 +197,61 @@ impl LanguageServer for LspBackend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let ed = self
-            .editors
-            .lock()
-            .await
-            .get(&params.text_document_position_params.text_document.uri)
-            .cloned();
-
-        let Some(ed) = ed else { return Ok(None) };
-
+        let ed = self.get_file(&params.text_document_position_params).await?;
         let db = self.db.lock().await;
-        let hover = ed.lock().await.hover(&db, params);
-        hover
+        ed.hover(&db, params)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let ed = self.get_file(&params.text_document_position).await?;
+        let db = self.db.lock().await;
+        let at = params.text_document_position.position.into();
+        let items = saturn_v_frontend::completion(db.as_dyn_database(), ed.file, at);
+        Ok(items.map(CompletionResponse::Array))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let ed = self.get_file(&params.text_document_position_params).await?;
+        let db = self.db.lock().await;
+        let at = params.text_document_position_params.position.into();
+
+        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+            return Ok(None);
+        };
+
+        let info = entity_info(db.as_dyn_database(), e);
+
+        Ok(info
+            .def
+            .map(|ast| ast.location(db.as_dyn_database()))
+            .map(GotoDefinitionResponse::Scalar))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let ed = self.get_file(&params.text_document_position).await?;
+        let db = self.db.lock().await;
+        let at = params.text_document_position.position.into();
+
+        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+            return Ok(None);
+        };
+
+        let info = entity_info(db.as_dyn_database(), e);
+
+        Ok(Some(
+            info.references
+                .into_iter()
+                .map(|ast| ast.location(db.as_dyn_database()))
+                .collect(),
+        ))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let ed = self.get_file(&params.text_document_position).await?;
+        Ok(None)
     }
 }
 
