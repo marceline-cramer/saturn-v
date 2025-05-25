@@ -5,9 +5,5 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
-chumsky.workspace = true
-egglog = "0.4"
-indexmap.workspace = true
 ordered-float.workspace = true
-pretty.workspace = true
 saturn-v-ir.workspace = true
