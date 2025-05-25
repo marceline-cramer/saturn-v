@@ -19,42 +19,70 @@ use std::collections::HashSet;
 use salsa::{Database, Update};
 
 use crate::{
+    infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
     parse::*,
+    resolve::resolve_relation_type,
     toplevel::{AstNode, File, Point},
 };
 
 /// Gets the [EntityInfo] for an [Entity].
-pub fn entity_info(db: &dyn Database, e: Entity) -> EntityInfo {
+#[salsa::tracked]
+pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // get the kind of entity
-    let kind = match &e {
-        Entity::Import(_) => "Import",
-        Entity::File(_) => "File",
-        Entity::Relation(_) => "Relation definition",
-        Entity::Variable { .. } => "Rule body variable",
+    let kind = match e.kind(db) {
+        EntityKind::Import(_) => "Import",
+        EntityKind::File(_) => "File",
+        EntityKind::Relation(_) => "Relation definition",
+        EntityKind::Variable { .. } => "Rule body variable",
     }
     .to_string();
 
     // get the name of the entity
-    let name = match &e {
-        Entity::Relation(def) => Some(def.name(db).inner.to_owned()),
-        Entity::Variable { name, .. } => Some(name.clone()),
+    let name = match e.kind(db) {
+        EntityKind::Relation(def) => Some(def.name(db).inner.to_owned()),
+        EntityKind::Variable { name, .. } => Some(name.clone()),
         _ => None,
     };
 
-    // no docs for now
     // TODO: add docs to various items
     let docs = None;
 
     // get the entity's type
-    // TODO: add types
-    let ty = None;
+    let ty = match e.kind(db) {
+        EntityKind::Relation(def) => {
+            let resolved = resolve_relation_type(db, *def);
+            let ty = infer_resolved_relation_type(db, resolved);
+            Some(ty.to_naive().to_string())
+        }
+        EntityKind::Variable { name, scope } => {
+            let table = match scope {
+                Scope::Constraint(constraint) => {
+                    let typed = typed_constraint(db, *constraint);
+                    Some(typed.body(db).table(db))
+                }
+                Scope::Rule { rule, body } => typed_rule(db, *rule).map(|rule| match body {
+                    Some(idx) => rule.bodies(db)[*idx].table(db),
+                    None => rule.head_table(db),
+                }),
+            };
+
+            match table {
+                Some(table) => {
+                    let key = TypeKey::Variable(name.clone());
+                    Some(table.clone().lookup(&key).to_naive().to_string())
+                }
+                None => None,
+            }
+        }
+        _ => None,
+    };
 
     // no type definition for now
     let ty_def = None;
 
     // get the location of the entity's definition
-    let def = match &e {
-        Entity::Relation(def) => Some(def.ast(db)),
+    let def = match e.kind(db) {
+        EntityKind::Relation(def) => Some(def.ast(db)),
         // TODO: definitions of rule body variables
         _ => None,
     };
@@ -113,7 +141,7 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
         for ast in nodes {
             if ast.span(db).contains(at) {
                 return match kind {
-                    ItemKind::Import => Some(Entity::Import(ast)),
+                    ItemKind::Import => Some(Entity::new(db, EntityKind::Import(ast))),
                     ItemKind::Definition => {
                         let def = parse_relation_def(db, ast);
                         locate_definition(db, def, at)
@@ -132,7 +160,7 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
     }
 
     // if no item was found, the entity is the file itself
-    Some(Entity::File(file))
+    Some(Entity::new(db, EntityKind::File(file)))
 }
 
 /// Locates an entity within a relation definition.
@@ -144,7 +172,7 @@ pub fn locate_definition<'db>(
 ) -> Option<Entity<'db>> {
     // if the name of the relation is hovered, that is the entity
     if def.name(db).ast.span(db).contains(at) {
-        return Some(Entity::Relation(def));
+        return Some(Entity::new(db, EntityKind::Relation(def)));
     }
 
     // TODO: locate relation definition types
@@ -163,19 +191,19 @@ pub fn locate_rule<'db>(
     // if the relation of the rule is hovered, find its definition entity
     let relation = def.relation(db);
     if relation.ast.span(db).contains(at) {
-        let def = file_relation(db, relation.ast.file(db), relation.inner);
-        // TODO: emit error if relation could not be found?
-        return def.map(Entity::Relation);
+        return file_relation(db, relation.ast.file(db), relation)
+            .map(EntityKind::Relation)
+            .map(|kind| Entity::new(db, kind));
     }
 
     // TODO: locate within the head
 
     // attempt to locate within each rule body
-    for body in def.bodies(db).iter() {
+    for (idx, body) in def.bodies(db).iter().enumerate() {
         if body.ast(db).span(db).contains(at) {
             let scope = Scope::Rule {
                 rule: def,
-                body: None,
+                body: Some(idx),
             };
 
             // TODO: distinguish head variables from body variables
@@ -243,7 +271,7 @@ pub fn locate_expr<'db>(
             .into_iter()
             .find_map(|el| locate_expr(db, scope, el, at)),
         // variables are base case entities
-        ExprKind::Variable(name) => Some(Entity::Variable { scope, name }),
+        ExprKind::Variable(name) => Some(Entity::new(db, EntityKind::Variable { scope, name })),
         // recursively attempt to locate within each branch of a binary operator
         ExprKind::BinaryOp { lhs, rhs, .. } => {
             locate_expr(db, scope, lhs, at).or_else(|| locate_expr(db, scope, rhs, at))
@@ -253,9 +281,9 @@ pub fn locate_expr<'db>(
         // attempt to locate head first, then body otherwise
         ExprKind::Atom { head, body } => {
             if head.ast.span(db).contains(at) {
-                let def = file_relation(db, head.ast.file(db), head.inner);
-                // TODO: emit error if relation could not be found?
-                def.map(Entity::Relation)
+                let def = file_relation(db, head.ast.file(db), head);
+                def.map(EntityKind::Relation)
+                    .map(|kind| Entity::new(db, kind))
             } else {
                 locate_expr(db, scope, body, at)
             }
@@ -266,8 +294,15 @@ pub fn locate_expr<'db>(
 }
 
 /// A singular semantic element in the language.
-#[derive(Clone, PartialEq, Eq, Hash, Update)]
-pub enum Entity<'db> {
+#[salsa::interned]
+pub struct Entity<'db> {
+    #[return_ref]
+    pub kind: EntityKind<'db>,
+}
+
+/// A singular kind of semantic element in the language.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
+pub enum EntityKind<'db> {
     /// An import item. Unimplemented so far.
     Import(AstNode),
 
@@ -288,7 +323,7 @@ pub enum Entity<'db> {
 }
 
 /// A variable scope.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Update)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Update)]
 pub enum Scope<'db> {
     /// The variable is defined in a constraint.
     Constraint(AbstractConstraint<'db>),
@@ -298,7 +333,7 @@ pub enum Scope<'db> {
         /// The rule the variable is defined in.
         rule: AbstractRule<'db>,
 
-        /// The *specific* rule body this variable is defined in, if any.
-        body: Option<AbstractRuleBody<'db>>,
+        /// The *specific* index of the rule body this variable is defined in, if any.
+        body: Option<usize>,
     },
 }

@@ -76,7 +76,14 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
 
     // add the name of the symbol
     if let Some(name) = info.name {
-        msg.push_str(&format!("# {name}\n"));
+        msg.push_str(&format!("# {name}"));
+    }
+
+    // add the type:
+    if let Some(ty) = info.ty {
+        msg.push_str(&format!("` : {ty}`\n"));
+    } else {
+        msg.push('\n');
     }
 
     // add the kind of symbol
@@ -87,14 +94,32 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
         msg.push_str(&format!("__{docs}__\n"));
     }
 
-    // add the symbol's type.
-    if let Some(ty) = info.ty {
-        msg.push_str(&format!("`{ty}`\n"));
-    }
-
     // create the span
     let span = Span { start: at, end: at };
 
     // return the complete hover info
     Some((span, msg))
+}
+
+pub fn completion(
+    db: &dyn Database,
+    file: File,
+    at: Point,
+) -> Option<Vec<lsp_types::CompletionItem>> {
+    // fetch the relation table for this file
+    let relations = parse::file_relations(db, file);
+
+    // convert each relation into items
+    Some(
+        relations
+            .keys()
+            .map(|name| lsp_types::CompletionItem {
+                label: name.clone(),
+                kind: Some(lsp_types::CompletionItemKind::EVENT),
+                // TODO: documentation for the selection
+                // TODO: use insert_text/_format to expand out the type of this relation
+                ..Default::default()
+            })
+            .collect(),
+    )
 }

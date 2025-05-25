@@ -30,7 +30,7 @@ use crate::{
         file_relation, BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind,
     },
     toplevel::File,
-    types::PrimitiveType,
+    types::{PrimitiveType, WithAst},
 };
 
 #[salsa::tracked]
@@ -42,7 +42,7 @@ pub fn desugar_rule_body<'db>(
     let inner = rule_body.inner(db);
 
     // create the desugarer
-    let mut desugarer = Desugarer::new(inner.ast(db).file(db), rule_body.table(db));
+    let mut desugarer = Desugarer::new(inner.ast(db).file(db), rule_body.table(db).clone());
 
     // desugar each of the clauses in turn
     for clause in inner.clauses(db).iter() {
@@ -172,7 +172,7 @@ impl<'db> Desugarer<'db> {
             // desugar atoms in a dedicated method
             Atom { head, body } => {
                 let body = self.desugar_expr(db, body);
-                self.desugar_atom(db, head.inner, body)
+                self.desugar_atom(db, head, body)
             }
             // desugar unary operators in a dedicated method
             UnaryOp { op, term } => {
@@ -228,13 +228,13 @@ impl<'db> Desugarer<'db> {
     pub fn desugar_atom(
         &mut self,
         db: &'db dyn Database,
-        head: String,
+        head: WithAst<String>,
         body: DesugaredExpr,
     ) -> DesugaredExpr {
         // lookup the flattened type of the relation itself
         let ty = self
             .table
-            .flatten(&TypeKey::Relation(head.clone()).into())
+            .flatten(&TypeKey::Relation(head.as_ref().clone()).into())
             .expect("failed to flatten relation type");
 
         // sanity-check that the body and types match

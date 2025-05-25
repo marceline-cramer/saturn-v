@@ -67,7 +67,7 @@ pub fn typed_rule<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Option
         .map(|body| (body, full_rule_body_type_table(db, body)));
 
     // resolve the relation definition, if available
-    let def = file_relation(db, rule.relation(db).ast.file(db), rule.relation(db).inner)?;
+    let def = file_relation(db, rule.relation(db).ast.file(db), rule.relation(db))?;
 
     // turn the head pattern into a type
     let head = rule.head(db).clone().map(|head| head.into());
@@ -78,11 +78,17 @@ pub fn typed_rule<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Option
     // infer it
     let ty = infer_resolved_relation_type(db, ty);
 
+    // create a table for the head of the relation
+    let mut head_table = TypeTable::default();
+
+    // unify the head of the rule with its pattern
+    head_table.unify(db, &ty, &head);
+
     // for each body, unify the relation's type with the head
     let bodies = bodies
-        .map(|(body, mut table)| {
-            // unify the head pattern's type with the relation
-            table.unify(db, &ty, &head);
+        .map(|(body, table)| {
+            // merge the head's table into the body's
+            let table = table.merge(db, head_table.clone());
 
             // initialize the full, typed rule body
             TypedRuleBody::new(db, table, body)
@@ -90,7 +96,7 @@ pub fn typed_rule<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Option
         .collect();
 
     // create the total rule
-    Some(TypedRule::new(db, def, ty, rule, bodies))
+    Some(TypedRule::new(db, def, ty, head_table, rule, bodies))
 }
 
 #[salsa::tracked]
@@ -101,16 +107,25 @@ pub struct TypedRule<'db> {
     /// The type of the head.
     pub head: WithAst<TableType<'db>>,
 
+    /// The type table for only the head.
+    ///
+    /// Can be used in conjunction with `head` to infer the types of each
+    /// variable.
+    #[return_ref]
+    pub head_table: TypeTable<'db>,
+
     /// The abstract rule that this rule is based on.
     pub inner: AbstractRule<'db>,
 
     /// The typed rule bodies.
+    #[return_ref]
     pub bodies: Vec<TypedRuleBody<'db>>,
 }
 
 #[salsa::tracked]
 pub struct TypedRuleBody<'db> {
     /// The [TypeTable] providing type information for this rule body.
+    #[return_ref]
     pub table: TypeTable<'db>,
 
     /// The abstract rule body.
@@ -318,22 +333,35 @@ impl<'db> TypeTable<'db> {
         key
     }
 
+    /// Looks up the table type of a given key, if there is one.
+    ///
+    /// Mutates the inference map along the way to cache nested variable
+    /// indirections.
+    pub fn lookup(&mut self, key: &TypeKey<'db>) -> TableType<'db> {
+        use TableType::*;
+        match self.map.get(key).cloned() {
+            None => Key(key.clone()),
+            Some(applied) => {
+                let applied = applied.with(self.apply(&applied));
+                self.map.insert(key.clone(), applied.clone());
+                applied.inner
+            }
+        }
+    }
+
     /// Applies the current inference map to a given inference type.
     ///
     /// Mutates the inference map along the way to cache nested variable
     /// indirections.
-    pub fn apply(&mut self, ty: &WithAst<TableType<'db>>) -> WithAst<TableType<'db>> {
+    pub fn apply(&mut self, ty: &TableType<'db>) -> TableType<'db> {
         use TableType::*;
-        match ty.as_ref() {
-            Tuple(els) => ty.with(Tuple(els.iter().map(|ty| self.apply(ty)).collect())),
-            Key(key) => match self.map.get(key).cloned() {
-                None => ty.with(Key(key.clone())),
-                Some(applied) => {
-                    let applied = self.apply(&applied);
-                    self.map.insert(key.clone(), applied.clone());
-                    applied
-                }
-            },
+        match ty {
+            Tuple(els) => Tuple(
+                els.iter()
+                    .map(|ty| ty.clone().map(|inner| self.apply(&inner)))
+                    .collect(),
+            ),
+            Key(key) => self.lookup(key),
             _ => ty.clone(),
         }
     }
@@ -393,8 +421,8 @@ impl<'db> TypeTable<'db> {
         rhs: &WithAst<TableType<'db>>,
     ) -> bool {
         // fully apply type substitutions of sides
-        let lhs = self.apply(lhs);
-        let rhs = self.apply(rhs);
+        let lhs = lhs.with(self.apply(&lhs));
+        let rhs = rhs.with(self.apply(&rhs));
 
         // recursively unify
         use TableType::*;
@@ -435,9 +463,6 @@ impl<'db> TypeTable<'db> {
             // otherwise, we've encountered an error
             _ => {
                 // report diagnostic
-                let lhs = self.apply(&lhs);
-                let rhs = self.apply(&rhs);
-
                 TypeMismatch {
                     lhs: lhs.with(lhs.to_naive()),
                     rhs: rhs.with(rhs.to_naive()),
@@ -487,7 +512,7 @@ impl<'db> TypeTable<'db> {
                 // no type conflict possible, so just apply and insert
                 None => {
                     // drop entry to mutably borrow self for apply()
-                    let ty = self.apply(&ty);
+                    let ty = ty.with(self.apply(&ty));
                     self.insert(db, key, ty);
                 }
             }

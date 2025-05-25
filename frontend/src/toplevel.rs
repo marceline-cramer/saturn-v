@@ -36,6 +36,7 @@ pub struct Workspace {
 }
 
 #[salsa::input]
+#[derive(Debug)]
 pub struct File {
     pub workspace: Workspace,
     pub contents: Rope,
@@ -107,6 +108,13 @@ impl AstNode {
 
     pub fn get_children(&self, db: &dyn Database) -> impl Iterator<Item = Self> + 'static {
         self.children(db).clone().into_iter()
+    }
+
+    pub fn location(&self, db: &dyn Database) -> lsp_types::Location {
+        lsp_types::Location {
+            uri: self.file(db).url(db).clone(),
+            range: self.span(db).into(),
+        }
     }
 }
 

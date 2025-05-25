@@ -226,7 +226,7 @@ pub fn lower_rule<'db>(db: &'db dyn Database, rule: TypedRule<'db>) -> BodiesOrF
         let mut bodies = Vec::new();
         for body in rule.bodies(db) {
             // desugar the rule body
-            let mut desugarer = desugar_rule_body(db, body);
+            let mut desugarer = desugar_rule_body(db, *body);
 
             // create a desugared head out of the rule's head pattern
             let mut head = Vec::new();

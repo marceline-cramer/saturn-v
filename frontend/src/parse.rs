@@ -24,7 +24,7 @@ use salsa::Database;
 use saturn_v_ir::{self as ir, BinaryOpCategory, CardinalityConstraintKind, ConstraintKind, Value};
 
 use crate::{
-    diagnostic::{AccumulateDiagnostic, SimpleError},
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind, SimpleError},
     toplevel::{AstNode, File},
     types::{PrimitiveType, WithAst},
 };
@@ -126,9 +126,16 @@ pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstr
 pub fn file_relation(
     db: &dyn Database,
     file: File,
-    name: String,
+    name: WithAst<String>,
 ) -> Option<RelationDefinition<'_>> {
-    file_relations(db, file).get(&name).copied()
+    let rel = file_relations(db, file).get(name.as_ref()).copied();
+
+    // emit a fatal error if this relation could not be found
+    if rel.is_none() {
+        RelationNotFound { name }.accumulate(db);
+    }
+
+    rel
 }
 
 /// Gets the full relation table of a file.
@@ -267,6 +274,7 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
 
 /// An abstract constraint (syntax representation).
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct AbstractConstraint<'db> {
     /// The constraint's head variables.
     pub head: Vec<WithAst<String>>,
@@ -300,6 +308,7 @@ pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
 
 /// An abstract rule, aka a syntactical representation of one.
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct AbstractRule<'db> {
     /// The name of the relation this rule is for.
     pub relation: WithAst<String>,
@@ -326,6 +335,7 @@ pub fn parse_rule_body(db: &dyn Database, ast: AstNode) -> AbstractRuleBody<'_> 
 }
 
 #[salsa::tracked]
+#[derive(Debug)]
 pub struct AbstractRuleBody<'db> {
     /// The AST node this rule body corresponds to.
     pub ast: AstNode,
@@ -546,5 +556,28 @@ impl From<UnaryOpKind> for ir::UnaryOpKind {
             UnaryOpKind::Not => Not,
             UnaryOpKind::Negate => Negate,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RelationNotFound {
+    pub name: WithAst<String>,
+}
+
+impl BasicDiagnostic for RelationNotFound {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.name.ast..self.name.ast
+    }
+
+    fn message(&self) -> String {
+        format!("undefined relation {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
     }
 }
