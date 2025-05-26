@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use salsa::{Database, Update};
 
@@ -84,7 +84,18 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // get the location of the entity's definition
     let def = match e.kind(db) {
         EntityKind::Relation(def) => Some(def.ast(db)),
-        // TODO: definitions of variables
+        EntityKind::Variable { name, scope } => match scope {
+            Scope::Constraint(constraint) => constraint_vars(db, *constraint),
+            Scope::Rule { rule, body } => {
+                let vars = rule_vars(db, *rule);
+                match *body {
+                    Some(idx) => vars.bodies.get(idx).unwrap().clone(),
+                    None => vars.head.clone(),
+                }
+            }
+        }
+        .get(name)
+        .copied(),
         _ => None,
     };
 
@@ -417,4 +428,112 @@ pub enum Scope<'db> {
         /// The *specific* index of the rule body this variable is defined in, if any.
         body: Option<usize>,
     },
+}
+
+/// Tracks the variable definitions within a constraint.
+#[salsa::tracked]
+pub fn constraint_vars<'db>(
+    db: &'db dyn Database,
+    constraint: AbstractConstraint<'db>,
+) -> BTreeMap<String, AstNode> {
+    // load all of the body's variables
+    let mut vars = rule_body_vars(db, constraint.body(db));
+
+    // overwrite variables with definitions from the head
+    // run in reverse so that duplicate variables are ordered left-first
+    // technically an error but this code should do something about it
+    for var in constraint.head(db).iter().rev() {
+        vars.insert(var.inner.clone(), var.ast);
+    }
+
+    // return the complete variables
+    vars
+}
+
+/// Tracks the [VariableDefinitions] within a rule.
+#[salsa::tracked]
+pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> VariableDefinitions {
+    // parse each variable occurrence within the head pattern
+    let mut head = BTreeMap::new();
+    let mut stack = vec![rule.head(db)];
+    while let Some(pat) = stack.pop() {
+        use Pattern::*;
+        match pat.as_ref() {
+            Tuple(els) => stack.extend(els.iter().rev()),
+            Value(_) => {}
+            Variable(name) => {
+                head.entry(name.clone()).or_insert(pat.ast);
+            }
+        }
+    }
+
+    // find variable definitions from each body
+    let mut bodies: Vec<_> = rule
+        .bodies(db)
+        .iter()
+        .map(|body| rule_body_vars(db, *body))
+        .collect();
+
+    // merge head variable definitions into each body's variables
+    for body in bodies.iter_mut() {
+        body.extend(head.clone());
+    }
+
+    // return the complete definitions
+    VariableDefinitions { head, bodies }
+}
+
+/// Tracks the variable definitions within a rule body.
+///
+/// Notice that this tracks the first occurrence of each variable within a rule
+/// body and does not care whether the variable is used in the rule's head.
+#[salsa::tracked]
+pub fn rule_body_vars<'db>(
+    db: &'db dyn Database,
+    body: AbstractRuleBody<'db>,
+) -> BTreeMap<String, AstNode> {
+    // track the map of variables to nodes
+    let mut vars = BTreeMap::new();
+
+    // track each expression to look within, in last-to-first order
+    let mut stack = body.clauses(db).clone();
+
+    // flip clauses so that first clauses are popped first
+    stack.reverse();
+
+    // iterate through all expressions
+    while let Some(expr) = stack.pop() {
+        use ExprKind::*;
+        match expr.kind(db) {
+            Tuple(els) => stack.extend(els.iter().rev()),
+            Value(_) => {}
+            Variable(name) => {
+                vars.entry(name).or_insert_with(|| expr.ast(db));
+            }
+            BinaryOp { lhs, rhs, .. } => {
+                // push rhs first because it is popped last
+                stack.push(rhs);
+                stack.push(lhs);
+            }
+            UnaryOp { term, .. } => {
+                stack.push(term);
+            }
+            Atom { body, .. } => {
+                stack.push(body);
+            }
+        }
+    }
+
+    // return the complete map
+    vars
+}
+
+/// Tracks the locations of each variable within a rule.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
+pub struct VariableDefinitions {
+    /// Variable definitions within the head of the rule.
+    pub head: BTreeMap<String, AstNode>,
+
+    /// Variable definitions within each body of the rule.
+    pub bodies: Vec<BTreeMap<String, AstNode>>,
 }

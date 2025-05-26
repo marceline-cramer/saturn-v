@@ -253,7 +253,7 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
     // parse each capture into the head
     let head = ast
         .get_fields(db, "capture")
-        .map(|node| WithAst::new(ast, node.contents(db).to_owned().unwrap()))
+        .map(|node| node.with(node.contents(db).to_owned().unwrap()))
         .collect();
 
     // match the constraint kind
