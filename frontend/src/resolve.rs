@@ -19,8 +19,9 @@ use std::collections::{HashMap, HashSet};
 use salsa::{Database, Update};
 
 use crate::{
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     parse::{file_relations, AbstractType, RelationDefinition, TypeAlias},
-    toplevel::File,
+    toplevel::{AstNode, File},
     types::{PrimitiveType, WithAst},
 };
 
@@ -61,8 +62,16 @@ fn resolve_abstract_type<'db>(
     // attempt to look up the resolved type
     let file = ty.ast.file(db);
     match file_unresolved_types(db, file).get(name) {
-        // TODO: throw an error if could not be found
-        None => ty.with(ResolvedType::Unknown),
+        None => {
+            // throw an error diagnostic
+            UnknownType {
+                name: ty.with(name.clone()),
+            }
+            .accumulate(db);
+
+            // could not resolve the type name
+            ty.with(ResolvedType::Unknown)
+        }
         Some(unresolved) => {
             // we're tracking a new unresolved type in the cycle
             // create a new set to track it
@@ -143,4 +152,27 @@ pub enum ResolvedType<'db> {
 pub enum Unresolved<'db> {
     Relation(RelationDefinition<'db>),
     Alias(TypeAlias<'db>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnknownType {
+    pub name: WithAst<String>,
+}
+
+impl BasicDiagnostic for UnknownType {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.name.ast..self.name.ast
+    }
+
+    fn message(&self) -> String {
+        format!("could not find type {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
 }

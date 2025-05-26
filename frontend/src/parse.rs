@@ -142,11 +142,24 @@ pub fn file_relation(
 #[salsa::tracked]
 pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, RelationDefinition<'_>> {
     // iterate over all relation items
-    let mut relations = HashMap::new();
+    let mut relations: HashMap<String, RelationDefinition> = HashMap::new();
     for node in file_item_kind_ast(db, file, ItemKind::Definition) {
         let def = parse_relation_def(db, node);
-        // TODO: emit error diagnostic when relation is already defined
-        relations.insert(def.name(db).clone().inner, def);
+        let name = def.name(db).clone().inner;
+        use std::collections::hash_map::Entry;
+        match relations.entry(name.clone()) {
+            Entry::Occupied(entry) => {
+                RelationDefinedAgain {
+                    name,
+                    original: entry.get().ast(db),
+                    redefinition: def.ast(db),
+                }
+                .accumulate(db);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(def);
+            }
+        }
     }
 
     // done!
@@ -580,5 +593,34 @@ impl BasicDiagnostic for RelationNotFound {
 
     fn is_fatal(&self) -> bool {
         true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RelationDefinedAgain {
+    pub name: String,
+    pub original: AstNode,
+    pub redefinition: AstNode,
+}
+
+impl BasicDiagnostic for RelationDefinedAgain {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.redefinition..self.redefinition
+    }
+
+    fn message(&self) -> String {
+        format!("relation {} defined again", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![self.original.with("originally defined here".to_string())]
     }
 }

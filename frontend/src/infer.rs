@@ -143,11 +143,8 @@ pub fn full_rule_body_type_table<'db>(
     // load each relation used by the table
     for relation in table.relations.clone() {
         // resolve the relation definition
-        let Some(def) = file_relations(db, body.ast(db).file(db))
-            .get(relation.as_ref())
-            .copied()
-        else {
-            // TODO: log an error
+        let Some(def) = file_relation(db, body.ast(db).file(db), relation.clone()) else {
+            // file_relation() will emit diagnostic
             continue;
         };
 
