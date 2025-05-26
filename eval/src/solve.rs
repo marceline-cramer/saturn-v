@@ -159,18 +159,19 @@ impl Model {
         eprintln!("  {} recycleable variables", self.vars.free_vars.len());
         eprintln!("  {} total clauses", self.oracle.n_clauses());
 
-        // update totalizer encodings
-        self.cost_totalizer
-            .encode_ub_change(0.., &mut self.oracle, &mut self.vars)
-            .unwrap();
-
         // run MaxSAT with progressively higher cost upper bounds
         log_time("optimizing lower cost bound", || {
             let mut cost = 0;
             loop {
+                // update totalizer encodings for this upper bound
+                self.cost_totalizer
+                    .encode_ub_change(cost..=cost, &mut self.oracle, &mut self.vars)
+                    .unwrap();
+
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
                 let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
+                eprintln!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
                 // solve SAT
