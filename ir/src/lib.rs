@@ -157,10 +157,11 @@ pub struct Constraint<R> {
     pub body: RuleBody<R>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum ConstraintWeight {
     Hard,
+    Soft(u32),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

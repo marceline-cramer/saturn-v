@@ -17,7 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salsa::Database;
-use saturn_v_ir as ir;
+use saturn_v_ir::{self as ir, ConstraintWeight};
 
 use crate::{
     desugar::desugar_rule_body,
@@ -166,6 +166,12 @@ pub fn lower_constraint<'db>(
     // desugar the rule body
     let mut desugarer = desugar_rule_body(db, constraint.body(db));
 
+    // find the constraint weight
+    let weight = match constraint.constraint(db).soft(db) {
+        Some(weight) => ConstraintWeight::Soft(weight.inner),
+        None => ConstraintWeight::Hard,
+    };
+
     // TODO: this panics if the variable is not bound. make sure to properly
     // unify constraint heads during type inference. may require adding a type
     // constraint to check that certain keys are known. same can be done with
@@ -185,7 +191,7 @@ pub fn lower_constraint<'db>(
 
     // create the final constraint
     ir::Constraint {
-        weight: ir::ConstraintWeight::Hard,
+        weight,
         kind: constraint.constraint(db).kind(db).inner,
         head,
         body,

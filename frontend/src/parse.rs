@@ -256,6 +256,17 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
         .map(|node| node.with(node.contents(db).to_owned().unwrap()))
         .collect();
 
+    // attempt to parse the soft constraint
+    let soft = ast.get_field(db, "soft").and_then(|ast| {
+        match ast.contents(db).as_ref().unwrap().parse() {
+            Ok(weight) => Some(ast.with(weight)),
+            Err(_) => {
+                SimpleError::new(ast, "failed to parse soft constraint weight").accumulate(db);
+                None
+            }
+        }
+    });
+
     // match the constraint kind
     let kind = {
         let cardinality = ast.expect_field(db, "kind").expect_field(db, "cardinality");
@@ -282,7 +293,7 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
     let body = parse_rule_body(db, ast.expect_field(db, "body"));
 
     // initialize the constraint
-    AbstractConstraint::new(db, head, kind, body)
+    AbstractConstraint::new(db, head, soft, kind, body)
 }
 
 /// An abstract constraint (syntax representation).
@@ -292,6 +303,9 @@ pub struct AbstractConstraint<'db> {
     /// The constraint's head variables.
     #[return_ref]
     pub head: Vec<WithAst<String>>,
+
+    /// The soft constraint cost, if any.
+    pub soft: Option<WithAst<u32>>,
 
     /// The kind of constraint.
     pub kind: WithAst<ConstraintKind>,

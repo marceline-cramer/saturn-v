@@ -24,13 +24,14 @@ use rustsat::{
     encodings::{
         am1::{Commander, Encode, Pairwise},
         card::{totalizer::Totalizer, BoundBoth},
+        pb::{BoundUpper, BoundUpperIncremental, GeneralizedTotalizer},
         CollectClauses,
     },
     instances::ManageVars,
     solvers::{Solve, SolveIncremental, SolverResult},
     types::{constraints::CardConstraint, Clause, Lit, Var},
 };
-use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind};
+use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 
 pub type Oracle = rustsat_batsat::BasicSolver;
 
@@ -131,16 +132,23 @@ pub struct Model {
     oracle: Oracle,
     vars: VariablePool,
     conditions: HashMap<Condition, EncodedGate>,
-    constraints: HashMap<ConstraintGroup, Var>,
+    constraints: HashMap<ConstraintGroup, (Var, bool)>,
+    cost_totalizer: GeneralizedTotalizer,
     outputs: BTreeMap<Fact, (bool, Var)>,
 }
 
 impl Model {
     pub fn solve(&mut self) -> Option<bool> {
-        // assume conditions and constraint guards
+        // split up soft and hard constraints
+        let hard_constraints = self
+            .constraints
+            .values()
+            .filter(|(_guard, is_hard)| *is_hard)
+            .map(|(guard, _is_hard)| guard.neg_lit());
+
+        // assume conditions and hard constraint guards
         let condition_guards = self.conditions.values().map(|enc| enc.guard.neg_lit());
-        let constraint_guards = self.constraints.values().map(|guard| guard.neg_lit());
-        let assumptions: Vec<_> = condition_guards.chain(constraint_guards).collect();
+        let assumptions: Vec<_> = hard_constraints.chain(condition_guards).collect();
 
         // display statistics
         eprintln!("SAT model statistics:");
@@ -149,18 +157,37 @@ impl Model {
         eprintln!("  {} active constraints", self.constraints.len());
         eprintln!("  {} outputs", self.outputs.len());
         eprintln!("  {} recycleable variables", self.vars.free_vars.len());
+        eprintln!("  {} total clauses", self.oracle.n_clauses());
 
-        // solve SAT
-        let result = log_time("running SAT solver", || {
-            self.oracle.solve_assumps(&assumptions).unwrap()
-        });
+        // update totalizer encodings
+        self.cost_totalizer
+            .encode_ub_change(0.., &mut self.oracle, &mut self.vars)
+            .unwrap();
 
-        // return result
-        match result {
-            SolverResult::Sat => Some(true),
-            SolverResult::Unsat => Some(false),
-            SolverResult::Interrupted => None,
-        }
+        // run MaxSAT with progressively higher cost upper bounds
+        log_time("optimizing lower cost bound", || {
+            let mut cost = 0;
+            loop {
+                // add assumptions to check cost upper bound
+                let mut assumptions = assumptions.clone();
+                let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
+                assumptions.extend(cost_assumps);
+
+                // solve SAT
+                let msg = format!("running SAT for cost {cost}");
+                let result = log_time(&msg, || self.oracle.solve_assumps(&assumptions).unwrap());
+
+                // increase cost lower bound for next iteration
+                cost += 1;
+
+                // return result
+                match result {
+                    SolverResult::Sat => return Some(true),
+                    SolverResult::Unsat => continue,
+                    SolverResult::Interrupted => return None,
+                }
+            }
+        })
     }
 
     /// Atomically updates the model based on incremental changes to the parameters.
@@ -313,7 +340,7 @@ impl Model {
         // don't recycle guards because they have been forced
         log_time("removing constraint groups", || {
             for constraint in constraints_remove.iter() {
-                let guard = self.constraints.remove(constraint).unwrap();
+                let (guard, _weight) = self.constraints.remove(constraint).unwrap();
                 self.oracle.add_unit(guard.pos_lit()).unwrap();
             }
         });
@@ -323,7 +350,18 @@ impl Model {
             for constraint in constraints_insert.iter() {
                 let guard = self.vars.new_var();
                 self.encode_constraint_group(guard, constraint);
-                self.constraints.insert(constraint.clone(), guard);
+
+                let is_hard = match constraint.weight {
+                    ConstraintWeight::Hard => true,
+                    ConstraintWeight::Soft(weight) => {
+                        let lit = (guard.pos_lit(), weight as usize);
+                        self.cost_totalizer.extend([lit]);
+                        false
+                    }
+                };
+
+                self.constraints
+                    .insert(constraint.clone(), (guard, is_hard));
             }
         });
     }
