@@ -142,7 +142,7 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
         for ast in nodes {
             if ast.span(db).contains(at) {
                 return match kind {
-                    ItemKind::Import => Some(Entity::new(db, EntityKind::Import(ast))),
+                    ItemKind::Import => Some(Entity::new(db, ast, EntityKind::Import(ast))),
                     ItemKind::Definition => {
                         let def = parse_relation_def(db, ast);
                         locate_definition(db, def, at)
@@ -161,7 +161,11 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
     }
 
     // if no item was found, the entity is the file itself
-    Some(Entity::new(db, EntityKind::File(file)))
+    Some(Entity::new(
+        db,
+        file.root(db).unwrap(),
+        EntityKind::File(file),
+    ))
 }
 
 /// Locates an entity within a relation definition.
@@ -173,7 +177,7 @@ pub fn locate_definition<'db>(
 ) -> Option<Entity<'db>> {
     // if the name of the relation is hovered, that is the entity
     if def.name(db).ast.span(db).contains(at) {
-        return Some(Entity::new(db, EntityKind::Relation(def)));
+        return Some(Entity::new(db, def.name(db).ast, EntityKind::Relation(def)));
     }
 
     // locate within the abstract type
@@ -191,7 +195,6 @@ pub fn locate_resolved_type<'db>(
     ty: &WithAst<AbstractType>,
     at: Point,
 ) -> Option<Entity<'db>> {
-    eprintln!("{ty}");
     match ty.as_ref() {
         AbstractType::Tuple(els) => {
             for el in els.iter() {
@@ -203,7 +206,9 @@ pub fn locate_resolved_type<'db>(
             None
         }
         AbstractType::Named(name) => match file_unresolved_types(db, ty.ast.file(db)).get(name) {
-            Some(Unresolved::Relation(def)) => Some(Entity::new(db, EntityKind::Relation(*def))),
+            Some(Unresolved::Relation(def)) => {
+                Some(Entity::new(db, ty.ast, EntityKind::Relation(*def)))
+            }
             _ => None,
         },
         AbstractType::Primitive(_) => None,
@@ -220,9 +225,9 @@ pub fn locate_rule<'db>(
     // if the relation of the rule is hovered, find its definition entity
     let relation = def.relation(db);
     if relation.ast.span(db).contains(at) {
-        return file_relation(db, relation.ast.file(db), relation)
+        return file_relation(db, relation.ast.file(db), relation.clone())
             .map(EntityKind::Relation)
-            .map(|kind| Entity::new(db, kind));
+            .map(|kind| Entity::new(db, relation.ast, kind));
     }
 
     // attempt to locate within the head
@@ -250,12 +255,13 @@ pub fn locate_rule<'db>(
 pub fn locate_pattern<'db>(
     db: &'db dyn Database,
     rule: AbstractRule<'db>,
-    pat: &Pattern,
+    pat: &WithAst<Pattern>,
     at: Point,
 ) -> Option<Entity<'db>> {
-    match pat {
+    match pat.as_ref() {
         Pattern::Variable(name) => Some(Entity::new(
             db,
+            pat.ast,
             EntityKind::Variable {
                 name: name.clone(),
                 scope: Scope::Rule { rule, body: None },
@@ -286,6 +292,7 @@ pub fn locate_constraint<'db>(
         if binding.ast.span(db).contains(at) {
             return Some(Entity::new(
                 db,
+                binding.ast,
                 EntityKind::Variable {
                     name: binding.inner.clone(),
                     scope: Scope::Constraint(def),
@@ -339,7 +346,11 @@ pub fn locate_expr<'db>(
             .into_iter()
             .find_map(|el| locate_expr(db, scope, el, at)),
         // variables are base case entities
-        ExprKind::Variable(name) => Some(Entity::new(db, EntityKind::Variable { scope, name })),
+        ExprKind::Variable(name) => Some(Entity::new(
+            db,
+            expr.ast(db),
+            EntityKind::Variable { scope, name },
+        )),
         // recursively attempt to locate within each branch of a binary operator
         ExprKind::BinaryOp { lhs, rhs, .. } => {
             locate_expr(db, scope, lhs, at).or_else(|| locate_expr(db, scope, rhs, at))
@@ -349,9 +360,9 @@ pub fn locate_expr<'db>(
         // attempt to locate head first, then body otherwise
         ExprKind::Atom { head, body } => {
             if head.ast.span(db).contains(at) {
-                let def = file_relation(db, head.ast.file(db), head);
+                let def = file_relation(db, head.ast.file(db), head.clone());
                 def.map(EntityKind::Relation)
-                    .map(|kind| Entity::new(db, kind))
+                    .map(|kind| Entity::new(db, head.ast, kind))
             } else {
                 locate_expr(db, scope, body, at)
             }
@@ -364,6 +375,8 @@ pub fn locate_expr<'db>(
 /// A singular semantic element in the language.
 #[salsa::interned]
 pub struct Entity<'db> {
+    pub ast: AstNode,
+
     #[return_ref]
     pub kind: EntityKind<'db>,
 }

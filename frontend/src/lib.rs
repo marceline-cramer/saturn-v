@@ -94,11 +94,8 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
         msg.push_str(&format!("__{docs}__\n"));
     }
 
-    // create the span
-    let span = Span { start: at, end: at };
-
     // return the complete hover info
-    Some((span, msg))
+    Some((e.ast(db).span(db), msg))
 }
 
 pub fn completion(
