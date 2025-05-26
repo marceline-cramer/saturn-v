@@ -109,13 +109,20 @@ impl Solver {
         // make sure that when we update outputs, we default to all outputs
         // being false if the SAT solver returned unknown or unsat
         for (output, (state, var)) in self.model.outputs.iter_mut() {
-            let value = sat
-                && self
-                    .model
-                    .oracle
-                    .var_val(*var)
-                    .unwrap()
-                    .to_bool_with_def(false);
+            // find what state this output should be in
+            let value = match var {
+                // look up value of conditional varaible
+                Some(var) => {
+                    sat && self
+                        .model
+                        .oracle
+                        .var_val(*var)
+                        .unwrap()
+                        .to_bool_with_def(false)
+                }
+                // unconditional variables are forced to true
+                None => true,
+            };
 
             if *state != value {
                 let _ = self.output_tx.send(Update::Push(output.clone(), value));
@@ -134,7 +141,7 @@ pub struct Model {
     conditions: HashMap<Condition, EncodedGate>,
     constraints: HashMap<ConstraintGroup, (Var, bool)>,
     cost_totalizer: GeneralizedTotalizer,
-    outputs: BTreeMap<Fact, (bool, Var)>,
+    outputs: BTreeMap<Fact, (bool, Option<Var>)>,
 }
 
 impl Model {
@@ -261,12 +268,15 @@ impl Model {
             }
         });
 
-        // insert new outputs with default state of false
+        // insert new outputs defaulted to false
         log_time("inserting new outputs", || {
             for output in outputs_insert.iter() {
+                // insert output value with conditional variable
                 let key = Condition::Fact(Key::new(output));
-                let var = self.conditions[&key].output;
-                self.outputs.insert(output.clone(), (false, var));
+                self.outputs.insert(
+                    output.clone(),
+                    (false, self.conditions.get(&key).map(|var| var.output)),
+                );
             }
         });
 

@@ -1,5 +1,5 @@
 ; Each possible coordinate on the board.
-define Coord Integer.
+define output Coord Integer.
 Coord 1.
 Coord a :- Coord b, b < 8, a = b + 1.
 
