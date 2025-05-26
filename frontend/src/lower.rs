@@ -26,6 +26,7 @@ use crate::{
         infer_resolved_relation_type, typed_constraint, typed_rule, NaiveType, TypedConstraint,
         TypedRule,
     },
+    locate::relation_is_conditional,
     parse::{file_constraints, file_rules, Pattern, RelationDefinition},
     resolve::resolve_relation_type,
     toplevel::{AstNode, File, Workspace},
@@ -67,9 +68,11 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
         let formatting = format_tuple(rule.relation(db).as_ref(), &ty);
 
         // pick the kind of the relation
-        // TODO: select conditionals
-        let kind = if typed.relation(db).is_decision(db) {
+        let relation = typed.relation(db);
+        let kind = if relation.is_decision(db) {
             ir::RelationKind::Decision
+        } else if relation_is_conditional(db, relation) {
+            ir::RelationKind::Conditional
         } else {
             ir::RelationKind::Basic
         };

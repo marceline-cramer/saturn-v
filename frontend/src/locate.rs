@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use salsa::{Database, Update};
 
@@ -536,4 +536,104 @@ pub struct VariableDefinitions {
 
     /// Variable definitions within each body of the rule.
     pub bodies: Vec<BTreeMap<String, AstNode>>,
+}
+
+/// Tracks if a relation is conditional or not.
+#[salsa::tracked]
+pub fn relation_is_conditional<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> bool {
+    relation_indirect_deps(db, rel)
+        .into_iter()
+        .any(|dep| dep.is_decision(db))
+}
+
+/// Enumerates every indirect relation definition of a relation.
+#[salsa::tracked]
+pub fn relation_indirect_deps<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> BTreeSet<RelationDefinition<'db>> {
+    // maintain the set of deps
+    let mut deps = BTreeSet::new();
+
+    // keep a stack of relations to search
+    let mut stack = vec![rel];
+
+    // repeatedly iterate until all relations are found
+    while let Some(rel) = stack.pop() {
+        // get all direct deps of this relation
+        let direct = relation_direct_deps(db, rel);
+
+        // further search all new direct deps
+        // avoids cycles by tracking repeat insertion
+        for dep in direct {
+            if deps.insert(dep) {
+                stack.push(dep);
+            }
+        }
+    }
+
+    // return the complete set of deps
+    deps
+}
+
+/// Enumerates every direct relation definition of a relation.
+#[salsa::tracked]
+pub fn relation_direct_deps<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> BTreeSet<RelationDefinition<'db>> {
+    relation_rules(db, rel)
+        .into_iter()
+        .flat_map(|rule| rule.bodies(db).clone())
+        .flat_map(|body| rule_body_relations(db, body))
+        .collect()
+}
+
+/// Finds every rule implementing a relation.
+#[salsa::tracked]
+pub fn relation_rules<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> BTreeSet<AbstractRule<'db>> {
+    // iterate every possible rule in the workspace
+    let mut rules = BTreeSet::new();
+    for file in rel.ast(db).file(db).workspace(db).files(db).values() {
+        for ast in file_item_kind_ast(db, *file, ItemKind::Rule) {
+            let rule = parse_rule(db, ast);
+            if Some(rel) == file_relation(db, *file, rule.relation(db)) {
+                rules.insert(rule);
+            }
+        }
+    }
+
+    // return the complete list of rules
+    rules
+}
+
+/// Retrieves the set of relations used by a rule body.
+#[salsa::tracked]
+pub fn rule_body_relations<'db>(
+    db: &'db dyn Database,
+    body: AbstractRuleBody<'db>,
+) -> BTreeSet<RelationDefinition<'db>> {
+    // iterate over each expression
+    let mut relations = BTreeSet::new();
+    let mut stack = body.clauses(db).clone();
+    while let Some(expr) = stack.pop() {
+        use ExprKind::*;
+        match expr.kind(db) {
+            Tuple(els) => stack.extend(els),
+            BinaryOp { lhs, rhs, .. } => stack.extend([lhs, rhs]),
+            UnaryOp { term, .. } => stack.push(term),
+            Atom { head, body } => {
+                let file = head.ast.file(db);
+                relations.extend(file_relation(db, file, head));
+                stack.push(body);
+            }
+            _ => {}
+        }
+    }
+
+    // return the complete set
+    relations
 }
