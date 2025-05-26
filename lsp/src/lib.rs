@@ -19,6 +19,7 @@ use std::{collections::HashMap, ops::DerefMut, sync::Arc};
 use ropey::Rope;
 use salsa::{AsDynDatabase, Setter};
 use saturn_v_frontend::{
+    file_inlay_hints,
     locate::{entity_info, locate_entity},
     toplevel::{AstNode, Children, Db, File, Point, Span, Workspace},
 };
@@ -56,15 +57,19 @@ impl LspBackend {
         }
     }
 
-    pub async fn get_file(
+    pub async fn get_file_params(
         &self,
         params: &TextDocumentPositionParams,
     ) -> Result<impl DerefMut<Target = Editor> + 'static> {
+        self.get_file(&params.text_document.uri).await
+    }
+
+    pub async fn get_file(&self, uri: &Url) -> Result<impl DerefMut<Target = Editor> + 'static> {
         let ed = self
             .editors
             .lock()
             .await
-            .get(&params.text_document.uri)
+            .get(uri)
             .cloned()
             .ok_or_else(|| Error::invalid_params("file's editor was not loaded"))?;
 
@@ -131,6 +136,7 @@ impl LanguageServer for LspBackend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
+                inlay_hint_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Default::default(),
@@ -197,13 +203,15 @@ impl LanguageServer for LspBackend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let ed = self.get_file(&params.text_document_position_params).await?;
+        let ed = self
+            .get_file_params(&params.text_document_position_params)
+            .await?;
         let db = self.db.lock().await;
         ed.hover(&db, params)
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
-        let ed = self.get_file(&params.text_document_position).await?;
+        let ed = self.get_file_params(&params.text_document_position).await?;
         let db = self.db.lock().await;
         let at = params.text_document_position.position.into();
         let items = saturn_v_frontend::completion(db.as_dyn_database(), ed.file, at);
@@ -214,7 +222,9 @@ impl LanguageServer for LspBackend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let ed = self.get_file(&params.text_document_position_params).await?;
+        let ed = self
+            .get_file_params(&params.text_document_position_params)
+            .await?;
         let db = self.db.lock().await;
         let at = params.text_document_position_params.position.into();
 
@@ -231,7 +241,7 @@ impl LanguageServer for LspBackend {
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        let ed = self.get_file(&params.text_document_position).await?;
+        let ed = self.get_file_params(&params.text_document_position).await?;
         let db = self.db.lock().await;
         let at = params.text_document_position.position.into();
 
@@ -250,8 +260,30 @@ impl LanguageServer for LspBackend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let ed = self.get_file(&params.text_document_position).await?;
+        let ed = self.get_file_params(&params.text_document_position).await?;
         Ok(None)
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let ed = self.get_file(&params.text_document.uri).await?;
+        let db = self.db.lock().await;
+        let hints = file_inlay_hints(db.as_dyn_database(), ed.file);
+
+        Ok(Some(
+            hints
+                .into_iter()
+                .map(|(ast, label)| InlayHint {
+                    position: ast.span(db.as_dyn_database()).end.into(),
+                    label: InlayHintLabel::String(label),
+                    kind: Some(InlayHintKind::TYPE),
+                    text_edits: None,
+                    tooltip: None,
+                    padding_left: None,
+                    padding_right: None,
+                    data: None,
+                })
+                .collect(),
+        ))
     }
 }
 

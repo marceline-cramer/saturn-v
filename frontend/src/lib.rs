@@ -17,9 +17,11 @@
 use std::collections::HashMap;
 
 use diagnostic::DynDiagnostic;
+use infer::TypeKey;
 use locate::{entity_info, locate_entity};
+use parse::{AbstractConstraint, AbstractRule};
 use salsa::Database;
-use toplevel::{File, Point, Span, Workspace};
+use toplevel::{AstNode, File, Point, Span, Workspace};
 
 pub mod desugar;
 pub mod diagnostic;
@@ -119,4 +121,93 @@ pub fn completion(
             })
             .collect(),
     )
+}
+
+#[salsa::tracked]
+pub fn file_inlay_hints(db: &dyn Database, file: File) -> Vec<(AstNode, String)> {
+    // track the list of hints
+    let mut hints = Vec::new();
+
+    // add all rules
+    for ast in parse::file_item_kind_ast(db, file, parse::ItemKind::Rule) {
+        let rule = parse::parse_rule(db, ast);
+        hints.extend(rule_inlay_hints(db, rule));
+    }
+
+    // add all constraints
+    for ast in parse::file_item_kind_ast(db, file, parse::ItemKind::Constraint) {
+        let constraint = parse::parse_constraint(db, ast);
+        hints.extend(constraint_inlay_hints(db, constraint));
+    }
+
+    // return the list of hints
+    hints
+}
+#[salsa::tracked]
+pub fn constraint_inlay_hints<'db>(
+    db: &'db dyn Database,
+    constraint: AbstractConstraint<'db>,
+) -> Vec<(AstNode, String)> {
+    // track the list of hints
+    let mut hints = Vec::new();
+
+    // type the constraint
+    let typed = infer::typed_constraint(db, constraint);
+
+    // retrieve the variables in the constraint
+    let vars = locate::constraint_vars(db, constraint);
+
+    // provide type inlay hints for each variable
+    let mut typed = typed.body(db).table(db).clone();
+    for (name, ast) in vars {
+        let ty = typed.lookup(&TypeKey::Variable(name.clone()));
+        let msg = format!(": {}", ty.to_naive());
+        hints.push((ast, msg));
+    }
+
+    // return the completed list
+    hints
+}
+
+#[salsa::tracked]
+pub fn rule_inlay_hints<'db>(
+    db: &'db dyn Database,
+    rule: AbstractRule<'db>,
+) -> Vec<(AstNode, String)> {
+    // track the list of hints
+    let mut hints = Vec::new();
+
+    // type the rule
+    let Some(typed) = infer::typed_rule(db, rule) else {
+        return hints;
+    };
+
+    // retrieve the variables in the rule
+    let vars = locate::rule_vars(db, rule);
+
+    // first, provide inlay hints for each head
+    let mut typed_head = typed.head_table(db).clone();
+    for (name, ast) in vars.head.iter() {
+        let ty = typed_head.lookup(&TypeKey::Variable(name.clone()));
+        let msg = format!(": {}", ty.to_naive());
+        hints.push((*ast, msg));
+    }
+
+    // provide inlay hints for each body
+    for (body, typed) in vars.bodies.into_iter().zip(typed.bodies(db)) {
+        let mut typed_body = typed.table(db).to_owned().clone();
+        for (name, ast) in body {
+            // do not label head variables twice
+            if vars.head.contains_key(&name) {
+                continue;
+            }
+
+            let ty = typed_body.lookup(&TypeKey::Variable(name.clone()));
+            let msg = format!(": {}", ty.to_naive());
+            hints.push((ast, msg));
+        }
+    }
+
+    // return the completed list
+    hints
 }
