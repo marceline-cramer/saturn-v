@@ -166,6 +166,21 @@ impl Model {
         eprintln!("  {} recycleable variables", self.vars.free_vars.len());
         eprintln!("  {} total clauses", self.oracle.n_clauses());
 
+        // first, ensure that the model is SAT with no cost bounds
+        let result = log_time("checking satisfiability of the unoptimized model", || {
+            self.oracle.solve_assumps(&assumptions).unwrap()
+        });
+
+        // proceed accordingly
+        match result {
+            // optimize if the base model is SAT
+            SolverResult::Sat => {}
+            // if the base model is UNSAT, immediately give up (avoid infinite loop)
+            SolverResult::Unsat => return Some(false),
+            // if the solver was interrupted, abort search
+            SolverResult::Interrupted => return None,
+        }
+
         // run MaxSAT with progressively higher cost upper bounds
         log_time("optimizing lower cost bound", || {
             let mut cost = 0;
