@@ -56,11 +56,13 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
         for (_name, rules) in parse::file_rules(db, *file) {
             for rule in rules {
                 infer::typed_rule(db, rule);
+                locate::rule_vars(db, rule);
             }
         }
 
         for constraint in parse::file_constraints(db, *file) {
             infer::typed_constraint(db, constraint);
+            locate::constraint_vars(db, constraint);
         }
     }
 }

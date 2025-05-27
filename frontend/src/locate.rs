@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use salsa::{Database, Update};
 
 use crate::{
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
     parse::*,
     resolve::{file_unresolved_types, resolve_relation_type, Unresolved},
@@ -443,7 +444,14 @@ pub fn constraint_vars<'db>(
     // run in reverse so that duplicate variables are ordered left-first
     // technically an error but this code should do something about it
     for var in constraint.head(db).iter().rev() {
-        vars.insert(var.inner.clone(), var.ast);
+        if vars.insert(var.inner.clone(), var.ast).is_none() {
+            // if this variable is not found within the body, throw an error
+            UnboundVariable {
+                at: var.clone(),
+                body: constraint.body(db).ast(db),
+            }
+            .accumulate(db);
+        }
     }
 
     // return the complete variables
@@ -471,13 +479,25 @@ pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Variabl
     let mut bodies: Vec<_> = rule
         .bodies(db)
         .iter()
-        .map(|body| rule_body_vars(db, *body))
+        .map(|body| body.ast(db).with(rule_body_vars(db, *body)))
         .collect();
 
     // merge head variable definitions into each body's variables
     for body in bodies.iter_mut() {
-        body.extend(head.clone());
+        for (var, ast) in head.iter() {
+            if body.inner.insert(var.clone(), *ast).is_none() {
+                // if this variable is not found within the body, throw an error
+                UnboundVariable {
+                    at: ast.with(var.to_string()),
+                    body: body.ast,
+                }
+                .accumulate(db);
+            }
+        }
     }
+
+    // remove ASTs from bodies
+    let bodies = bodies.into_iter().map(|body| body.inner).collect();
 
     // return the complete definitions
     VariableDefinitions { head, bodies }
@@ -636,4 +656,32 @@ pub fn rule_body_relations<'db>(
 
     // return the complete set
     relations
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnboundVariable {
+    pub at: WithAst<String>,
+    pub body: AstNode,
+}
+
+impl BasicDiagnostic for UnboundVariable {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("variable {} is not bound by rule body", self.at)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![self.body.with("the rule body in question".to_string())]
+    }
 }

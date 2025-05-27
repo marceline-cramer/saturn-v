@@ -172,10 +172,8 @@ pub fn lower_constraint<'db>(
         None => ConstraintWeight::Hard,
     };
 
-    // TODO: this panics if the variable is not bound. make sure to properly
-    // unify constraint heads during type inference. may require adding a type
-    // constraint to check that certain keys are known. same can be done with
-    // rule heads
+    // allocate and track each variable in the head
+    // all variables are confirmed to be bound at this point
     let head: Vec<_> = constraint
         .constraint(db)
         .head(db)
