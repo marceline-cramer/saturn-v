@@ -21,6 +21,7 @@ use salsa::Setter;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
 use tower_lsp::{LspService, Server};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
 
 #[derive(Parser)]
@@ -50,6 +51,19 @@ pub enum Command {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_env_var("SATURN_V_LOG")
+        .with_default_directive("saturn_v=debug".parse().unwrap())
+        .from_env()
+        .expect("failed to parse logging directives");
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .init();
 
     match args.command {
         Command::Lsp => {

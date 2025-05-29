@@ -38,6 +38,7 @@ use timely::{
     progress::frontier::AntichainRef,
     worker::Worker,
 };
+use tracing::debug;
 
 pub type Time = u32;
 pub type Diff = isize;
@@ -95,7 +96,7 @@ pub fn run_pumps(
     }
 
     // ensure the output is flushed before exiting
-    eprintln!("disconnected");
+    debug!("dataflow pumps disconnected");
     output.flush();
 }
 
@@ -455,8 +456,14 @@ pub enum Update<T> {
     Flush,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct Key<T>(u64, PhantomData<T>);
+
+impl<T> Debug for Key<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:X}", self.0)
+    }
+}
 
 impl<T: Hashable<Output = u64>> From<T> for Key<T> {
     fn from(value: T) -> Self {

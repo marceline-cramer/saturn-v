@@ -14,10 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    collections::{BTreeMap, BinaryHeap, HashMap},
-    sync::atomic::AtomicU16,
-};
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
 use flume::Sender;
 use rustsat::{
@@ -32,6 +29,7 @@ use rustsat::{
     types::{constraints::CardConstraint, Clause, Lit, Var},
 };
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
+use tracing::{debug, span, Level};
 
 pub type Oracle = rustsat_batsat::BasicSolver;
 
@@ -74,7 +72,7 @@ impl Solver {
     pub async fn step(&mut self) -> Option<bool> {
         // track time that step started
         let start = std::time::Instant::now();
-        eprintln!("stepping solver...");
+        debug!("stepping solver...");
 
         // fetch updates
         let conditional = self.conditional_sink.next_batch().await?;
@@ -83,7 +81,7 @@ impl Solver {
         let outputs = self.outputs_sink.next_batch().await?;
 
         // display how long dataflow took to process step
-        eprintln!("received solver step after {:?}", start.elapsed());
+        debug!("received solver step after {:?}", start.elapsed());
 
         // update model
         let removed_outputs = log_time("updating SAT model", || {
@@ -158,13 +156,15 @@ impl Model {
         let assumptions: Vec<_> = hard_constraints.chain(condition_guards).collect();
 
         // display statistics
-        eprintln!("SAT model statistics:");
-        eprintln!("  {} assumptions", assumptions.len());
-        eprintln!("  {} active conditions", self.conditions.len());
-        eprintln!("  {} active constraints", self.constraints.len());
-        eprintln!("  {} outputs", self.outputs.len());
-        eprintln!("  {} recycleable variables", self.vars.free_vars.len());
-        eprintln!("  {} total clauses", self.oracle.n_clauses());
+        debug!(
+            assumptions = assumptions.len(),
+            conditions = self.conditions.len(),
+            constraints = self.constraints.len(),
+            outputs = self.outputs.len(),
+            recyc_vars = self.vars.free_vars.len(),
+            clauses = self.oracle.n_clauses(),
+            "SAT model statistics"
+        );
 
         // first, ensure that the model is SAT with no cost bounds
         let result = log_time("checking satisfiability of the unoptimized model", || {
@@ -193,7 +193,7 @@ impl Model {
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
                 let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
-                eprintln!("cost assumptions: {cost_assumps:?}");
+                debug!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
                 // solve SAT
@@ -582,16 +582,23 @@ pub fn split_batch<T>(batch: Vec<(T, bool)>) -> (Vec<T>, Vec<T>) {
 }
 
 fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
-    static INDENT: AtomicU16 = AtomicU16::new(0);
+    let span = span!(
+        Level::DEBUG,
+        "solver_time",
+        message = message,
+        duration_us = tracing::field::Empty
+    );
 
-    let indent = "  ".repeat(INDENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) as usize);
-    eprintln!("{indent}{message}...");
+    let _enter = span.enter();
+
+    debug!("{message}...");
 
     let start = std::time::Instant::now();
     let result = cb();
-    eprintln!("{indent}{message} took {:?}", start.elapsed());
+    let duration = start.elapsed();
+    debug!("{message} took {duration:?}");
 
-    INDENT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    span.record("duration_us", duration.as_micros());
 
     result
 }

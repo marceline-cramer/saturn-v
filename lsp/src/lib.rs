@@ -341,7 +341,7 @@ impl Editor {
         for change in params.content_changes.iter() {
             // TODO: send this as an error message to LSP client
             // can't pass through result, so dedicated message needs to be sent
-            // alternatively it could just eprintln!() or panic
+            // alternatively it could just log or panic
             let _ = self.on_content_change(change);
         }
 

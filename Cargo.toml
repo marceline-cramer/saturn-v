@@ -18,6 +18,8 @@ smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 tokio = "1.42"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree-sitter = "0.25.1"
 tower-lsp = "0.20"
 url = "2.5"
@@ -47,6 +49,7 @@ saturn-v-lower.workspace = true
 saturn-v-lsp.workspace = true
 tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
 tower-lsp.workspace = true
+tracing-subscriber.workspace = true
 tree-sitter.workspace = true
 tree-sitter-kerolox.workspace = true
 url.workspace = true

@@ -22,6 +22,7 @@ use std::{
 
 use indexmap::IndexSet;
 use saturn_v_ir::{self as ir, Instruction, Program, QueryTerm, Rule};
+use tracing::debug;
 
 use crate::{
     types::{Fact, Node, Relation},
@@ -70,10 +71,12 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         nodes: &mut InputSource<Node>,
     ) {
         // display statistics
-        eprintln!("loading dataflow");
-        eprintln!("  {} relations", self.relations.len());
-        eprintln!("  {} facts", self.facts.len());
-        eprintln!("  {} unique nodes", self.nodes.len());
+        debug!(
+            relations = self.relations.len(),
+            facts = self.facts.len(),
+            unique_nodes = self.nodes.len(),
+            "loading dataflow",
+        );
 
         for relation in self.relations.into_values() {
             relations.insert(relation);
