@@ -288,10 +288,8 @@ impl Model {
             for output in outputs_insert.iter() {
                 // insert output value with conditional variable
                 let key = Condition::Fact(Key::new(output));
-                self.outputs.insert(
-                    output.clone(),
-                    (false, self.conditions.get(&key).map(|var| var.output)),
-                );
+                let var = self.conditions.get(&key).map(|var| var.output);
+                self.outputs.insert(output.clone(), (false, var));
             }
         });
 

@@ -85,7 +85,7 @@ pub type Values = Vec<Value>;
 pub type FixedValues = Arc<[Value]>;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Node {
+pub enum OldNode {
     /// Joins two nodes together.
     Join {
         /// The left-hand node to join. Leftover terms come first.
@@ -173,68 +173,139 @@ pub enum Node {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub struct Node {
+    /// The [NodeInput] that produces input tuples to this node.
+    pub input: NodeInput,
+
+    /// A series of expressions to push the results of to the stack.
+    pub push: Arc<[Expr]>,
+
+    /// The filter expressions to evaluate after all new variables are pushed.
+    pub filter: Arc<[Expr]>,
+
+    /// Projects tuple elements within this node to outgoing tuples.
+    pub project: Option<IndexList>,
+
+    /// An optional, non-node output to direct this node's tuples towards.
+    pub output: Option<NodeOutput>,
+}
+
 impl Node {
-    pub fn join_lhs(self) -> Option<(Key<Node>, usize)> {
-        match self {
-            Node::Join { lhs, num, .. } => Some((lhs, num)),
+    pub fn store_relation(self) -> Option<(Key<Relation>, StoreHead)> {
+        match self.output {
+            Some(NodeOutput::Relation { dst, head }) => Some((dst, head)),
             _ => None,
         }
     }
 
-    pub fn join_rhs(self) -> Option<(Key<Node>, usize)> {
-        match self {
-            Node::Join { rhs, num, .. } => Some((rhs, num)),
+    pub fn constraint_src(self) -> Option<IndexList> {
+        match self.output {
+            Some(NodeOutput::Constraint { head, .. }) => Some(head),
             _ => None,
         }
     }
 
-    pub fn merge_lhs(self) -> Option<Key<Node>> {
+    pub fn constraint_type(self) -> Option<(ConstraintWeight, ConstraintKind)> {
+        match self.output {
+            Some(NodeOutput::Constraint { weight, kind, .. }) => Some((weight, kind)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum NodeInput {
+    /// Loads tuples from a single, unprocessed node source.
+    Source {
+        /// The node source to load from.
+        src: NodeSource,
+    },
+
+    /// Joins two sources together.
+    Join {
+        /// The left-hand node to join. Leftover terms come first.
+        lhs: NodeSource,
+
+        /// The right-hand node to join. Leftover terms come after left-hand terms.
+        rhs: NodeSource,
+
+        /// The number of terms starting from the front of each node to join.
+        num: usize,
+    },
+
+    /// Merges two sources together.
+    Merge {
+        /// The left-hand node to merge.
+        lhs: NodeSource,
+
+        /// The right-hand node to merge.
+        rhs: NodeSource,
+    },
+}
+
+impl NodeInput {
+    pub fn sources(self) -> Vec<NodeSource> {
         match self {
-            Node::Merge { lhs, .. } => Some(lhs),
+            NodeInput::Source { src } => vec![src],
+            NodeInput::Merge { lhs, rhs } => vec![lhs, rhs],
+            _ => vec![],
+        }
+    }
+
+    pub fn join_lhs(self) -> Option<(NodeSource, usize)> {
+        match self {
+            NodeInput::Join { lhs, num, .. } => Some((lhs, num)),
             _ => None,
         }
     }
 
-    pub fn merge_rhs(self) -> Option<Key<Node>> {
+    pub fn join_rhs(self) -> Option<(NodeSource, usize)> {
         match self {
-            Node::Merge { rhs, .. } => Some(rhs),
+            NodeInput::Join { rhs, num, .. } => Some((rhs, num)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum NodeSource {
+    /// Loads tuples for this node from another node.
+    Node {
+        /// The key of the node to load from.
+        node: Key<Node>,
+    },
+
+    /// Loads tuples for this node from a relation query.
+    Relation {
+        /// The key of the relation to load.
+        relation: Key<Relation>,
+
+        /// A query to constrain the loading by.
+        query: Query,
+    },
+}
+
+impl NodeSource {
+    pub fn node(self) -> Option<Key<Node>> {
+        match self {
+            NodeSource::Node { node } => Some(node),
             _ => None,
         }
     }
 
-    pub fn project(self) -> Option<(Key<Node>, IndexList)> {
+    pub fn relation_mask(self) -> Option<(Key<Relation>, LoadMask)> {
         match self {
-            Node::Project { src, map } => Some((src, map)),
-            _ => None,
-        }
-    }
-
-    pub fn filter(self) -> Option<(Key<Node>, Expr)> {
-        match self {
-            Node::Filter { src, expr } => Some((src, expr)),
-            _ => None,
-        }
-    }
-
-    pub fn push(self) -> Option<(Key<Node>, Expr)> {
-        match self {
-            Node::Push { src, expr } => Some((src, expr)),
-            _ => None,
-        }
-    }
-
-    pub fn load_mask(self) -> Option<(Key<Relation>, LoadMask)> {
-        match self {
-            Node::LoadRelation { relation, query } => {
+            NodeSource::Relation { relation, query } => {
                 Some((relation, query.iter().map(Option::is_none).collect()))
             }
             _ => None,
         }
     }
 
-    pub fn load_head(self) -> Option<LoadHead> {
+    pub fn relation_head(self) -> Option<LoadHead> {
         match self {
-            Node::LoadRelation { relation, query } => Some((
+            NodeSource::Relation { relation, query } => Some((
                 relation,
                 query.iter().map(Option::is_none).collect(),
                 query.iter().flatten().cloned().collect(),
@@ -242,27 +313,30 @@ impl Node {
             _ => None,
         }
     }
+}
 
-    pub fn store_relation(self) -> Option<(Key<Node>, (Key<Relation>, StoreHead))> {
-        match self {
-            Node::StoreRelation { src, dst, head } => Some((src, (dst, head))),
-            _ => None,
-        }
-    }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum NodeOutput {
+    /// Stores a node's output tuples into a relation.
+    Relation {
+        /// The relation to store into.
+        dst: Key<Relation>,
 
-    pub fn constraint_src(self) -> Option<(Key<Node>, IndexList)> {
-        match self {
-            Node::Constraint { src, head, .. } => Some((src, head)),
-            _ => None,
-        }
-    }
+        /// The map from destination variables or values to relation elements.
+        head: StoreHead,
+    },
 
-    pub fn constraint_type(self) -> Option<(ConstraintWeight, ConstraintKind)> {
-        match self {
-            Node::Constraint { weight, kind, .. } => Some((weight, kind)),
-            _ => None,
-        }
-    }
+    /// Stores a node's output tuples as a constraint.
+    Constraint {
+        /// The indices of the variables that the head is made up of.
+        head: IndexList,
+
+        /// The constraint's weight.
+        weight: ConstraintWeight,
+
+        /// The kind of constraint.
+        kind: ConstraintKind,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

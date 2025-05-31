@@ -16,8 +16,15 @@
 
 use std::fmt::Debug;
 
-use differential_dataflow::operators::{
-    arrange::ArrangeByKey, iterate::Variable, Join, JoinCore, Reduce,
+use differential_dataflow::{
+    lattice::Lattice,
+    operators::{
+        arrange::{ArrangeByKey, Arranged},
+        iterate::Variable,
+        Join, JoinCore, Reduce, Threshold,
+    },
+    trace::TraceReader,
+    Collection, Data, ExchangeData,
 };
 use saturn_v_ir::*;
 use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::Worker};
@@ -26,7 +33,7 @@ use tracing::{event, Level};
 use crate::{
     types::{
         Condition, ConstraintGroup, Fact, FixedValues, Gate, IndexList, LoadHead, LoadMask, Node,
-        Relation, StoreHead, Tuple, Values,
+        NodeInput, NodeSource, Relation, StoreHead, Tuple, Values,
     },
     utils::*,
 };
@@ -66,16 +73,56 @@ pub fn backend(
             // arrange relations
             let relations_arranged = relations.arrange_by_key();
 
-            // extract left and right sides of join operation
-            let join_lhs = nodes
-                .flat_map(map_value(Node::join_lhs))
-                .map_in_place(|(dst, (src, _num))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, dst, tup| [join_slice(dst, tup)]);
+            // fetch node inputs
+            let node_input = nodes.map(|(key, node)| (key, node.input));
 
-            let join_rhs = nodes
-                .flat_map(map_value(Node::join_rhs))
-                .map_in_place(|(dst, (src, _num))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, dst, tup| [join_slice(dst, tup)]);
+            // extract sources of left sides of join operations
+            let join_lhs = &node_input
+                .flat_map(map_value(NodeInput::join_lhs))
+                .map(|(dst, (src, num))| (src, (dst, num)));
+
+            // extract sources of right sides of join operations
+            let join_rhs = &node_input
+                .flat_map(map_value(NodeInput::join_rhs))
+                .map(|(dst, (src, num))| (src, (dst, num)));
+
+            // extract unprocessed input sources
+            let source = &node_input
+                .flat_map(|(key, input)| input.sources().into_iter().map(move |src| (src, key)));
+
+            // aggregate all sources to retrieve all load masks
+            let load_mask = join_lhs
+                .concat(join_rhs)
+                .map(key)
+                .concat(&source.map(key))
+                .flat_map(NodeSource::relation_mask)
+                .join_core(&facts_arranged, load_mask)
+                .arrange_by_key();
+
+            // load each source's tuples
+            let join_lhs = load_source(
+                &tuples_arranged,
+                &load_mask,
+                &relations_arranged,
+                join_slice,
+                join_lhs,
+            );
+
+            let join_rhs = load_source(
+                &tuples_arranged,
+                &load_mask,
+                &relations_arranged,
+                join_slice,
+                join_rhs,
+            );
+
+            let source = load_source(
+                &tuples_arranged,
+                &load_mask,
+                &relations_arranged,
+                |node, tuple| (*node, tuple),
+                source,
+            );
 
             // select and merge sides of join source nodes
             let joined = join_lhs.join_map(&join_rhs, join);
@@ -84,37 +131,21 @@ pub fn backend(
             let join = joined.map(key);
             let join_gates = joined.flat_map(value);
 
-            // extract left and right sides of merge operation
-            let merge_lhs = nodes
-                .flat_map(map_value(Node::merge_lhs))
-                .map_in_place(swap_in_place)
-                .join_core(&tuples_arranged, |_, dst, tup| [(*dst, tup.clone())]);
+            // collect all node input tuples and do logic
+            let node_contents = join
+                .concat(&source)
+                .join_core(&nodes.arrange_by_key(), node_logic);
 
-            let merge_rhs = nodes
-                .flat_map(map_value(Node::merge_rhs))
-                .map_in_place(swap_in_place)
-                .join_core(&tuples_arranged, |_, dst, tup| [(*dst, tup.clone())]);
-
-            // merge sides
-            let merge = merge_lhs.concat(&merge_rhs);
-
-            // project operation
+            // project operation on node contents
+            // TODO: make a wrapper trait for distinct() on Arranged instead
+            // of using distinct() here when tuples get arranged next iteration
             let project = nodes
-                .flat_map(map_value(Node::project))
-                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, dst, tup| [project(dst, tup)]);
+                .map(|(key, node)| (key, node.project))
+                .join_map(&node_contents, project)
+                .distinct();
 
-            // filter nodes
-            let filter = nodes
-                .flat_map(map_value(Node::filter))
-                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, dst, tup| filter(dst, tup));
-
-            // push nodes
-            let push = nodes
-                .flat_map(map_value(Node::push))
-                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, rhs, val| [push(rhs, val)]);
+            // write projected node outputs to tuples
+            tuples.set_concat(&project).inspect(inspect("tuple"));
 
             // filter output facts from all facts
             let outputs = facts_arranged
@@ -122,25 +153,9 @@ pub fn backend(
                 .map(value)
                 .inspect(inspect("output"));
 
-            // arrange masked facts
-            let load_mask = nodes
-                .flat_map(map_value(Node::load_mask))
-                .map(value)
-                .join_core(&facts_arranged, load_mask);
-
-            // join masked facts with load nodes to populate them
-            let load = nodes
-                .flat_map(map_value(Node::load_head))
-                .map(|(dst, (rel, mask, vals))| (rel, (dst, mask, vals)))
-                .join_core(&relations_arranged, |rel, (dst, mask, vals), relation| {
-                    [((*rel, mask.clone(), vals.clone()), (*dst, relation.kind))]
-                })
-                .join_map(&load_mask, load);
-
             // store tuples to corresponding relations
             let stored = nodes
-                .map(value)
-                .flat_map(Node::store_relation)
+                .flat_map(map_value(Node::store_relation))
                 .map(|(src, (dst, head))| (dst, (src, head)))
                 .join_core(&relations_arranged, |dst, (src, head), relation| {
                     Some((*src, (*dst, head.clone(), relation.kind)))
@@ -154,13 +169,9 @@ pub fn backend(
             // collect constraint groups
             let constraints = nodes
                 .flat_map(map_value(Node::constraint_src))
-                .map_in_place(|(dst, (src, _))| std::mem::swap(dst, src))
-                .join_core(&tuples_arranged, |_, dst, tup| [constraint_map(dst, tup)]);
-
-            // combine all operations into new tuples
-            tuples
-                .set_concat(&join.concatenate([merge, project, filter, push, load]))
-                .inspect(inspect("tuple"));
+                .join_core(&tuples_arranged, |node, dst, tup| {
+                    [constraint_map(node, dst, tup)]
+                });
 
             // return outputs of all extended collections
             (
@@ -179,8 +190,14 @@ pub fn backend(
             .join_map(&constraint_type, constraint_clause)
             .inspect(inspect("constraint"));
 
+        // find base conditional facts to add to all outgoing conditionals
+        let base_conditional = facts
+            .join_core(&relations.arrange_by_key(), base_conditional)
+            .map(|fact| (fact, None));
+
         // conditional facts make gates out of their dependent conditions
         let conditional = implies
+            .concat(&base_conditional)
             .reduce(conditional_gate)
             .inspect(inspect("conditional"))
             .map(|((fact, _is_decision), gate)| (fact, gate));
@@ -193,8 +210,7 @@ pub fn backend(
 
         // extract conditions from conditional gates
         let conditional = conditional
-            .map(|(fact, gate)| (fact, gate.map(|gate| Condition::Gate(Key::new(&gate)))))
-            .concat(&facts.map(|(_, fact)| (Key::new(&fact), None)));
+            .map(|(fact, gate)| (fact, gate.map(|gate| Condition::Gate(Key::new(&gate)))));
 
         // return inputs and outputs
         (
@@ -209,6 +225,65 @@ pub fn backend(
     })
 }
 
+pub fn load_source<G, T, O, TupleTr, LoadMaskTr, RelationTr>(
+    tuples: &Arranged<G, TupleTr>,
+    load_mask: &Arranged<G, LoadMaskTr>,
+    relations: &Arranged<G, RelationTr>,
+    map: fn(&T, Tuple) -> O,
+    source: &Collection<G, (NodeSource, T), Diff>,
+) -> Collection<G, O, Diff>
+where
+    G: Scope,
+    G::Timestamp: Lattice,
+    T: ExchangeData,
+    O: Data,
+    TupleTr: Clone
+        + for<'a> TraceReader<
+            Key<'a> = &'a Key<Node>,
+            Val<'a> = &'a Tuple,
+            Diff = Diff,
+            Time = G::Timestamp,
+        > + 'static,
+    LoadMaskTr: Clone
+        + for<'a> TraceReader<
+            Key<'a> = &'a LoadHead,
+            Val<'a> = &'a (Key<Fact>, FixedValues),
+            Diff = Diff,
+            Time = G::Timestamp,
+        > + 'static,
+    RelationTr: Clone
+        + for<'a> TraceReader<
+            Key<'a> = &'a Key<Relation>,
+            Val<'a> = &'a Relation,
+            Diff = Diff,
+            Time = G::Timestamp,
+        > + 'static,
+{
+    // load node source tuples
+    let node = source
+        .flat_map(|(src, key)| src.node().map(|node| (node, key)))
+        .join_core(tuples, move |_node, key, tup| [map(key, tup.clone())]);
+
+    // load relations
+    let relation = source
+        .flat_map(|(src, key)| {
+            src.relation_head()
+                .map(|(rel, mask, vals)| (rel, (key, mask, vals)))
+        })
+        .join_core(relations, |rel, (dst, mask, vals), relation| {
+            [(
+                (*rel, mask.clone(), vals.clone()),
+                (dst.clone(), relation.kind),
+            )]
+        })
+        .join_core(load_mask, move |_head, (src, kind), (fact, tail)| {
+            [map(src, load(kind, fact, tail))]
+        });
+
+    // return both node source and relation source tuples
+    node.concat(&relation)
+}
+
 #[derive(Clone, Default)]
 pub struct DataflowRouters {
     pub relations_in: InputRouter<Relation>,
@@ -220,7 +295,7 @@ pub struct DataflowRouters {
     pub outputs_out: OutputRouter<Fact>,
 }
 
-pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: &Tuple) -> ((Key<Node>, Values), Tuple) {
+pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>, Values), Tuple) {
     let num = *num;
     let prefix = tuple.values[..num].into();
     (
@@ -258,7 +333,11 @@ pub fn join(
     ((*dst, tuple), gate)
 }
 
-pub fn project((dst, map): &(Key<Node>, IndexList), tuple: &Tuple) -> (Key<Node>, Tuple) {
+pub fn project(dst: &Key<Node>, map: &Option<IndexList>, tuple: &Tuple) -> (Key<Node>, Tuple) {
+    let Some(map) = map.as_ref() else {
+        return (*dst, tuple.clone());
+    };
+
     let condition = tuple.condition;
     let values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
     (*dst, Tuple { values, condition })
@@ -291,18 +370,14 @@ pub fn load_mask(
     Some(((*relation, mask.clone(), head), (Key::new(fact), tail)))
 }
 
-pub fn load(
-    _head: &LoadHead,
-    (node, kind): &(Key<Node>, RelationKind),
-    (fact, tail): &(Key<Fact>, FixedValues),
-) -> (Key<Node>, Tuple) {
+pub fn load(kind: &RelationKind, fact: &Key<Fact>, tail: &FixedValues) -> Tuple {
     let condition = match kind {
         RelationKind::Conditional | RelationKind::Decision => Some(Condition::Fact(*fact)),
         RelationKind::Basic => None,
     };
 
     let values = tail.to_vec();
-    (*node, Tuple { values, condition })
+    Tuple { values, condition }
 }
 
 pub fn store(
@@ -329,6 +404,20 @@ pub fn store(
     let link = is_decision.map(|is_decision| ((Key::new(&fact), is_decision), tuple.condition));
 
     (fact, link)
+}
+
+pub fn base_conditional(
+    _key: &Key<Relation>,
+    fact: &Fact,
+    rel: &Relation,
+) -> Option<(Key<Fact>, bool)> {
+    let is_decision = match rel.kind {
+        RelationKind::Basic => return None,
+        RelationKind::Conditional => false,
+        RelationKind::Decision => true,
+    };
+
+    Some((Key::new(fact), is_decision))
 }
 
 pub fn conditional_gate(
@@ -364,18 +453,23 @@ pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, 
     }
 }
 
-pub fn filter((dst, expr): &(Key<Node>, Expr), tuple: &Tuple) -> Option<(Key<Node>, Tuple)> {
-    match eval_expr(&tuple.values, expr) {
-        Value::Boolean(false) => None,
-        Value::Boolean(true) => Some((*dst, tuple.clone())),
-        other => panic!("unexpected filter value: {other:?}"),
-    }
-}
+pub fn node_logic(dst: &Key<Node>, tup: &Tuple, node: &Node) -> Option<(Key<Node>, Tuple)> {
+    let mut tup = tup.clone();
+    tup.values.reserve(node.push.len());
 
-pub fn push((dst, expr): &(Key<Node>, Expr), tuple: &Tuple) -> (Key<Node>, Tuple) {
-    let mut tuple = tuple.to_owned();
-    tuple.values.push(eval_expr(&tuple.values, expr));
-    (*dst, tuple)
+    for expr in node.push.iter() {
+        tup.values.push(eval_expr(&tup.values, expr));
+    }
+
+    for expr in node.filter.iter() {
+        match eval_expr(&tup.values, expr) {
+            Value::Boolean(false) => return None,
+            Value::Boolean(true) => {}
+            other => panic!("unexpected filter value: {other:?}"),
+        }
+    }
+
+    Some((*dst, tup))
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
@@ -435,7 +529,8 @@ pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
 }
 
 pub fn constraint_map(
-    (dst, map): &(Key<Node>, IndexList),
+    dst: &Key<Node>,
+    map: &IndexList,
     tuple: &Tuple,
 ) -> ((Key<Node>, Values), Option<Condition>) {
     let key = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
@@ -468,7 +563,7 @@ pub fn constraint_clause(
 ) -> ConstraintGroup {
     ConstraintGroup {
         terms: terms.clone(),
-        weight: weight.clone(),
+        weight: *weight,
         kind: kind.clone(),
     }
 }

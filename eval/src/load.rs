@@ -21,11 +21,11 @@ use std::{
 };
 
 use indexmap::IndexSet;
-use saturn_v_ir::{self as ir, Instruction, Program, QueryTerm, Rule};
+use saturn_v_ir::{self as ir, Expr, Instruction, Program, QueryTerm, Rule};
 use tracing::debug;
 
 use crate::{
-    types::{Fact, Node, Relation},
+    types::{Fact, Node, NodeInput, NodeOutput, NodeSource, Relation},
     utils::{InputSource, Key},
 };
 
@@ -125,7 +125,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// Loads a constraint.
     fn load_constraint(&mut self, constraint: &ir::Constraint<R>) {
         // load the instructions
-        let (src, map) =
+        let (node, map) =
             self.load_instruction(&constraint.body.loaded, &constraint.body.instructions);
 
         // map the constraint head
@@ -135,13 +135,15 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
             head.push(mapped);
         }
 
-        // add the constraint node
-        self.nodes.insert(Node::Constraint {
-            src,
+        // make the node output to a constraint
+        let output = NodeOutput::Constraint {
             head: head.into(),
-            weight: constraint.weight.clone(),
+            weight: constraint.weight,
             kind: constraint.kind.clone(),
-        });
+        };
+
+        // insert the node
+        self.insert(node, None, Some(output));
     }
 
     /// Loads a relation.
@@ -164,40 +166,75 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// Loads a rule.
     fn load_rule(&mut self, relation: &R, rule: &Rule<R>) {
         // load the instructions
-        let (src, map) = self.load_instruction(&rule.body.loaded, &rule.body.instructions);
+        let (node, map) = self.load_instruction(&rule.body.loaded, &rule.body.instructions);
 
-        // build the head of the relation
+        // build the head of the relation and its projection
         let mut head = Vec::with_capacity(rule.head.len());
+        let mut proj = Vec::with_capacity(rule.head.len());
         for term in rule.head.iter() {
             head.push(match term {
                 QueryTerm::Value(val) => QueryTerm::Value(val.clone()),
                 QueryTerm::Variable(idx) => {
                     let mapped = map.get_index_of(idx).unwrap();
-                    QueryTerm::Variable(mapped.try_into().unwrap())
+                    let idx = proj.len();
+                    proj.push(mapped);
+                    QueryTerm::Variable(idx.try_into().unwrap())
                 }
             });
         }
 
-        // add the store node
-        let dst = Key::new(self.relations.get(relation).unwrap());
-        self.nodes.insert(Node::StoreRelation {
-            src,
-            dst,
+        // make the node output to a relation
+        let output = NodeOutput::Relation {
+            dst: Key::new(self.relations.get(relation).unwrap()),
             head: head.into(),
-        });
+        };
+
+        // store the node
+        self.insert(node, Some(proj), Some(output));
+    }
+
+    /// Stores a node with a given projection and returns its node source.
+    fn insert(
+        &mut self,
+        node: WipNode,
+        project: Option<Vec<usize>>,
+        output: Option<NodeOutput>,
+    ) -> NodeSource {
+        if let NodeInput::Source { src } = &node.input {
+            if node.push.is_empty()
+                && node.filter.is_empty()
+                && project.is_none()
+                && output.is_none()
+            {
+                return src.clone();
+            }
+        }
+
+        let node = Node {
+            input: node.input,
+            push: node.push.into(),
+            filter: node.filter.into(),
+            project: project.map(Into::into),
+            output,
+        };
+
+        let key = Key::new(&node);
+        let src = NodeSource::Node { node: key };
+        self.nodes.insert(node);
+        src
     }
 
     /// Loads an instruction. Returns the node of the instruction and a [VariableMap].
-    fn load_instruction(&mut self, loaded: &[R], instr: &Instruction) -> (Key<Node>, VariableMap) {
+    fn load_instruction(&mut self, loaded: &[R], instr: &Instruction) -> (WipNode, VariableMap) {
         use Instruction::*;
         match instr {
             Noop => unreachable!("cannot load noops"),
             Sink { .. } => unreachable!("cannot load sinks"),
             Filter { test, rest } => {
-                let (src, map) = self.load_instruction(loaded, rest);
+                let (mut node, map) = self.load_instruction(loaded, rest);
                 let expr = map_variables(test.clone(), &map);
-                let dst = self.insert(Node::Filter { src, expr });
-                (dst, map)
+                node.filter.push(expr);
+                (node, map)
             }
             FromQuery {
                 relation: idx,
@@ -222,17 +259,23 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                     }
                 }
 
-                // create node
-                let dst = self.insert(Node::LoadRelation {
-                    relation,
-                    query: query.into(),
-                });
+                // create node input
+                let input = NodeInput::Source {
+                    src: NodeSource::Relation {
+                        relation,
+                        query: query.into(),
+                    },
+                };
 
-                (dst, map)
+                // create node
+                let node = WipNode::new(input);
+
+                // return new node and variable map
+                (node, map)
             }
             Let { var, expr, rest } => {
                 // create nodes for the rest of the instructions
-                let (src, mut map) = self.load_instruction(loaded, rest);
+                let (mut node, mut map) = self.load_instruction(loaded, rest);
 
                 // map variables from rule-scoped indices to node-scoped indices
                 let expr = map_variables(expr.clone(), &map);
@@ -240,9 +283,11 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                 // add the variable to upwards-bound mappings
                 map.insert(*var);
 
-                // create the push node
-                let dst = self.insert(Node::Push { src, expr });
-                (dst, map)
+                // add push expression to node
+                node.push.push(expr);
+
+                // return modified node
+                (node, map)
             }
             Merge { lhs, rhs } => {
                 // add the nodes for each branch
@@ -259,12 +304,15 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                     rhs_proj.push(rhs_idx);
                 }
 
-                // create new project node if needed
-                let rhs = self.insert_project(rhs, rhs_proj);
+                // insert left-hand side and project right-hand side
+                let lhs = self.insert(lhs, None, None);
+                let rhs = self.insert(rhs, Some(rhs_proj), None);
 
                 // create the merge node
-                let dst = self.insert(Node::Merge { lhs, rhs });
-                (dst, lhs_map)
+                let node = WipNode::new(NodeInput::Merge { lhs, rhs });
+
+                // return the node and its variable map
+                (node, lhs_map)
             }
             Join { lhs, rhs } => {
                 // add the nodes for each branch
@@ -304,36 +352,17 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                     }
                 }
 
-                // project nodes
-                let lhs = self.insert_project(lhs, lhs_proj);
-                let rhs = self.insert_project(rhs, rhs_proj);
+                // store projected nodes
+                let lhs = self.insert(lhs, Some(lhs_proj), None);
+                let rhs = self.insert(rhs, Some(rhs_proj), None);
 
                 // create the join node
-                let dst = self.insert(Node::Join { lhs, rhs, num });
-                (dst, joined)
+                let node = WipNode::new(NodeInput::Join { lhs, rhs, num });
+
+                // return the node and its map
+                (node, joined)
             }
         }
-    }
-
-    /// Optionally inserts a project node if needed.
-    pub fn insert_project(&mut self, src: Key<Node>, map: Vec<usize>) -> Key<Node> {
-        // if the map does not swizzle, just return the source key
-        if map.iter().copied().enumerate().all(|(idx, var)| idx == var) {
-            return src;
-        }
-
-        // otherwise, insert new project node
-        self.insert(Node::Project {
-            src,
-            map: map.into(),
-        })
-    }
-
-    /// Inserts a new node, returning its key.
-    pub fn insert(&mut self, node: Node) -> Key<Node> {
-        let key = Key::new(&node);
-        self.nodes.insert(node);
-        key
     }
 }
 
@@ -364,5 +393,21 @@ pub fn map_variables(expr: ir::Expr, map: &IndexSet<u32>) -> ir::Expr {
                 .collect(),
         },
         other => other,
+    }
+}
+
+pub struct WipNode {
+    pub input: NodeInput,
+    pub push: Vec<Expr>,
+    pub filter: Vec<Expr>,
+}
+
+impl WipNode {
+    pub fn new(input: NodeInput) -> Self {
+        Self {
+            input,
+            push: vec![],
+            filter: vec![],
+        }
     }
 }
