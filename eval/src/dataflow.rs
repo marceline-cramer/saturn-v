@@ -132,20 +132,15 @@ pub fn backend(
             let join_gates = joined.flat_map(value);
 
             // collect all node input tuples and do logic
-            let node_contents = join
-                .concat(&source)
-                .join_core(&nodes.arrange_by_key(), node_logic);
-
-            // project operation on node contents
             // TODO: make a wrapper trait for distinct() on Arranged instead
             // of using distinct() here when tuples get arranged next iteration
-            let project = nodes
-                .map(|(key, node)| (key, node.project))
-                .join_map(&node_contents, project)
+            let node_contents = join
+                .concat(&source)
+                .join_core(&nodes.arrange_by_key(), node_logic)
                 .distinct();
 
-            // write projected node outputs to tuples
-            tuples.set_concat(&project).inspect(inspect("tuple"));
+            // write node contents outputs to tuples
+            tuples.set_concat(&node_contents).inspect(inspect("tuple"));
 
             // filter output facts from all facts
             let outputs = facts_arranged
@@ -333,16 +328,6 @@ pub fn join(
     ((*dst, tuple), gate)
 }
 
-pub fn project(dst: &Key<Node>, map: &Option<IndexList>, tuple: &Tuple) -> (Key<Node>, Tuple) {
-    let Some(map) = map.as_ref() else {
-        return (*dst, tuple.clone());
-    };
-
-    let condition = tuple.condition;
-    let values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
-    (*dst, Tuple { values, condition })
-}
-
 pub fn load_mask(
     relation: &Key<Relation>,
     mask: &LoadMask,
@@ -454,22 +439,26 @@ pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, 
 }
 
 pub fn node_logic(dst: &Key<Node>, tup: &Tuple, node: &Node) -> Option<(Key<Node>, Tuple)> {
-    let mut tup = tup.clone();
-    tup.values.reserve(node.push.len());
+    let mut tuple = tup.clone();
+    tuple.values.reserve(node.push.len());
 
     for expr in node.push.iter() {
-        tup.values.push(eval_expr(&tup.values, expr));
+        tuple.values.push(eval_expr(&tuple.values, expr));
     }
 
     for expr in node.filter.iter() {
-        match eval_expr(&tup.values, expr) {
+        match eval_expr(&tuple.values, expr) {
             Value::Boolean(false) => return None,
             Value::Boolean(true) => {}
             other => panic!("unexpected filter value: {other:?}"),
         }
     }
 
-    Some((*dst, tup))
+    if let Some(map) = node.project.as_ref() {
+        tuple.values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
+    }
+
+    Some((*dst, tuple))
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
