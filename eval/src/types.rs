@@ -50,7 +50,7 @@ pub struct ConstraintGroup {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Tuple {
-    pub values: Values,
+    pub values: FixedValues,
     pub condition: Option<Condition>,
 }
 
@@ -192,20 +192,6 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn store_relation(self) -> Option<(Key<Relation>, StoreHead)> {
-        match self.output {
-            Some(NodeOutput::Relation { dst, head }) => Some((dst, head)),
-            _ => None,
-        }
-    }
-
-    pub fn constraint_src(self) -> Option<IndexList> {
-        match self.output {
-            Some(NodeOutput::Constraint { head, .. }) => Some(head),
-            _ => None,
-        }
-    }
-
     pub fn constraint_type(self) -> Option<(ConstraintWeight, ConstraintKind)> {
         match self.output {
             Some(NodeOutput::Constraint { weight, kind, .. }) => Some((weight, kind)),
@@ -324,6 +310,9 @@ pub enum NodeOutput {
 
         /// The map from destination variables or values to relation elements.
         head: StoreHead,
+
+        /// The kind of relation this is storing to.
+        kind: RelationKind,
     },
 
     /// Stores a node's output tuples as a constraint.

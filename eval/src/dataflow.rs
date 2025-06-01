@@ -27,13 +27,14 @@ use differential_dataflow::{
     Collection, Data, ExchangeData,
 };
 use saturn_v_ir::*;
+use serde::{Deserialize, Serialize};
 use timely::{communication::Allocator, dataflow::Scope, order::Product, worker::Worker};
 use tracing::{event, Level};
 
 use crate::{
     types::{
-        Condition, ConstraintGroup, Fact, FixedValues, Gate, IndexList, LoadHead, LoadMask, Node,
-        NodeInput, NodeSource, Relation, StoreHead, Tuple, Values,
+        Condition, ConstraintGroup, Fact, FixedValues, Gate, LoadHead, LoadMask, Node, NodeInput,
+        NodeOutput, NodeSource, Relation, Tuple, Values,
     },
     utils::*,
 };
@@ -132,15 +133,14 @@ pub fn backend(
             let join_gates = joined.flat_map(value);
 
             // collect all node input tuples and do logic
-            // TODO: make a wrapper trait for distinct() on Arranged instead
-            // of using distinct() here when tuples get arranged next iteration
             let node_contents = join
                 .concat(&source)
-                .join_core(&nodes.arrange_by_key(), node_logic)
-                .distinct();
+                .join_core(&nodes.arrange_by_key(), node_logic);
 
             // write node contents outputs to tuples
-            tuples.set_concat(&node_contents).inspect(inspect("tuple"));
+            tuples
+                .set_concat(&node_contents.flat_map(NodeResult::node))
+                .inspect(inspect("tuple"));
 
             // filter output facts from all facts
             let outputs = facts_arranged
@@ -149,29 +149,26 @@ pub fn backend(
                 .inspect(inspect("output"));
 
             // store tuples to corresponding relations
-            let stored = nodes
-                .flat_map(map_value(Node::store_relation))
-                .map(|(src, (dst, head))| (dst, (src, head)))
-                .join_core(&relations_arranged, |dst, (src, head), relation| {
-                    Some((*src, (*dst, head.clone(), relation.kind)))
-                })
-                .join_core(&tuples_arranged, |_, dst, val| [store(dst, val)]);
+            let stored = node_contents.flat_map(NodeResult::store);
 
-            // the keys of stored contain facts to give to next iteration
-            let store = stored.map(key).map(Fact::relation_pair);
+            // extract facts to give to next iteration
+            // TODO: make a wrapper trait for distinct() on Arranged instead
+            // of using distinct() here when facts get arranged next iteration
+            let store = stored.map(key).distinct().map(Fact::relation_pair);
             facts.set_concat(&store).inspect(inspect("facts"));
 
+            // collect implications to build conditional gates with
+            let implies = stored.flat_map(|(fact, (kind, cond))| {
+                kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
+            });
+
             // collect constraint groups
-            let constraints = nodes
-                .flat_map(map_value(Node::constraint_src))
-                .join_core(&tuples_arranged, |node, dst, tup| {
-                    [constraint_map(node, dst, tup)]
-                });
+            let constraints = node_contents.flat_map(NodeResult::constraint);
 
             // return outputs of all extended collections
             (
                 join_gates.leave(),
-                stored.flat_map(value).leave(),
+                implies.leave(),
                 outputs.leave(),
                 constraints.leave(),
             )
@@ -307,7 +304,7 @@ pub fn join(
     lhs: &Tuple,
     rhs: &Tuple,
 ) -> ((Key<Node>, Tuple), Option<Gate>) {
-    let values: Values = prefix
+    let values: FixedValues = prefix
         .iter()
         .chain(lhs.values.iter())
         .chain(rhs.values.iter())
@@ -361,34 +358,10 @@ pub fn load(kind: &RelationKind, fact: &Key<Fact>, tail: &FixedValues) -> Tuple 
         RelationKind::Basic => None,
     };
 
-    let values = tail.to_vec();
-    Tuple { values, condition }
-}
-
-pub fn store(
-    (relation, head, kind): &(Key<Relation>, StoreHead, RelationKind),
-    tuple: &Tuple,
-) -> (Fact, Option<((Key<Fact>, bool), Option<Condition>)>) {
-    let values = head
-        .iter()
-        .map(|term| match term {
-            QueryTerm::Value(val) => val.clone(),
-            QueryTerm::Variable(idx) => tuple.values[*idx as usize].clone(),
-        })
-        .collect();
-
-    let relation = *relation;
-    let fact = Fact { relation, values };
-
-    let is_decision = match kind {
-        RelationKind::Basic => None,
-        RelationKind::Conditional => Some(false),
-        RelationKind::Decision => Some(true),
-    };
-
-    let link = is_decision.map(|is_decision| ((Key::new(&fact), is_decision), tuple.condition));
-
-    (fact, link)
+    Tuple {
+        values: tail.clone(),
+        condition,
+    }
 }
 
 pub fn base_conditional(
@@ -438,16 +411,16 @@ pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, 
     }
 }
 
-pub fn node_logic(dst: &Key<Node>, tup: &Tuple, node: &Node) -> Option<(Key<Node>, Tuple)> {
-    let mut tuple = tup.clone();
-    tuple.values.reserve(node.push.len());
+pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeResult> {
+    let mut values: Vec<_> = tuple.values.iter().cloned().collect();
+    values.reserve(node.push.len());
 
     for expr in node.push.iter() {
-        tuple.values.push(eval_expr(&tuple.values, expr));
+        values.push(eval_expr(&values, expr));
     }
 
     for expr in node.filter.iter() {
-        match eval_expr(&tuple.values, expr) {
+        match eval_expr(&values, expr) {
             Value::Boolean(false) => return None,
             Value::Boolean(true) => {}
             other => panic!("unexpected filter value: {other:?}"),
@@ -455,10 +428,86 @@ pub fn node_logic(dst: &Key<Node>, tup: &Tuple, node: &Node) -> Option<(Key<Node
     }
 
     if let Some(map) = node.project.as_ref() {
-        tuple.values = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
+        values = map.iter().map(|idx| values[*idx].clone()).collect();
     }
 
-    Some((*dst, tuple))
+    let kind = match node.output.as_ref() {
+        None => NodeResultKind::Node {
+            dst: *dst,
+            values: values.into(),
+        },
+        Some(NodeOutput::Relation { dst, head, kind }) => {
+            let kind = match kind {
+                RelationKind::Basic => None,
+                RelationKind::Conditional => Some(false),
+                RelationKind::Decision => Some(true),
+            };
+
+            let values = head
+                .iter()
+                .map(|term| match term {
+                    QueryTerm::Value(val) => val.clone(),
+                    QueryTerm::Variable(idx) => values[*idx as usize].clone(),
+                })
+                .collect();
+
+            let fact = Fact {
+                relation: *dst,
+                values,
+            };
+
+            NodeResultKind::Store { fact, kind }
+        }
+        Some(NodeOutput::Constraint { head, .. }) => NodeResultKind::Constraint {
+            dst: *dst,
+            head: head.iter().map(|idx| values[*idx].clone()).collect(),
+        },
+    };
+
+    Some(NodeResult {
+        cond: tuple.condition,
+        kind,
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
+pub struct NodeResult {
+    pub cond: Option<Condition>,
+    pub kind: NodeResultKind,
+}
+
+impl NodeResult {
+    pub fn node(self) -> Option<(Key<Node>, Tuple)> {
+        match self.kind {
+            NodeResultKind::Node { dst, values } => {
+                let condition = self.cond;
+                let tuple = Tuple { values, condition };
+                Some((dst, tuple))
+            }
+            _ => None,
+        }
+    }
+
+    pub fn store(self) -> Option<(Fact, (Option<bool>, Option<Condition>))> {
+        match self.kind {
+            NodeResultKind::Store { fact, kind } => Some((fact, (kind, self.cond))),
+            _ => None,
+        }
+    }
+
+    pub fn constraint(self) -> Option<((Key<Node>, FixedValues), Option<Condition>)> {
+        match self.kind {
+            NodeResultKind::Constraint { dst, head } => Some(((dst, head), self.cond)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
+pub enum NodeResultKind {
+    Node { dst: Key<Node>, values: FixedValues },
+    Store { fact: Fact, kind: Option<bool> },
+    Constraint { dst: Key<Node>, head: FixedValues },
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
@@ -517,17 +566,8 @@ pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
     }
 }
 
-pub fn constraint_map(
-    dst: &Key<Node>,
-    map: &IndexList,
-    tuple: &Tuple,
-) -> ((Key<Node>, Values), Option<Condition>) {
-    let key = map.iter().map(|idx| tuple.values[*idx].clone()).collect();
-    ((*dst, key), tuple.condition)
-}
-
 pub fn constraint_reduce(
-    _key: &(Key<Node>, Values),
+    _key: &(Key<Node>, FixedValues),
     input: &[(&Option<Condition>, Diff)],
     output: &mut Vec<(Vec<Condition>, Diff)>,
 ) {

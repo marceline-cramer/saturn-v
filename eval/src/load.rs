@@ -183,10 +183,14 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
             });
         }
 
+        // fetch the relation to load
+        let relation = self.relations.get(relation).unwrap();
+
         // make the node output to a relation
         let output = NodeOutput::Relation {
-            dst: Key::new(self.relations.get(relation).unwrap()),
+            dst: Key::new(relation),
             head: head.into(),
+            kind: relation.kind,
         };
 
         // store the node
