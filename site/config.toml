@@ -25,12 +25,12 @@ show_author = true
 
 
 [[extra.menu]]
-name = "blog"
+name = "Blog"
 url = "blog"
 trailing_slash = true
 
 [[extra.menu]]
-name = "github"
+name = "GitHub"
 url = "https://github.com/marceline-cramer/saturn-v"
 trailing_slash = false
 
