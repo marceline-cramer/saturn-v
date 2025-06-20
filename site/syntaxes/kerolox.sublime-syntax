@@ -1,0 +1,72 @@
+%YAML 1.2
+---
+
+name: Kerolox
+file_extensions: [rp1]
+scope: source.kerolox
+
+contexts:
+  ignore:
+    - match: \b
+    - match: "[0-9]+"
+      scope: constant.numeric
+    - match: ";.*\\n"
+      scope: comment.line
+  main:
+    - include: ignore
+    - match: define
+      scope: keyword.control
+      push: define
+    - match: "[A-Z][A-Za-z]*"
+      scope: constant.language
+      push: pattern
+    - match: constrain
+      scope: keyword.control
+  define:
+    - include: ignore
+    - match: (output|decision)
+      scope: keyword.control
+    - match: "[A-Z][A-Za-z]*"
+      scope: constant.language
+      set: type
+  type:
+    - include: ignore
+    - match: \w
+      scope: storage.type
+    - match: "\\,"
+      scope: punctuation.separator
+    - match: \(
+      scope: meta.parens
+      push: type
+    - match: \)
+      scope: meta.parens
+      pop: true
+    - match: \.
+      scope: punctuation.terminator
+      pop: true
+  pattern:
+    - include: ignore
+    - match: "[A-Z][A-Za-z]*"
+      scope: constant.language
+    - match: "[a-z][A-Za-z]*"
+      scope: variable.parameter
+    - match: "\\,"
+      scope: punctuation.separator
+    - match: \(
+      scope: punctuation.bracket
+      push: type
+    - match: \)
+      scope: punctuation.bracket
+      pop: true
+    - match: "\\."
+      scope: punctuation.terminator
+      pop: true
+    - match: ":-"
+      scope: support
+      pop: rule_body
+  rule_body:
+    - match: "\\,"
+      scope: punctuation.separator
+    - match: "\\."
+      scope: punctuation.terminator
+      pop: true
