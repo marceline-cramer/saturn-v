@@ -14,15 +14,16 @@ theme = "tabi"
 [markdown]
 highlight_code = true
 highlight_theme = "css"
+extra_syntaxes_and_themes = ["syntaxes"]
 
 [extra]
-override_serif_with_sans = true
+# override_serif_with_sans = true
 favicon_emoji = "🪐"
 show_previous_next_article_links = true
 copy_button = true
 feed_icon = true
 show_author = true
-
+stylesheets = ["css/custom.css"]
 
 [[extra.menu]]
 name = "Blog"
