@@ -32,7 +32,7 @@ use arbitrary::Arbitrary;
 pub mod sexp;
 pub mod validate;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 #[cfg_attr(
     feature = "fuzz",
@@ -190,7 +190,7 @@ pub enum CardinalityConstraintKind {
     Only,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Relation<R> {
     /// The relation's type.
@@ -231,7 +231,7 @@ pub enum RelationKind {
     Decision,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Rule<R> {
     /// Maps from the variables in the filter to query terms to store in the
