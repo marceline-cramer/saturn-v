@@ -21,6 +21,8 @@ use saturn_v_ir::{
     sexp::{self, Doc, Sexp, Token},
     Instruction, RuleBody,
 };
+use thread_local::ThreadLocal;
+use tracing::{debug, trace};
 
 pub type RelationTable<R> = IndexSet<R>;
 
@@ -30,12 +32,18 @@ pub static EGGLOG_LOWER_SRC: &str = include_str!("lower.egg");
 
 /// Initilizes an e-graph loaded with the lowering code.
 pub fn init_lower_egraph() -> EGraph {
-    // TODO: memoize this despite egraph not being sync
-    let mut graph = EGraph::default();
-    graph
-        .parse_and_run_program(None, EGGLOG_LOWER_SRC)
-        .expect("failed to load check.egg");
-    graph
+    static BASE_EGRAPH: ThreadLocal<EGraph> = ThreadLocal::new();
+
+    BASE_EGRAPH
+        .get_or(|| {
+            let mut graph = EGraph::default();
+            graph
+                .parse_and_run_program(None, EGGLOG_LOWER_SRC)
+                .expect("failed to load check.egg");
+            graph.rebuild_nofail();
+            graph
+        })
+        .clone()
 }
 
 /// Defines the egglog representation to lower a rule body.
@@ -57,6 +65,8 @@ pub fn extract_rule_body<R>(name: &str, rule: &RuleBody<R>) -> String {
         .render_fmt(FORMAT_WIDTH, &mut out)
         .unwrap();
 
+    trace!("extracting rule body: {out}");
+
     out
 }
 
@@ -65,10 +75,13 @@ pub fn lower_rule_body<R>(rule: RuleBody<R>) -> RuleBody<R> {
     let name = "test_rule";
     let extract = extract_rule_body(name, &rule);
 
+    let start = std::time::Instant::now();
     let mut egg = init_lower_egraph();
     let msgs = egg.parse_and_run_program(None, &extract).unwrap();
+    debug!("lowered rule body in {:?}", start.elapsed());
 
     let output = &msgs[0];
+    trace!("output of egglog: {output}");
 
     // lexing should never fail
     let tokens = Token::lexer()

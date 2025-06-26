@@ -6,8 +6,10 @@ license.workspace = true
 
 [dependencies]
 chumsky.workspace = true
-egglog = "0.4"
+egglog = "0.5"
 indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
 saturn-v-ir.workspace = true
+thread_local = "1.1.9"
+tracing.workspace = true
