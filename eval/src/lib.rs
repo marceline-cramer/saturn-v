@@ -16,10 +16,11 @@
 
 use std::collections::HashMap;
 
-use dataflow::DataflowRouters;
+use flume::Receiver;
 use load::Loader;
 use solve::Solver;
-use utils::{run_pumps, Key};
+use types::*;
+use utils::{run_pumps, InputRouter, InputSource, Key, OutputRouter, Update};
 
 pub mod dataflow;
 pub mod load;
@@ -52,25 +53,13 @@ pub async fn run(loader: Loader<String>) {
         .map(|rel| (Key::new(rel), rel.formatting.clone()))
         .collect();
 
-    let mut relations = routers.relations_in.into_source();
-    let mut facts = routers.facts_in.into_source();
-    let mut nodes = routers.nodes_in.into_source();
+    let (mut inputs, mut solver, output_rx) = routers.split();
 
-    loader.add_to_dataflow(&mut relations, &mut facts, &mut nodes);
+    loader.add_to_dataflow(&mut inputs);
 
-    relations.forget();
-    facts.forget();
-    nodes.forget();
-
-    let (output_tx, output_rx) = flume::unbounded();
-
-    let mut solver = Solver::new(
-        routers.conditional_out.into_sink(),
-        routers.gates_out.into_sink(),
-        routers.constraints_out.into_sink(),
-        routers.outputs_out.into_sink(),
-        output_tx,
-    );
+    inputs.relations.forget();
+    inputs.facts.forget();
+    inputs.nodes.forget();
 
     assert_eq!(solver.step().await, Some(true), "failed to run solver");
 
@@ -92,4 +81,43 @@ pub async fn run(loader: Loader<String>) {
 
         println!();
     }
+}
+
+#[derive(Clone, Default)]
+pub struct DataflowRouters {
+    pub relations_in: InputRouter<Relation>,
+    pub facts_in: InputRouter<Fact>,
+    pub nodes_in: InputRouter<Node>,
+    pub conditional_out: OutputRouter<(Key<Fact>, Option<Condition>)>,
+    pub gates_out: OutputRouter<Gate>,
+    pub constraints_out: OutputRouter<ConstraintGroup>,
+    pub outputs_out: OutputRouter<Fact>,
+}
+
+impl DataflowRouters {
+    pub fn split(self) -> (DataflowInputs, Solver, Receiver<Update<Fact>>) {
+        let inputs = DataflowInputs {
+            relations: self.relations_in.into_source(),
+            facts: self.facts_in.into_source(),
+            nodes: self.nodes_in.into_source(),
+        };
+
+        let (output_tx, output_rx) = flume::unbounded();
+
+        let solver = Solver::new(
+            self.conditional_out.into_sink(),
+            self.gates_out.into_sink(),
+            self.constraints_out.into_sink(),
+            self.outputs_out.into_sink(),
+            output_tx,
+        );
+
+        (inputs, solver, output_rx)
+    }
+}
+
+pub struct DataflowInputs {
+    pub relations: InputSource<Relation>,
+    pub facts: InputSource<Fact>,
+    pub nodes: InputSource<Node>,
 }

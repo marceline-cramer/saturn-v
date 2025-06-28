@@ -37,6 +37,7 @@ use crate::{
         NodeOutput, NodeSource, Relation, Tuple, Values,
     },
     utils::*,
+    DataflowRouters,
 };
 
 pub fn backend(
@@ -274,17 +275,6 @@ where
 
     // return both node source and relation source tuples
     node.concat(&relation)
-}
-
-#[derive(Clone, Default)]
-pub struct DataflowRouters {
-    pub relations_in: InputRouter<Relation>,
-    pub facts_in: InputRouter<Fact>,
-    pub nodes_in: InputRouter<Node>,
-    pub conditional_out: OutputRouter<(Key<Fact>, Option<Condition>)>,
-    pub gates_out: OutputRouter<Gate>,
-    pub constraints_out: OutputRouter<ConstraintGroup>,
-    pub outputs_out: OutputRouter<Fact>,
 }
 
 pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>, Values), Tuple) {

@@ -246,19 +246,13 @@ pub struct InputSource<T> {
 
 impl<T> Drop for InputSource<T> {
     fn drop(&mut self) {
-        let mut any = false;
-        for item in self.items.drain() {
-            let _ = self.tx.send(Update::Push(item, false));
-            any = true;
-        }
-
-        if any {
-            let _ = self.tx.send(Update::Flush);
+        if self.clear() {
+            self.flush();
         }
     }
 }
 
-impl<T: Clone + Eq + Hash> InputSource<T> {
+impl<T> InputSource<T> {
     pub fn add_source(&self) -> Self {
         Self {
             tx: self.tx.clone(),
@@ -266,6 +260,26 @@ impl<T: Clone + Eq + Hash> InputSource<T> {
         }
     }
 
+    pub fn clear(&mut self) -> bool {
+        let mut any = false;
+        for item in self.items.drain() {
+            let _ = self.tx.send(Update::Push(item, false));
+            any = true;
+        }
+
+        any
+    }
+
+    pub fn flush(&self) {
+        let _ = self.tx.send(Update::Flush);
+    }
+
+    pub fn forget(&mut self) {
+        self.items.clear();
+    }
+}
+
+impl<T: Clone + Eq + Hash> InputSource<T> {
     pub fn insert(&mut self, item: T) -> bool {
         if self.items.insert(item.clone()) {
             let _ = self.tx.send(Update::Push(item, true));
@@ -282,14 +296,6 @@ impl<T: Clone + Eq + Hash> InputSource<T> {
         } else {
             false
         }
-    }
-
-    pub fn flush(&self) {
-        let _ = self.tx.send(Update::Flush);
-    }
-
-    pub fn forget(&mut self) {
-        self.items.clear();
     }
 }
 

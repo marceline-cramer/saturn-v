@@ -26,7 +26,8 @@ use tracing::debug;
 
 use crate::{
     types::{Fact, Node, NodeInput, NodeOutput, NodeSource, Relation},
-    utils::{InputSource, Key},
+    utils::Key,
+    DataflowInputs,
 };
 
 pub type VariableMap = IndexSet<u32>;
@@ -64,12 +65,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     }
 
     /// Inserts the contents of this loader into dataflow inputs.
-    pub fn add_to_dataflow(
-        self,
-        relations: &mut InputSource<Relation>,
-        facts: &mut InputSource<Fact>,
-        nodes: &mut InputSource<Node>,
-    ) {
+    pub fn add_to_dataflow(self, inputs: &mut DataflowInputs) {
         // display statistics
         debug!(
             relations = self.relations.len(),
@@ -79,18 +75,18 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         );
 
         for relation in self.relations.into_values() {
-            relations.insert(relation);
+            inputs.relations.insert(relation);
         }
 
         for fact in self.facts {
-            facts.insert(fact);
+            inputs.facts.insert(fact);
         }
 
         for node in self.nodes {
-            nodes.insert(node);
+            inputs.nodes.insert(node);
         }
 
-        nodes.flush();
+        inputs.nodes.flush();
     }
 
     /// Creates a new loader with the given set of indexed relations.
