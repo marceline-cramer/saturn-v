@@ -5,6 +5,7 @@ date = 2025-06-14
 authors = ["Marceline Cramer"]
 
 [extra]
+giscus = true
 pinned = true
 +++
 

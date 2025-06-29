@@ -3,6 +3,9 @@ title = "Why free software?"
 description = "I *could* sell it, but I'm not going to until it's ethical to."
 date = 2025-06-15
 authors = ["Marceline Cramer"]
+
+[extra]
+giscus = true
 +++
 
 # tl;dr

@@ -12,6 +12,7 @@ title = "Saturn V"
 theme = "tabi"
 
 [markdown]
+bottom_footnotes = true
 highlight_code = true
 highlight_theme = "css"
 extra_syntaxes_and_themes = ["syntaxes"]
@@ -24,6 +25,14 @@ copy_button = true
 feed_icon = true
 show_author = true
 stylesheets = ["css/custom.css"]
+invert_previous_next_article_links = true
+mermaid = true
+footnote_backlinks = true
+
+[[extra.menu]]
+name = "Docs"
+url = "docs"
+trailing_slash = true
 
 [[extra.menu]]
 name = "Blog"
@@ -36,7 +45,7 @@ url = "https://github.com/marceline-cramer/saturn-v"
 trailing_slash = false
 
 [extra.giscus]
-enabled_for_all_posts = true
+enabled_for_all_posts = false
 automatic_loading = true
 lazy_loading = true
 repo = "marceline-cramer/saturn-v"
