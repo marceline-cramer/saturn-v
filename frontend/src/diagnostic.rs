@@ -23,7 +23,7 @@ use std::{
 };
 
 use ariadne::{Color, Label, Report, ReportKind};
-use lsp_types::{Diagnostic as LspDiagnostic, DiagnosticRelatedInformation};
+use lsp_types::Diagnostic as LspDiagnostic;
 use salsa::{Accumulator, Database};
 
 use crate::{
@@ -88,28 +88,24 @@ pub trait BasicDiagnostic: DynEq + UnwindSafe + Send + Sync + 'static {
 
 impl<T: BasicDiagnostic> Diagnostic for T {
     fn to_lsp(&self, db: &dyn Database) -> Vec<(File, LspDiagnostic)> {
-        let notes = self
-            .notes()
-            .into_iter()
-            .map(|note| DiagnosticRelatedInformation {
-                location: lsp_types::Location {
-                    uri: note.ast.file(db).url(db).clone(),
-                    range: note.ast.span(db).into(),
-                },
-                message: note.inner,
-            })
-            .collect();
-
-        let d = LspDiagnostic {
+        let message = LspDiagnostic {
             range: ast_span(db, self.range()).into(),
             severity: Some(self.kind().into()),
             source: self.source(),
             message: self.message(),
-            related_information: Some(notes),
             ..Default::default()
         };
 
-        vec![(self.range().start.file(db), d)]
+        let notes = self.notes().into_iter().map(|note| LspDiagnostic {
+            range: ast_span(db, note.ast..note.ast).into(),
+            severity: Some(lsp_types::DiagnosticSeverity::HINT),
+            source: self.source(),
+            message: note.inner,
+            ..Default::default()
+        });
+
+        let file = self.range().start.file(db);
+        notes.chain([message]).map(|d| (file, d)).collect()
     }
 
     fn to_ariadne(&self, db: &dyn Database) -> Vec<Report<'_, ReportSpan>> {
