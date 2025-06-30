@@ -161,10 +161,10 @@ pub fn constraint_inlay_hints<'db>(
 
     // provide type inlay hints for each variable
     let mut typed = typed.body(db).table(db).clone();
-    for (name, ast) in vars {
+    for (name, refs) in vars {
         let ty = typed.lookup(&TypeKey::Variable(name.clone()));
         let msg = format!(": {}", ty.to_naive());
-        hints.push((ast, msg));
+        hints.push((*refs.first().unwrap(), msg));
     }
 
     // return the completed list
@@ -189,16 +189,16 @@ pub fn rule_inlay_hints<'db>(
 
     // first, provide inlay hints for each head
     let mut typed_head = typed.head_table(db).clone();
-    for (name, ast) in vars.head.iter() {
+    for (name, refs) in vars.head.iter() {
         let ty = typed_head.lookup(&TypeKey::Variable(name.clone()));
         let msg = format!(": {}", ty.to_naive());
-        hints.push((*ast, msg));
+        hints.push((*refs.first().unwrap(), msg));
     }
 
     // provide inlay hints for each body
     for (body, typed) in vars.bodies.into_iter().zip(typed.bodies(db)) {
         let mut typed_body = typed.table(db).to_owned().clone();
-        for (name, ast) in body {
+        for (name, refs) in body {
             // do not label head variables twice
             if vars.head.contains_key(&name) {
                 continue;
@@ -206,7 +206,7 @@ pub fn rule_inlay_hints<'db>(
 
             let ty = typed_body.lookup(&TypeKey::Variable(name.clone()));
             let msg = format!(": {}", ty.to_naive());
-            hints.push((ast, msg));
+            hints.push((*refs.first().unwrap(), msg));
         }
     }
 

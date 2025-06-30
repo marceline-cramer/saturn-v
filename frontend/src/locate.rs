@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use salsa::{Database, Update};
 
@@ -82,9 +82,9 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // no type definition for now
     let ty_def = None;
 
-    // get the location of the entity's definition
-    let def = match e.kind(db) {
-        EntityKind::Relation(def) => Some(def.ast(db)),
+    // get the location of the entity's references
+    let references = match e.kind(db) {
+        EntityKind::Relation(def) => vec![def.ast(db)],
         EntityKind::Variable { name, scope } => match scope {
             Scope::Constraint(constraint) => constraint_vars(db, *constraint),
             Scope::Rule { rule, body } => {
@@ -96,15 +96,22 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
             }
         }
         .get(name)
-        .copied(),
-        _ => None,
+        .cloned()
+        .unwrap_or_default(),
+        _ => vec![],
     };
 
-    // no references for now
-    let references = HashSet::new();
+    // the definition is the first reference, if available
+    let def = references.first().cloned();
 
-    // no implementations for now
-    let implementations = HashSet::new();
+    // get the locations of the entity's implementations
+    let implementations = match e.kind(db) {
+        EntityKind::Relation(rel) => relation_rules(db, *rel)
+            .into_iter()
+            .map(|rule| rule.relation(db).ast)
+            .collect(),
+        _ => BTreeSet::new(),
+    };
 
     // initialize the final entity info
     EntityInfo {
@@ -119,7 +126,7 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Update)]
+#[derive(Clone, PartialEq, Eq, Hash, Update)]
 pub struct EntityInfo {
     /// A description of the kind of entity this is.
     pub kind: String,
@@ -140,10 +147,10 @@ pub struct EntityInfo {
     pub def: Option<AstNode>,
 
     /// Every reference to this entity.
-    pub references: HashSet<AstNode>,
+    pub references: Vec<AstNode>,
 
     /// Every implementation of this entity.
-    pub implementations: HashSet<AstNode>,
+    pub implementations: BTreeSet<AstNode>,
 }
 
 /// Locates an [Entity] at a given position in a source file.
@@ -436,22 +443,29 @@ pub enum Scope<'db> {
 pub fn constraint_vars<'db>(
     db: &'db dyn Database,
     constraint: AbstractConstraint<'db>,
-) -> BTreeMap<String, AstNode> {
+) -> VariableMap {
     // load all of the body's variables
     let mut vars = rule_body_vars(db, constraint.body(db));
 
-    // overwrite variables with definitions from the head
+    // push variables with definitions from the head to the front of variable references
     // run in reverse so that duplicate variables are ordered left-first
     // technically an error but this code should do something about it
-    for var in constraint.head(db).iter().rev() {
-        if vars.insert(var.inner.clone(), var.ast).is_none() {
-            // if this variable is not found within the body, throw an error
+    for var in constraint.head(db).iter() {
+        // look up the entry in the body for this variable
+        let entry = vars.entry(var.inner.clone());
+
+        // if this variable is not found within the body, throw an error
+        use std::collections::btree_map::Entry;
+        if let Entry::Vacant(_) = &entry {
             UnboundVariable {
                 at: var.clone(),
                 body: constraint.body(db).ast(db),
             }
             .accumulate(db);
         }
+
+        // add the variable definition to the def maps
+        entry.or_default().insert(0, var.ast);
     }
 
     // return the complete variables
@@ -462,7 +476,7 @@ pub fn constraint_vars<'db>(
 #[salsa::tracked]
 pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> VariableDefinitions {
     // parse each variable occurrence within the head pattern
-    let mut head = BTreeMap::new();
+    let mut head: VariableMap = BTreeMap::new();
     let mut stack = vec![rule.head(db)];
     while let Some(pat) = stack.pop() {
         use Pattern::*;
@@ -470,7 +484,7 @@ pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Variabl
             Tuple(els) => stack.extend(els.iter().rev()),
             Value(_) => {}
             Variable(name) => {
-                head.entry(name.clone()).or_insert(pat.ast);
+                head.entry(name.clone()).or_default().push(pat.ast);
             }
         }
     }
@@ -484,15 +498,33 @@ pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Variabl
 
     // merge head variable definitions into each body's variables
     for body in bodies.iter_mut() {
-        for (var, ast) in head.iter() {
-            if body.inner.insert(var.clone(), *ast).is_none() {
-                // if this variable is not found within the body, throw an error
-                UnboundVariable {
-                    at: ast.with(var.to_string()),
-                    body: body.ast,
+        for (var, asts) in head.iter_mut() {
+            // look up the entry in the body for this variable
+            let entry = body.inner.entry(var.clone());
+
+            // if this variable is not found within the body, throw an error
+            use std::collections::btree_map::Entry;
+            let is_unbound = matches!(entry, Entry::Vacant(_));
+
+            // create the base head variable map
+            let entry = entry.or_default();
+
+            // add each head binding to this variable to the map
+            for ast in asts.iter() {
+                if is_unbound {
+                    UnboundVariable {
+                        at: ast.with(var.to_string()),
+                        body: body.ast,
+                    }
+                    .accumulate(db);
                 }
-                .accumulate(db);
+
+                // add the variable definition to the body's var map
+                entry.insert(0, *ast);
             }
+
+            // add all of the body's definitions to the head
+            asts.extend(entry.iter().copied());
         }
     }
 
@@ -508,12 +540,9 @@ pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> Variabl
 /// Notice that this tracks the first occurrence of each variable within a rule
 /// body and does not care whether the variable is used in the rule's head.
 #[salsa::tracked]
-pub fn rule_body_vars<'db>(
-    db: &'db dyn Database,
-    body: AbstractRuleBody<'db>,
-) -> BTreeMap<String, AstNode> {
+pub fn rule_body_vars<'db>(db: &'db dyn Database, body: AbstractRuleBody<'db>) -> VariableMap {
     // track the map of variables to nodes
-    let mut vars = BTreeMap::new();
+    let mut vars: VariableMap = BTreeMap::new();
 
     // track each expression to look within, in last-to-first order
     let mut stack = body.clauses(db).clone();
@@ -528,7 +557,7 @@ pub fn rule_body_vars<'db>(
             Tuple(els) => stack.extend(els.iter().rev()),
             Value(_) => {}
             Variable(name) => {
-                vars.entry(name).or_insert_with(|| expr.ast(db));
+                vars.entry(name).or_default().push(expr.ast(db));
             }
             BinaryOp { lhs, rhs, .. } => {
                 // push rhs first because it is popped last
@@ -552,11 +581,14 @@ pub fn rule_body_vars<'db>(
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
 pub struct VariableDefinitions {
     /// Variable definitions within the head of the rule.
-    pub head: BTreeMap<String, AstNode>,
+    pub head: VariableMap,
 
     /// Variable definitions within each body of the rule.
-    pub bodies: Vec<BTreeMap<String, AstNode>>,
+    pub bodies: Vec<VariableMap>,
 }
+
+/// Maps a variable's name to the location of each of its references.
+pub type VariableMap = BTreeMap<String, Vec<AstNode>>;
 
 /// Tracks if a relation is conditional or not.
 #[salsa::tracked]

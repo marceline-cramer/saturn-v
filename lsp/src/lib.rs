@@ -26,7 +26,10 @@ use saturn_v_frontend::{
 use tokio::sync::Mutex;
 use tower_lsp::{
     jsonrpc::{Error, Result},
-    lsp_types::*,
+    lsp_types::{
+        request::{GotoImplementationParams, GotoImplementationResponse},
+        *,
+    },
     Client, LanguageServer,
 };
 use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
@@ -137,6 +140,7 @@ impl LanguageServer for LspBackend {
                 references_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                implementation_provider: Some(ImplementationProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Default::default(),
@@ -238,6 +242,35 @@ impl LanguageServer for LspBackend {
             .def
             .map(|ast| ast.location(db.as_dyn_database()))
             .map(GotoDefinitionResponse::Scalar))
+    }
+
+    async fn goto_implementation(
+        &self,
+        params: GotoImplementationParams,
+    ) -> Result<Option<GotoImplementationResponse>> {
+        let ed = self
+            .get_file_params(&params.text_document_position_params)
+            .await?;
+
+        let db = self.db.lock().await;
+        let at = params.text_document_position_params.position.into();
+
+        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+            return Ok(None);
+        };
+
+        let info = entity_info(db.as_dyn_database(), e);
+
+        if info.implementations.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(GotoDefinitionResponse::Array(
+            info.implementations
+                .into_iter()
+                .map(|ast| ast.location(db.as_dyn_database()))
+                .collect(),
+        )))
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
