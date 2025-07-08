@@ -20,7 +20,7 @@ use ropey::Rope;
 use salsa::{AsDynDatabase, Setter};
 use saturn_v_frontend::{
     file_inlay_hints,
-    locate::{entity_info, locate_entity},
+    locate::{entity, entity_info},
     toplevel::{AstNode, Children, Db, File, Point, Span, Workspace},
 };
 use tokio::sync::Mutex;
@@ -232,7 +232,7 @@ impl LanguageServer for LspBackend {
         let db = self.db.lock().await;
         let at = params.text_document_position_params.position.into();
 
-        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+        let Some(e) = entity(db.as_dyn_database(), ed.file, at) else {
             return Ok(None);
         };
 
@@ -255,7 +255,7 @@ impl LanguageServer for LspBackend {
         let db = self.db.lock().await;
         let at = params.text_document_position_params.position.into();
 
-        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+        let Some(e) = entity(db.as_dyn_database(), ed.file, at) else {
             return Ok(None);
         };
 
@@ -278,7 +278,7 @@ impl LanguageServer for LspBackend {
         let db = self.db.lock().await;
         let at = params.text_document_position.position.into();
 
-        let Some(e) = locate_entity(db.as_dyn_database(), ed.file, at) else {
+        let Some(e) = entity(db.as_dyn_database(), ed.file, at) else {
             return Ok(None);
         };
 

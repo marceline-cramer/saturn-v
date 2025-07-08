@@ -418,8 +418,8 @@ impl<'db> TypeTable<'db> {
         rhs: &WithAst<TableType<'db>>,
     ) -> bool {
         // fully apply type substitutions of sides
-        let lhs = lhs.with(self.apply(&lhs));
-        let rhs = rhs.with(self.apply(&rhs));
+        let lhs = lhs.with(self.apply(lhs));
+        let rhs = rhs.with(self.apply(rhs));
 
         // recursively unify
         use TableType::*;

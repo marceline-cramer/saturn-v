@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use diagnostic::DynDiagnostic;
 use infer::TypeKey;
-use locate::{entity_info, locate_entity};
+use locate::{entity, entity_info};
 use parse::{AbstractConstraint, AbstractRule};
 use salsa::Database;
 use toplevel::{AstNode, File, Point, Span, Workspace};
@@ -27,6 +27,7 @@ pub mod desugar;
 pub mod diagnostic;
 pub mod infer;
 pub mod locate;
+pub mod lookup;
 pub mod lower;
 pub mod parse;
 pub mod resolve;
@@ -56,13 +57,13 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
         for (_name, rules) in parse::file_rules(db, *file) {
             for rule in rules {
                 infer::typed_rule(db, rule);
-                locate::rule_vars(db, rule);
+                lookup::rule_vars(db, rule);
             }
         }
 
         for constraint in parse::file_constraints(db, *file) {
             infer::typed_constraint(db, constraint);
-            locate::constraint_vars(db, constraint);
+            lookup::constraint_vars(db, constraint);
         }
     }
 }
@@ -70,7 +71,7 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
 #[salsa::tracked]
 pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)> {
     // locate the entity
-    let e = locate_entity(db, file, at)?;
+    let e = entity(db, file, at)?;
 
     // get the entity's info
     let info = entity_info(db, e);
@@ -157,7 +158,7 @@ pub fn constraint_inlay_hints<'db>(
     let typed = infer::typed_constraint(db, constraint);
 
     // retrieve the variables in the constraint
-    let vars = locate::constraint_vars(db, constraint);
+    let vars = lookup::constraint_vars(db, constraint);
 
     // provide type inlay hints for each variable
     let mut typed = typed.body(db).table(db).clone();
@@ -185,7 +186,7 @@ pub fn rule_inlay_hints<'db>(
     };
 
     // retrieve the variables in the rule
-    let vars = locate::rule_vars(db, rule);
+    let vars = lookup::rule_vars(db, rule);
 
     // first, provide inlay hints for each head
     let mut typed_head = typed.head_table(db).clone();

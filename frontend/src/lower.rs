@@ -26,7 +26,7 @@ use crate::{
         infer_resolved_relation_type, typed_constraint, typed_rule, NaiveType, TypedConstraint,
         TypedRule,
     },
-    locate::relation_is_conditional,
+    lookup::relation_is_conditional,
     parse::{file_constraints, file_rules, Pattern, RelationDefinition},
     resolve::resolve_relation_type,
     toplevel::{AstNode, File, Workspace},

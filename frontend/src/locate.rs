@@ -14,13 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use salsa::{Database, Update};
 
 use crate::{
-    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
+    lookup,
     parse::*,
     resolve::{file_unresolved_types, resolve_relation_type, Unresolved},
     toplevel::{AstNode, File, Point},
@@ -86,9 +86,9 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     let references = match e.kind(db) {
         EntityKind::Relation(def) => vec![def.ast(db)],
         EntityKind::Variable { name, scope } => match scope {
-            Scope::Constraint(constraint) => constraint_vars(db, *constraint),
+            Scope::Constraint(constraint) => lookup::constraint_vars(db, *constraint),
             Scope::Rule { rule, body } => {
-                let vars = rule_vars(db, *rule);
+                let vars = lookup::rule_vars(db, *rule);
                 match *body {
                     Some(idx) => vars.bodies.get(idx).unwrap().clone(),
                     None => vars.head.clone(),
@@ -106,7 +106,7 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
 
     // get the locations of the entity's implementations
     let implementations = match e.kind(db) {
-        EntityKind::Relation(rel) => relation_rules(db, *rel)
+        EntityKind::Relation(rel) => lookup::relation_rules(db, *rel)
             .into_iter()
             .map(|rule| rule.relation(db).ast)
             .collect(),
@@ -155,7 +155,7 @@ pub struct EntityInfo {
 
 /// Locates an [Entity] at a given position in a source file.
 #[salsa::tracked]
-pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
+pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
     // scan all top-level items of the file
     for (kind, nodes) in file_item_ast(db, file) {
         for ast in nodes {
@@ -164,15 +164,15 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
                     ItemKind::Import => Some(Entity::new(db, ast, EntityKind::Import(ast))),
                     ItemKind::Definition => {
                         let def = parse_relation_def(db, ast);
-                        locate_definition(db, def, at)
+                        definition(db, def, at)
                     }
                     ItemKind::Rule => {
                         let def = parse_rule(db, ast);
-                        locate_rule(db, def, at)
+                        rule(db, def, at)
                     }
                     ItemKind::Constraint => {
                         let def = parse_constraint(db, ast);
-                        locate_constraint(db, def, at)
+                        constraint(db, def, at)
                     }
                 };
             }
@@ -189,7 +189,7 @@ pub fn locate_entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<
 
 /// Locates an entity within a relation definition.
 #[salsa::tracked]
-pub fn locate_definition<'db>(
+pub fn definition<'db>(
     db: &'db dyn Database,
     def: RelationDefinition<'db>,
     at: Point,
@@ -201,7 +201,7 @@ pub fn locate_definition<'db>(
 
     // locate within the abstract type
     if def.ty(db).ast.span(db).contains(at) {
-        return locate_resolved_type(db, def.ty(db), at);
+        return resolved_type(db, def.ty(db), at);
     }
 
     // otherwise, no entity could be located
@@ -209,7 +209,7 @@ pub fn locate_definition<'db>(
 }
 
 /// Locates an entity within an abstract type.
-pub fn locate_resolved_type<'db>(
+pub fn resolved_type<'db>(
     db: &'db dyn Database,
     ty: &WithAst<AbstractType>,
     at: Point,
@@ -218,7 +218,7 @@ pub fn locate_resolved_type<'db>(
         AbstractType::Tuple(els) => {
             for el in els.iter() {
                 if el.ast.span(db).contains(at) {
-                    return locate_resolved_type(db, el, at);
+                    return resolved_type(db, el, at);
                 }
             }
 
@@ -236,11 +236,7 @@ pub fn locate_resolved_type<'db>(
 
 /// Locates an entity within a rule.
 #[salsa::tracked]
-pub fn locate_rule<'db>(
-    db: &'db dyn Database,
-    def: AbstractRule<'db>,
-    at: Point,
-) -> Option<Entity<'db>> {
+pub fn rule<'db>(db: &'db dyn Database, def: AbstractRule<'db>, at: Point) -> Option<Entity<'db>> {
     // if the relation of the rule is hovered, find its definition entity
     let relation = def.relation(db);
     if relation.ast.span(db).contains(at) {
@@ -262,7 +258,7 @@ pub fn locate_rule<'db>(
                 body: Some(idx),
             };
 
-            return locate_rule_body(db, scope, *body, at);
+            return rule_body(db, scope, *body, at);
         }
     }
 
@@ -301,7 +297,7 @@ pub fn locate_pattern<'db>(
 
 /// Locates an entity within a constraint.
 #[salsa::tracked]
-pub fn locate_constraint<'db>(
+pub fn constraint<'db>(
     db: &'db dyn Database,
     def: AbstractConstraint<'db>,
     at: Point,
@@ -322,12 +318,12 @@ pub fn locate_constraint<'db>(
 
     // locate within the rule body
     let scope = Scope::Constraint(def);
-    locate_rule_body(db, scope, def.body(db), at)
+    rule_body(db, scope, def.body(db), at)
 }
 
 /// Locates an entity within a rule body.
 #[salsa::tracked]
-pub fn locate_rule_body<'db>(
+pub fn rule_body<'db>(
     db: &'db dyn Database,
     scope: Scope<'db>,
     def: AbstractRuleBody<'db>,
@@ -336,7 +332,7 @@ pub fn locate_rule_body<'db>(
     // simply iterate over each clause and locate within one that contains the cursor
     for clause in def.clauses(db).iter() {
         if clause.ast(db).span(db).contains(at) {
-            return locate_expr(db, scope, *clause, at);
+            return expr(db, scope, *clause, at);
         }
     }
 
@@ -346,36 +342,34 @@ pub fn locate_rule_body<'db>(
 
 /// Locates an entity within an expression.
 #[salsa::tracked]
-pub fn locate_expr<'db>(
+pub fn expr<'db>(
     db: &'db dyn Database,
     scope: Scope<'db>,
-    expr: Expr<'db>,
+    expr_data: Expr<'db>,
     at: Point,
 ) -> Option<Entity<'db>> {
     // if this expression's span does not contain the point, return no entity
     // this is the base case for recursive expressions
-    if !expr.ast(db).span(db).contains(at) {
+    if !expr_data.ast(db).span(db).contains(at) {
         return None;
     }
 
     // select based on instruction kind
-    match expr.kind(db) {
+    match expr_data.kind(db) {
         // find the first tuple element that locates an entity
-        ExprKind::Tuple(els) => els
-            .into_iter()
-            .find_map(|el| locate_expr(db, scope, el, at)),
+        ExprKind::Tuple(els) => els.into_iter().find_map(|el| expr(db, scope, el, at)),
         // variables are base case entities
         ExprKind::Variable(name) => Some(Entity::new(
             db,
-            expr.ast(db),
+            expr_data.ast(db),
             EntityKind::Variable { scope, name },
         )),
         // recursively attempt to locate within each branch of a binary operator
         ExprKind::BinaryOp { lhs, rhs, .. } => {
-            locate_expr(db, scope, lhs, at).or_else(|| locate_expr(db, scope, rhs, at))
+            expr(db, scope, lhs, at).or_else(|| expr(db, scope, rhs, at))
         }
         // passthru unary operators
-        ExprKind::UnaryOp { term, .. } => locate_expr(db, scope, term, at),
+        ExprKind::UnaryOp { term, .. } => expr(db, scope, term, at),
         // attempt to locate head first, then body otherwise
         ExprKind::Atom { head, body } => {
             if head.ast.span(db).contains(at) {
@@ -383,7 +377,7 @@ pub fn locate_expr<'db>(
                 def.map(EntityKind::Relation)
                     .map(|kind| Entity::new(db, head.ast, kind))
             } else {
-                locate_expr(db, scope, body, at)
+                expr(db, scope, body, at)
             }
         }
         // TODO: primitive entities?
@@ -436,284 +430,4 @@ pub enum Scope<'db> {
         /// The *specific* index of the rule body this variable is defined in, if any.
         body: Option<usize>,
     },
-}
-
-/// Tracks the variable definitions within a constraint.
-#[salsa::tracked]
-pub fn constraint_vars<'db>(
-    db: &'db dyn Database,
-    constraint: AbstractConstraint<'db>,
-) -> VariableMap {
-    // load all of the body's variables
-    let mut vars = rule_body_vars(db, constraint.body(db));
-
-    // push variables with definitions from the head to the front of variable references
-    // run in reverse so that duplicate variables are ordered left-first
-    // technically an error but this code should do something about it
-    for var in constraint.head(db).iter() {
-        // look up the entry in the body for this variable
-        let entry = vars.entry(var.inner.clone());
-
-        // if this variable is not found within the body, throw an error
-        use std::collections::btree_map::Entry;
-        if let Entry::Vacant(_) = &entry {
-            UnboundVariable {
-                at: var.clone(),
-                body: constraint.body(db).ast(db),
-            }
-            .accumulate(db);
-        }
-
-        // add the variable definition to the def maps
-        entry.or_default().insert(0, var.ast);
-    }
-
-    // return the complete variables
-    vars
-}
-
-/// Tracks the [VariableDefinitions] within a rule.
-#[salsa::tracked]
-pub fn rule_vars<'db>(db: &'db dyn Database, rule: AbstractRule<'db>) -> VariableDefinitions {
-    // parse each variable occurrence within the head pattern
-    let mut head: VariableMap = BTreeMap::new();
-    let mut stack = vec![rule.head(db)];
-    while let Some(pat) = stack.pop() {
-        use Pattern::*;
-        match pat.as_ref() {
-            Tuple(els) => stack.extend(els.iter().rev()),
-            Value(_) => {}
-            Variable(name) => {
-                head.entry(name.clone()).or_default().push(pat.ast);
-            }
-        }
-    }
-
-    // find variable definitions from each body
-    let mut bodies: Vec<_> = rule
-        .bodies(db)
-        .iter()
-        .map(|body| body.ast(db).with(rule_body_vars(db, *body)))
-        .collect();
-
-    // merge head variable definitions into each body's variables
-    for body in bodies.iter_mut() {
-        for (var, asts) in head.iter_mut() {
-            // look up the entry in the body for this variable
-            let entry = body.inner.entry(var.clone());
-
-            // if this variable is not found within the body, throw an error
-            use std::collections::btree_map::Entry;
-            let is_unbound = matches!(entry, Entry::Vacant(_));
-
-            // create the base head variable map
-            let entry = entry.or_default();
-
-            // add each head binding to this variable to the map
-            for ast in asts.iter() {
-                if is_unbound {
-                    UnboundVariable {
-                        at: ast.with(var.to_string()),
-                        body: body.ast,
-                    }
-                    .accumulate(db);
-                }
-
-                // add the variable definition to the body's var map
-                entry.insert(0, *ast);
-            }
-
-            // add all of the body's definitions to the head
-            asts.extend(entry.iter().copied());
-        }
-    }
-
-    // remove ASTs from bodies
-    let bodies = bodies.into_iter().map(|body| body.inner).collect();
-
-    // return the complete definitions
-    VariableDefinitions { head, bodies }
-}
-
-/// Tracks the variable definitions within a rule body.
-///
-/// Notice that this tracks the first occurrence of each variable within a rule
-/// body and does not care whether the variable is used in the rule's head.
-#[salsa::tracked]
-pub fn rule_body_vars<'db>(db: &'db dyn Database, body: AbstractRuleBody<'db>) -> VariableMap {
-    // track the map of variables to nodes
-    let mut vars: VariableMap = BTreeMap::new();
-
-    // track each expression to look within, in last-to-first order
-    let mut stack = body.clauses(db).clone();
-
-    // flip clauses so that first clauses are popped first
-    stack.reverse();
-
-    // iterate through all expressions
-    while let Some(expr) = stack.pop() {
-        use ExprKind::*;
-        match expr.kind(db) {
-            Tuple(els) => stack.extend(els.iter().rev()),
-            Value(_) => {}
-            Variable(name) => {
-                vars.entry(name).or_default().push(expr.ast(db));
-            }
-            BinaryOp { lhs, rhs, .. } => {
-                // push rhs first because it is popped last
-                stack.push(rhs);
-                stack.push(lhs);
-            }
-            UnaryOp { term, .. } => {
-                stack.push(term);
-            }
-            Atom { body, .. } => {
-                stack.push(body);
-            }
-        }
-    }
-
-    // return the complete map
-    vars
-}
-
-/// Tracks the locations of each variable within a rule.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
-pub struct VariableDefinitions {
-    /// Variable definitions within the head of the rule.
-    pub head: VariableMap,
-
-    /// Variable definitions within each body of the rule.
-    pub bodies: Vec<VariableMap>,
-}
-
-/// Maps a variable's name to the location of each of its references.
-pub type VariableMap = BTreeMap<String, Vec<AstNode>>;
-
-/// Tracks if a relation is conditional or not.
-#[salsa::tracked]
-pub fn relation_is_conditional<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> bool {
-    relation_indirect_deps(db, rel)
-        .into_iter()
-        .any(|dep| dep.is_decision(db))
-}
-
-/// Enumerates every indirect relation definition of a relation.
-#[salsa::tracked]
-pub fn relation_indirect_deps<'db>(
-    db: &'db dyn Database,
-    rel: RelationDefinition<'db>,
-) -> BTreeSet<RelationDefinition<'db>> {
-    // maintain the set of deps
-    let mut deps = BTreeSet::new();
-
-    // keep a stack of relations to search
-    let mut stack = vec![rel];
-
-    // repeatedly iterate until all relations are found
-    while let Some(rel) = stack.pop() {
-        // get all direct deps of this relation
-        let direct = relation_direct_deps(db, rel);
-
-        // further search all new direct deps
-        // avoids cycles by tracking repeat insertion
-        for dep in direct {
-            if deps.insert(dep) {
-                stack.push(dep);
-            }
-        }
-    }
-
-    // return the complete set of deps
-    deps
-}
-
-/// Enumerates every direct relation definition of a relation.
-#[salsa::tracked]
-pub fn relation_direct_deps<'db>(
-    db: &'db dyn Database,
-    rel: RelationDefinition<'db>,
-) -> BTreeSet<RelationDefinition<'db>> {
-    relation_rules(db, rel)
-        .into_iter()
-        .flat_map(|rule| rule.bodies(db).clone())
-        .flat_map(|body| rule_body_relations(db, body))
-        .collect()
-}
-
-/// Finds every rule implementing a relation.
-#[salsa::tracked]
-pub fn relation_rules<'db>(
-    db: &'db dyn Database,
-    rel: RelationDefinition<'db>,
-) -> BTreeSet<AbstractRule<'db>> {
-    // iterate every possible rule in the workspace
-    let mut rules = BTreeSet::new();
-    for file in rel.ast(db).file(db).workspace(db).files(db).values() {
-        for ast in file_item_kind_ast(db, *file, ItemKind::Rule) {
-            let rule = parse_rule(db, ast);
-            if Some(rel) == file_relation(db, *file, rule.relation(db)) {
-                rules.insert(rule);
-            }
-        }
-    }
-
-    // return the complete list of rules
-    rules
-}
-
-/// Retrieves the set of relations used by a rule body.
-#[salsa::tracked]
-pub fn rule_body_relations<'db>(
-    db: &'db dyn Database,
-    body: AbstractRuleBody<'db>,
-) -> BTreeSet<RelationDefinition<'db>> {
-    // iterate over each expression
-    let mut relations = BTreeSet::new();
-    let mut stack = body.clauses(db).clone();
-    while let Some(expr) = stack.pop() {
-        use ExprKind::*;
-        match expr.kind(db) {
-            Tuple(els) => stack.extend(els),
-            BinaryOp { lhs, rhs, .. } => stack.extend([lhs, rhs]),
-            UnaryOp { term, .. } => stack.push(term),
-            Atom { head, body } => {
-                let file = head.ast.file(db);
-                relations.extend(file_relation(db, file, head));
-                stack.push(body);
-            }
-            _ => {}
-        }
-    }
-
-    // return the complete set
-    relations
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct UnboundVariable {
-    pub at: WithAst<String>,
-    pub body: AstNode,
-}
-
-impl BasicDiagnostic for UnboundVariable {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.at.ast..self.at.ast
-    }
-
-    fn message(&self) -> String {
-        format!("variable {} is not bound by rule body", self.at)
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
-    }
-
-    fn notes(&self) -> Vec<WithAst<String>> {
-        vec![self.body.with("the rule body in question".to_string())]
-    }
 }
