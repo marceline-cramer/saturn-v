@@ -34,12 +34,12 @@ use tracing::{debug, span, Level};
 pub type Oracle = rustsat_batsat::BasicSolver;
 
 use crate::{
-    types::{Condition, ConstraintGroup, Fact, Gate},
+    types::{Condition, ConditionalLink, ConstraintGroup, Fact, Gate},
     utils::{Key, OutputSink, Update},
 };
 
 pub struct Solver {
-    conditional_sink: OutputSink<(Key<Fact>, Option<Condition>)>,
+    conditional_sink: OutputSink<(Key<Fact>, ConditionalLink)>,
     gates_sink: OutputSink<Gate>,
     constraints_sink: OutputSink<ConstraintGroup>,
     outputs_sink: OutputSink<Fact>,
@@ -49,7 +49,7 @@ pub struct Solver {
 
 impl Solver {
     pub fn new(
-        conditional_sink: OutputSink<(Key<Fact>, Option<Condition>)>,
+        conditional_sink: OutputSink<(Key<Fact>, ConditionalLink)>,
         gates_sink: OutputSink<Gate>,
         constraints_sink: OutputSink<ConstraintGroup>,
         outputs_sink: OutputSink<Fact>,
@@ -218,7 +218,7 @@ impl Model {
     /// Returns the list of outputs that have been disabled and removed.
     pub fn update(
         &mut self,
-        conditional: Vec<((Key<Fact>, Option<Condition>), bool)>,
+        conditional: Vec<((Key<Fact>, ConditionalLink), bool)>,
         gates: Vec<(Gate, bool)>,
         constraints: Vec<(ConstraintGroup, bool)>,
         outputs: Vec<(Fact, bool)>,
@@ -303,7 +303,7 @@ impl Model {
     /// updated and encoded with their guard variable.
     pub fn update_conditional(
         &mut self,
-        conditional: Vec<((Key<Fact>, Option<Condition>), bool)>,
+        conditional: Vec<((Key<Fact>, ConditionalLink), bool)>,
     ) -> Vec<(Var, Condition, Condition)> {
         // split update batch
         let (conditional_insert, conditional_remove) = split_batch(conditional);
@@ -325,7 +325,7 @@ impl Model {
         // track which links need to be built
         let mut links = Vec::with_capacity(conditional_insert.len());
         log_time("inserting new conditionals", || {
-            for (fact, cond) in conditional_insert.iter() {
+            for (fact, link) in conditional_insert.iter() {
                 let key = Condition::Fact(*fact);
 
                 // recycle an output variable for a removed conditional if possible
@@ -339,9 +339,16 @@ impl Model {
                 // insert the encoding
                 self.conditions.insert(key, EncodedGate { guard, output });
 
-                // if the conditional has a condition, link the condition
-                if let Some(cond) = cond {
-                    links.push((guard, key, *cond));
+                match link {
+                    // if the conditional has a condition, link the condition
+                    ConditionalLink::Link(cond) => links.push((guard, key, *cond)),
+                    // if unconditionally true, make the guard force the conditional
+                    ConditionalLink::Unconditional => self
+                        .oracle
+                        .add_binary(guard.pos_lit(), output.pos_lit())
+                        .unwrap(),
+                    // if the conditional is unbound, do nothing
+                    ConditionalLink::Free => {}
                 }
             }
         });

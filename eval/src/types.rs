@@ -342,3 +342,15 @@ pub struct Relation {
     /// The formatting segments to display this relation.
     pub formatting: Arc<[String]>,
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub enum ConditionalLink {
+    /// The conditional is unconditionally true.
+    Unconditional,
+
+    /// The conditional is unbound by any conditions.
+    Free,
+
+    /// The condiitonal is linked to a condition.
+    Link(Condition),
+}

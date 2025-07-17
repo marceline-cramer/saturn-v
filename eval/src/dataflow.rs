@@ -33,8 +33,8 @@ use tracing::{event, Level};
 
 use crate::{
     types::{
-        Condition, ConstraintGroup, Fact, FixedValues, Gate, LoadHead, LoadMask, Node, NodeInput,
-        NodeOutput, NodeSource, Relation, Tuple, Values,
+        Condition, ConditionalLink, ConstraintGroup, Fact, FixedValues, Gate, LoadHead, LoadMask,
+        Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
     },
     utils::*,
     DataflowRouters,
@@ -186,14 +186,14 @@ pub fn backend(
         // find base conditional facts to add to all outgoing conditionals
         let base_conditional = facts
             .join_core(&relations.arrange_by_key(), base_conditional)
+            .inspect(inspect("base conditional"))
             .map(|fact| (fact, None));
 
         // conditional facts make gates out of their dependent conditions
         let conditional = implies
             .concat(&base_conditional)
             .reduce(conditional_gate)
-            .inspect(inspect("conditional"))
-            .map(|((fact, _is_decision), gate)| (fact, gate));
+            .inspect(inspect("conditional gate"));
 
         // extend gates with conditional gates
         let gates = conditional
@@ -202,8 +202,19 @@ pub fn backend(
             .inspect(inspect("gate"));
 
         // extract conditions from conditional gates
-        let conditional = conditional
-            .map(|(fact, gate)| (fact, gate.map(|gate| Condition::Gate(Key::new(&gate)))));
+        let conditional = conditional.map(|((fact, is_decision), gate)| {
+            match (is_decision, gate) {
+                // unconditional decisions remain free
+                (true, None) => (fact, ConditionalLink::Free),
+                // unlinked non-decision conditions are unconditional
+                (false, None) => (fact, ConditionalLink::Unconditional),
+                // for either type of conditional, link gate
+                (_, Some(gate)) => (
+                    fact,
+                    ConditionalLink::Link(Condition::Gate(Key::new(&gate))),
+                ),
+            }
+        });
 
         // return inputs and outputs
         (
