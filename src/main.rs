@@ -52,7 +52,7 @@ pub enum Command {
 async fn main() {
     let args = Args::parse();
 
-    let fmt_layer = tracing_subscriber::fmt::layer();
+    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
 
     let env_filter = tracing_subscriber::EnvFilter::builder()
         .with_env_var("SATURN_V_LOG")
