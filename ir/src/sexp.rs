@@ -266,7 +266,13 @@ impl Sexp for Value {
 
         let integer = parse_list("Integer", Token::integer()).map(Value::Integer);
 
-        boolean.or(integer)
+        let symbol = parse_list(
+            "Symbol",
+            Token::item().delimited_by(just(Token::Quote), just(Token::Quote)),
+        )
+        .map(Value::Symbol);
+
+        boolean.or(integer).or(symbol)
     }
 }
 
@@ -275,6 +281,7 @@ impl Sexp for Value {
 pub enum Token {
     LParen,
     RParen,
+    Quote,
     Item(String),
     Integer(i64),
     Real(OrderedFloat<f64>),
@@ -285,6 +292,7 @@ impl Token {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
+        let quote = just("\"").to(Token::Quote);
 
         // integer
         let int = just('-')
@@ -314,6 +322,7 @@ impl Token {
         // any of the above options (padded with whitespace)
         lparen
             .or(rparen)
+            .or(quote)
             .or(int)
             .or(item)
             .recover_with(skip_then_retry_until([]))
