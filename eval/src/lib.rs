@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use flume::Receiver;
 use load::Loader;
+use saturn_v_ir::StructuredType;
 use solve::Solver;
 use types::*;
 use utils::{run_pumps, InputRouter, InputSource, Key, OutputRouter, Update};
@@ -47,10 +48,10 @@ pub async fn run(loader: Loader<String>) {
 
     std::thread::spawn(move || drop(workers));
 
-    let formatting: HashMap<_, _> = loader
+    let rels: HashMap<_, _> = loader
         .relations
         .values()
-        .map(|rel| (Key::new(rel), rel.formatting.clone()))
+        .map(|rel| (Key::new(rel), rel.clone()))
         .collect();
 
     let (mut inputs, mut solver, output_rx) = routers.split();
@@ -71,7 +72,7 @@ pub async fn run(loader: Loader<String>) {
     outputs.sort();
 
     for output in outputs {
-        let mut format = formatting.get(&output.relation).unwrap().iter();
+        let mut rel = rels.get(&output.relation).unwrap();
 
         print!("{}", format.next().unwrap());
 
@@ -80,6 +81,56 @@ pub async fn run(loader: Loader<String>) {
         }
 
         println!();
+    }
+}
+
+/// Create formatting string segments out of a structured type.
+pub fn format(name: &str, ty: &StructuredType) -> Vec<String> {
+    // create the prefix for the format segments
+    let mut prefix = name.to_string();
+
+    // initialize the tuple with the root of the type
+    let mut stack = vec![];
+    match ty {
+        StructuredType::Tuple(els) => {
+            // recursively descend into this tuple
+            stack.extend(els.iter().rev())
+        }
+        StructuredType::Primitive(ty) => {
+            // add a character to separate the value from the name
+            prefix.push(' ');
+        }
+    }
+
+    // create the formatted string list
+    let mut formatted = vec![prefix];
+
+    // append the period to the formatted
+    formatted.last_mut().unwrap().push('.');
+
+    // return the completed formatting string
+    formatted
+}
+
+/// Returns whether a token has been newly pushed.
+pub fn format_naive(ty: &StructuredType, formatted: &mut Vec<String>) {
+    match ty {
+        StructuredType::Tuple(els) => {
+            formatted.last_mut().unwrap().push('(');
+
+            for (idx, el) in els.iter().enumerate() {
+                if idx != 0 {
+                    formatted.last_mut().unwrap().push_str(", ");
+                }
+
+                format_naive(el, formatted);
+            }
+
+            formatted.last_mut().unwrap().push(')');
+        }
+        StructuredType::Primitive(_) => {
+            formatted.push("".to_string());
+        }
     }
 }
 
