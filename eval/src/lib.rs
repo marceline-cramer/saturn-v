@@ -121,3 +121,11 @@ pub struct DataflowInputs {
     pub facts: InputSource<Fact>,
     pub nodes: InputSource<Node>,
 }
+
+impl DataflowInputs {
+    pub fn clear(&mut self) {
+        self.relations.clear();
+        self.facts.clear();
+        self.nodes.clear();
+    }
+}
