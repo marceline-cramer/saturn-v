@@ -28,7 +28,7 @@ use differential_dataflow::{
         implementations::{KeyBuilder, KeySpine},
         Cursor, TraceReader,
     },
-    Collection, Data, ExchangeData, Hashable, IntoOwned,
+    Collection, Data, ExchangeData, Hashable,
 };
 use flume::{Receiver, RecvError, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
@@ -353,7 +353,10 @@ impl<T: ExchangeData + Hashable> OutputRouter<T> {
         // inline of .distinct() in order to maintain only one arrangement
         let arranged = collection
             .arrange_by_self()
-            .reduce_abelian::<_, T, (), KeyBuilder<T, G::Timestamp, Diff>, KeySpine<T, G::Timestamp, Diff>>("distinct", |_k, _s, t| t.push(((), Diff::from(1i8))));
+            .reduce_abelian::<_, KeyBuilder<T, Time, Diff>, KeySpine<T, Time, Diff>>(
+                "distinct",
+                |_k, _s, t| t.push(((), Diff::from(1i8))),
+            );
 
         OutputSource {
             tx: self.tx.clone(),
@@ -387,9 +390,15 @@ struct TraceWrapper<T, Tr>(Tr, PhantomData<T>);
 
 impl<T, Tr> DynTrace<T> for TraceWrapper<T, Tr>
 where
-    Tr: TraceReader<Time = Time, Diff = Diff>,
-    for<'a> Tr::Key<'a>: IntoOwned<'a, Owned = T>,
-    for<'a> Tr::Val<'a>: IntoOwned<'a, Owned = ()>,
+    T: ToOwned<Owned = T>,
+    Tr: for<'a> TraceReader<
+        Time = Time,
+        Diff = Diff,
+        Key<'a> = &'a T,
+        Val<'a> = &'a (),
+        KeyOwn = T,
+        ValOwn = (),
+    >,
 {
     fn advance_to(&mut self, time: Time) {
         let frontier = [time];
@@ -400,7 +409,7 @@ where
 
     fn updates(&mut self) -> TraceUpdates<T> {
         let (mut cursor, storage) = self.0.cursor();
-        cursor.to_vec(&storage)
+        cursor.to_vec(&storage, ToOwned::to_owned, ToOwned::to_owned)
     }
 }
 
