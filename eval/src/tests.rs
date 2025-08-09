@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use saturn_v_ir::{
     self as ir, BinaryOpKind, CardinalityConstraintKind, Constraint, ConstraintKind,
-    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, RuleBody, Type,
-    Value,
+    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, RuleBody,
+    StructuredType, Type, Value,
 };
 
 use crate::{load::Loader, run};
@@ -29,8 +29,7 @@ async fn test_pick_one() {
     let mut program = Program::default();
 
     program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer],
-        formatting: vec!["Choice ".to_string(), ".".to_string()],
+        ty: StructuredType::Primitive(Type::Integer),
         store: "Choice".to_string(),
         facts: (1..=10).map(|idx| vec![Value::Integer(idx)]).collect(),
         kind: RelationKind::Decision,
@@ -64,8 +63,7 @@ async fn test_pick_pairs() {
     let mut program = Program::default();
 
     program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer],
-        formatting: vec!["Base ".to_string(), ".".to_string()],
+        ty: StructuredType::Primitive(Type::Integer),
         store: "Base".to_string(),
         facts: vec![vec![Value::Integer(0)]],
         kind: RelationKind::Basic,
@@ -99,8 +97,10 @@ async fn test_pick_pairs() {
     });
 
     program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer, Type::Integer],
-        formatting: vec!["Pair(".to_string(), ", ".to_string(), ").".to_string()],
+        ty: StructuredType::Tuple(vec![
+            StructuredType::Primitive(Type::Integer),
+            StructuredType::Primitive(Type::Integer),
+        ]),
         store: "Pair".to_string(),
         facts: vec![],
         kind: RelationKind::Decision,

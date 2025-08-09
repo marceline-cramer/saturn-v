@@ -129,7 +129,7 @@ impl<R: Clone + Eq + Hash> Program<R> {
 
 impl<R: Clone + Hash + Eq> Constraint<R> {
     /// Validates this constraint.
-    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<(), R> {
+    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<(), R> {
         // first, validate the rule body
         let assigned = self.body.validate(relations)?;
 
@@ -159,14 +159,17 @@ impl<R: Clone + Hash + Eq> Constraint<R> {
 
 impl<R: Clone + Eq + Hash> Relation<R> {
     /// Validates this relation.
-    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<(), R> {
+    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<(), R> {
+        // fetch what type we expect each element of this relation to be
+        let expected_ty = self.ty.flatten();
+
         // check that each fact matches this relation's type
         for fact in self.facts.iter() {
             let ty: Vec<_> = fact.iter().map(Value::ty).collect();
 
-            if ty != self.ty {
+            if ty != expected_ty {
                 return Err(ErrorKind::ExpectedTupleType {
-                    expected: self.ty.clone(),
+                    expected: expected_ty.clone(),
                     got: ty,
                 }
                 .into());
@@ -181,9 +184,9 @@ impl<R: Clone + Eq + Hash> Relation<R> {
                 .with_context(ErrorContext::Rule(idx))?;
 
             // check the type of the head against this relation
-            if ty != self.ty {
+            if ty != expected_ty {
                 return Err(ErrorKind::ExpectedTupleType {
-                    expected: self.ty.clone(),
+                    expected: expected_ty.clone(),
                     got: ty,
                 })
                 .with_context(ErrorContext::Rule(idx));
@@ -205,7 +208,7 @@ impl<R: Clone + Eq + Hash> Relation<R> {
 
 impl<R: Clone + Eq + Hash> Rule<R> {
     /// Validates this rule and returns the type of the head.
-    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<Vec<Type>, R> {
+    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<Vec<Type>, R> {
         // first, validate the rule body
         let assigned = self.body.validate(relations)?;
 
@@ -249,7 +252,7 @@ impl<R: Clone + Eq + Hash> Rule<R> {
 
 impl<R: Clone + Eq + Hash> RuleBody<R> {
     /// Validates this rule body, returning the set of assigned variables.
-    pub fn validate(&self, relations: &HashMap<R, Vec<Type>>) -> Result<HashSet<u32>, R> {
+    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<HashSet<u32>, R> {
         // first, confirm that all necessary variables are assigned
         let relations = validate_load_relations(relations, &self.loaded)?;
         let assigned = self.instructions.validate(&relations, &self.vars)?;
@@ -512,7 +515,7 @@ impl Expr {
 
 /// Retrieves the types of loaded relations by userdata.
 pub fn validate_load_relations<R: Clone + Eq + Hash>(
-    types: &HashMap<R, Vec<Type>>,
+    types: &HashMap<R, StructuredType>,
     relations: &[R],
 ) -> Result<Vec<Vec<Type>>, R> {
     let mut out = Vec::new();
@@ -534,7 +537,7 @@ pub fn validate_load_relations<R: Clone + Eq + Hash>(
             types
                 .get(relation)
                 .ok_or(ErrorKind::RelationNotFound(relation.clone()))?
-                .clone(),
+                .flatten(),
         );
     }
 

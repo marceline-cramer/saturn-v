@@ -102,10 +102,10 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                 (
                     rel.store.clone(),
                     Relation {
-                        discriminant: idx as u64,
+                        name: rel.store.to_string(),
+                        ty: rel.ty.clone(),
                         kind: rel.kind,
                         is_output: rel.is_output,
-                        formatting: rel.formatting.clone().into(),
                     },
                 )
             })

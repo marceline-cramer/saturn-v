@@ -16,7 +16,9 @@
 
 use std::sync::Arc;
 
-use saturn_v_ir::{ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationKind, Value};
+use saturn_v_ir::{
+    ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationKind, StructuredType, Value,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Key;
@@ -330,17 +332,17 @@ pub enum NodeOutput {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Relation {
-    /// Used to differentiate otherwise identically-defined relations.
-    pub discriminant: u64,
+    /// The unique name of this relation.
+    pub name: String,
+
+    /// The high-level type of the elements of this relation.
+    pub ty: StructuredType,
 
     /// The kind of relation this is.
     pub kind: RelationKind,
 
     /// If this relation is an output.
     pub is_output: bool,
-
-    /// The formatting segments to display this relation.
-    pub formatting: Arc<[String]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
