@@ -1,4 +1,8 @@
-on: push
+on:
+  push:
+    paths: [ "site/**" ]
+    branches: [ "main" ]
+
 name: Build and deploy GitHub Pages
 jobs:
   build:

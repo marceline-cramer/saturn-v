@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 bitvec = { version = "1", features = ["serde"] }
-differential-dataflow = "0.14"
+differential-dataflow = "0.16"
 flume = "0.11"
 futures-util = "0.3"
 indexmap.workspace = true
@@ -15,6 +15,6 @@ rustsat = "0.7.1"
 rustsat-batsat = "0.7.1"
 saturn-v-ir.workspace = true
 serde.workspace = true
-timely = "0.20"
+timely = "0.21"
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
