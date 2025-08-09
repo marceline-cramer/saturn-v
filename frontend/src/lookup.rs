@@ -273,7 +273,7 @@ pub fn relation_direct_deps<'db>(
     relation_rules(db, rel)
         .into_iter()
         .flat_map(|rule| rule.bodies(db).clone())
-        .flat_map(|body| rule_body_relations(db, body))
+        .flat_map(|body| rule_body_relations(db, body).into_keys())
         .collect()
 }
 
