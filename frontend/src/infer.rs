@@ -20,7 +20,7 @@ use std::{
 };
 
 use salsa::{Database, Update};
-use saturn_v_ir::BinaryOpCategory;
+use saturn_v_ir::{BinaryOpCategory, StructuredType};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
@@ -629,6 +629,19 @@ impl Display for NaiveType {
 }
 
 impl NaiveType {
+    /// Converts a naive type into an IR structured type. Returns `None` if there
+    /// is an unknown type.
+    pub fn to_structured(&self) -> Option<StructuredType> {
+        use NaiveType::*;
+        match self {
+            Tuple(els) => Some(StructuredType::Tuple(
+                els.iter().map(Self::to_structured).collect::<Option<_>>()?,
+            )),
+            Primitive(ty) => Some(StructuredType::Primitive(ty.clone().into())),
+            Unknown => None,
+        }
+    }
+
     /// Flattens a naive type into a series of literals. Returns `None` if there
     /// is an unknown type.
     pub fn flatten(&self) -> Option<Vec<PrimitiveType>> {
