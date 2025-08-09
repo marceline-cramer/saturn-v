@@ -616,7 +616,7 @@ impl Display for NaiveType {
                         write!(f, ", ")?;
                     }
 
-                    write!(f, "{}", el)?;
+                    write!(f, "{el}")?;
                     first = false;
                 }
 
