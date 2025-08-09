@@ -139,7 +139,7 @@ pub struct DataflowRouters {
     pub relations_in: InputRouter<Relation>,
     pub facts_in: InputRouter<Fact>,
     pub nodes_in: InputRouter<Node>,
-    pub conditional_out: OutputRouter<(Key<Fact>, Option<Condition>)>,
+    pub conditional_out: OutputRouter<(Key<Fact>, ConditionalLink)>,
     pub gates_out: OutputRouter<Gate>,
     pub constraints_out: OutputRouter<ConstraintGroup>,
     pub outputs_out: OutputRouter<Fact>,
