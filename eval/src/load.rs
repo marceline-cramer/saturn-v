@@ -97,15 +97,14 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     /// with multiple programs or node sources quite yet.
     fn new<'a>(relations: impl Iterator<Item = &'a ir::Relation<R>>) -> Self {
         let relations = relations
-            .enumerate()
-            .map(|(idx, rel)| {
+            .map(|rel| {
                 (
                     rel.store.clone(),
                     Relation {
                         name: rel.store.to_string(),
                         ty: rel.ty.clone(),
                         kind: rel.kind,
-                        is_output: rel.is_output,
+                        io: rel.io,
                     },
                 )
             })
