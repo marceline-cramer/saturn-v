@@ -229,6 +229,16 @@
           }
         ]
       },
+      "input": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "input",
+            "named": false
+          }
+        ]
+      },
       "output": {
         "multiple": false,
         "required": false,
@@ -721,6 +731,10 @@
   },
   {
     "type": "import",
+    "named": false
+  },
+  {
+    "type": "input",
     "named": false
   },
   {

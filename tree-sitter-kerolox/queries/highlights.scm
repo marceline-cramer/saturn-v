@@ -22,6 +22,7 @@
   "decision"
   "define"
   "import"
+  "input"
   "output"
   "soft"
 ] @keyword
