@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, error::Error, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use salsa::Setter;
@@ -43,9 +43,31 @@ pub enum Command {
 
     /// Runs a Kerolox source file.
     Run {
+        /// A path to a directory to load inputs from by default.
+        #[clap(long)]
+        input_path: Option<PathBuf>,
+
+        /// An explicit map of input relation names to data files (format: name=path).
+        #[clap(short, long, value_parser = parse_key_val::<String, PathBuf>)]
+        input: Vec<(String, PathBuf)>,
+
         /// The path to the source file.
         path: PathBuf,
     },
+}
+
+/// Parse a single key-value pair of arguments.
+fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr,
+    T::Err: Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
 }
 
 #[tokio::main]
@@ -83,7 +105,9 @@ async fn main() {
                 eprintln!("{err}");
             }
         }
-        Command::Run { path } => {
+        Command::Run { path, input, .. } => {
+            eprintln!("{input:#?}");
+
             let Some(program) = build_file(&path) else {
                 return;
             };
