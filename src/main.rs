@@ -106,8 +106,6 @@ async fn main() {
             }
         }
         Command::Run { path, input, .. } => {
-            eprintln!("{input:#?}");
-
             let Some(program) = build_file(&path) else {
                 return;
             };
