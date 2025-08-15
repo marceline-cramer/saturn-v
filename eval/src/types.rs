@@ -17,7 +17,8 @@
 use std::sync::Arc;
 
 use saturn_v_ir::{
-    ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationKind, StructuredType, Value,
+    ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationIO, RelationKind, StructuredType,
+    Value,
 };
 use serde::{Deserialize, Serialize};
 
@@ -341,8 +342,15 @@ pub struct Relation {
     /// The kind of relation this is.
     pub kind: RelationKind,
 
-    /// If this relation is an output.
-    pub is_output: bool,
+    /// The IO of this relation.
+    pub io: RelationIO,
+}
+
+impl Relation {
+    /// Helper function to test if this relation is an output.
+    pub fn is_output(&self) -> bool {
+        matches!(self.io, RelationIO::Output)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

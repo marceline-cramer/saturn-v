@@ -106,7 +106,7 @@ impl<R: Clone + Hash + Eq> Program<R> {
                 let relation = Relation {
                     ty: relation.ty,
                     kind: relation.kind,
-                    is_output: relation.is_output,
+                    io: relation.io,
                     facts: relation.facts,
                     store: cb(relation.store),
                     rules,
@@ -201,14 +201,27 @@ pub struct Relation<R> {
     /// The kind of relation this is.
     pub kind: RelationKind,
 
-    /// Whether or not this relation should be outputted.
-    pub is_output: bool,
+    /// The IO of this relation.
+    pub io: RelationIO,
 
     /// A list of facts initially stored by this relation.
     pub facts: Vec<Vec<Value>>,
 
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+pub enum RelationIO {
+    /// This relation does not interact with IO at all.
+    None,
+
+    /// This relation is an input relation.
+    Input,
+
+    /// This relation is an output relation.
+    Output,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

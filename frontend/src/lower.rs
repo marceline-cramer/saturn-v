@@ -79,7 +79,7 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
             store: typed.relation(db),
             facts: Vec::new(),
             rules: Vec::new(),
-            is_output: typed.relation(db).is_output(db),
+            io: typed.relation(db).io(db),
             kind,
             ty,
         });

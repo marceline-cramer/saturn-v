@@ -145,7 +145,7 @@ pub fn backend(
 
             // filter output facts from all facts
             let outputs = facts_arranged
-                .semijoin(&relations.filter(|(_key, rel)| rel.is_output).map(key))
+                .semijoin(&relations.filter(|(_key, rel)| rel.is_output()).map(key))
                 .map(value)
                 .inspect(inspect("output"));
 
