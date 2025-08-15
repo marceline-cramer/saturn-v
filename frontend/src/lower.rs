@@ -25,7 +25,7 @@ use crate::{
     infer::{
         infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
-    lookup::relation_is_conditional,
+    lookup::{relation_is_conditional, relation_stratum},
     parse::{file_constraints, file_rules, Pattern, RelationDefinition},
     resolve::resolve_relation_type,
     toplevel::{AstNode, File, Workspace},
@@ -80,6 +80,7 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
             facts: Vec::new(),
             rules: Vec::new(),
             is_output: typed.relation(db).is_output(db),
+            stratum: relation_stratum(db, typed.relation(db)),
             kind,
             ty,
         });

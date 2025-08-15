@@ -58,6 +58,18 @@ impl Sexp for Instruction {
             ),
             Merge { lhs, rhs } => doc_indent_two(Doc::text("Merge"), lhs.to_doc(), rhs.to_doc()),
             Join { lhs, rhs } => doc_indent_two(Doc::text("Join"), lhs.to_doc(), rhs.to_doc()),
+            Antijoin {
+                relation,
+                terms,
+                rest,
+            } => doc_indent_many(
+                Doc::text("Antijoin"),
+                [
+                    Doc::text(relation.to_string()),
+                    QueryTerm::to_doc(terms.iter()),
+                    rest.to_doc(),
+                ],
+            ),
         }
     }
 
@@ -97,12 +109,26 @@ impl Sexp for Instruction {
             let join = parse_list("Join", instr.clone().then(instr.clone()))
                 .map(|(lhs, rhs)| Join { lhs, rhs });
 
+            // antijoin
+            let antijoin = parse_list(
+                "Antijoin",
+                Token::unsigned()
+                    .then(QueryTerm::parser())
+                    .then(instr.clone()),
+            )
+            .map(|((relation, terms), rest)| Antijoin {
+                relation,
+                terms,
+                rest,
+            });
+
             noop.or(sink)
                 .or(filter)
                 .or(from_query)
                 .or(let_)
                 .or(merge)
                 .or(join)
+                .or(antijoin)
         })
     }
 }
@@ -361,21 +387,24 @@ impl Token {
 
 /// Creates a paren-surrounded list with two children with smart indentation.
 pub fn doc_indent_two(head: Doc, item1: Doc, item2: Doc) -> Doc {
-    doc_list(
-        head.append(
-            Doc::line()
-                .append(item1)
-                .append(Doc::line())
-                .append(item2)
-                .nest(2)
-                .group(),
-        ),
-    )
+    doc_indent_many(head, [item1, item2])
 }
 
 /// Creates a paren-surrounded list with a single child with smart indentation.
 pub fn doc_indent(head: Doc, item: Doc) -> Doc {
-    doc_list(head.append(Doc::line().append(item).nest(2).group()))
+    doc_indent_many(head, [item])
+}
+
+/// Creates a paren-surrounded list with any number of children and smart indentation.
+pub fn doc_indent_many<const N: usize>(head: Doc, children: [Doc; N]) -> Doc {
+    doc_list(
+        head.append(
+            Doc::line()
+                .append(Doc::intersperse(children, Doc::line()))
+                .nest(2)
+                .group(),
+        ),
+    )
 }
 
 /// Helper to create a document representing "<text> <kind>".
