@@ -238,6 +238,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         use Instruction::*;
         match instr {
             Noop => unreachable!("cannot load noops"),
+            Antijoin { .. } => todo!(),
             Sink { .. } => unreachable!("cannot load sinks"),
             Filter { test, rest } => {
                 let (mut node, map) = self.load_instruction(loaded, rest);

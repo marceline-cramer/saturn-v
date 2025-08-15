@@ -394,6 +394,25 @@ impl Instruction {
                 lhs.extend(rhs);
                 Ok(lhs)
             }
+            Antijoin {
+                relation,
+                terms,
+                rest,
+            } => {
+                // validate the child expressions
+                let assigned = rest.validate(relations, variables)?;
+
+                // validate the query itself
+                let used = validate_query(relations, variables, *relation, terms)?;
+
+                // validate that all query variables are assigned
+                let unassigned: HashSet<_> = used.difference(&assigned).copied().collect();
+                if !unassigned.is_empty() {
+                    Err(ErrorKind::UnassignedVariables(unassigned).into())
+                } else {
+                    Ok(assigned)
+                }
+            }
         }
     }
 
@@ -417,6 +436,11 @@ impl Instruction {
             Merge { lhs, rhs } | Join { lhs, rhs } => {
                 let mut relations = lhs.relation_deps();
                 relations.extend(rhs.relation_deps());
+                relations
+            }
+            Antijoin { relation, rest, .. } => {
+                let mut relations = rest.relation_deps();
+                relations.insert(*relation);
                 relations
             }
         }

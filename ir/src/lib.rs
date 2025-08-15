@@ -109,6 +109,7 @@ impl<R: Clone + Hash + Eq> Program<R> {
                     io: relation.io,
                     facts: relation.facts,
                     store: cb(relation.store),
+                    stratum: relation.stratum,
                     rules,
                 };
 
@@ -206,6 +207,16 @@ pub struct Relation<R> {
 
     /// A list of facts initially stored by this relation.
     pub facts: Vec<Vec<Value>>,
+
+    /// The *negation stratum* of this relation.
+    ///
+    /// Implements [negation as failure](https://en.wikipedia.org/wiki/Negation_as_failure),
+    /// a means of handling non-monotonic reasoning in logic languages. Before
+    /// a relation with a non-monotonic dependency on another relation is evaluated,
+    /// the dependency is evaluated to fixedpoint first. Then, the absence of tuples
+    /// in the dependency is treated as proof of falsity in non-monotonic operations
+    /// in the dependent.
+    pub stratum: usize,
 
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,
@@ -342,7 +353,7 @@ pub enum Instruction {
         relation: u32,
 
         /// The terms of the query. The number and types of terms must match the
-        /// corresponding type of the query.
+        /// corresponding type of the relation.
         terms: Vec<QueryTerm>,
     },
 
@@ -383,6 +394,24 @@ pub enum Instruction {
 
         /// The right-hand branch of instructions to join.
         rhs: Box<Self>,
+    },
+
+    /// Conditionally filters the tuples in a branch based on the truthiness of
+    /// a fully-populated query.
+    Antijoin {
+        /// The index of the relation to load from. The relations corresponding
+        /// to each index can be found in structs that own instructions.
+        relation: u32,
+
+        /// The terms of the query to test against.
+        ///
+        /// The number and types of terms must match the corresponding type of the relation.
+        ///
+        /// In addition, all variables in the query must already be assigned.
+        terms: Vec<QueryTerm>,
+
+        /// The rest of the instructions.
+        rest: Box<Self>,
     },
 }
 
