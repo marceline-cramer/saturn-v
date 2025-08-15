@@ -55,120 +55,149 @@ pub fn backend(
         let nodes = nodes_in.to_collection(scope).map(Key::pair);
 
         // generate the semantics
-        let (gates, implies, outputs, constraints) = scope.iterative::<u32, _, _>(|scope| {
-            // enter inputs into iterative scope
+        let (gates, implies, outputs, constraints) = scope.iterative::<u16, _, _>(|scope| {
+            // enter inputs into fixedpoint scope
             let relations = relations.enter(scope);
-            let facts = facts.enter(scope);
-            let nodes = nodes.enter(scope);
+            let nodes = nodes.enter_at(scope, |(_key, node)| node.stratum());
 
-            // initialize iterative variables and state
-            let step = Product::new(Default::default(), 1);
-            let facts = Variable::new_from(facts, step);
-            let tuples = Variable::new(scope, step);
+            // initialize program variables and state
+            let step = Product::new(0, 1);
+            let outer_facts = Variable::new_from(facts.enter(scope), step);
+            let outer_tuples = Variable::new(scope, step);
 
-            // arrange tuples for all fetch operations
-            let tuples_arranged = tuples.arrange_by_key();
+            // evaluate each stratum
+            let stratum = scope.iterative::<u32, _, _>(|scope| {
+                // initialize program variables and state
+                let step = Product::new(Product::new(0, 0), 1);
+                let facts = Variable::new_from(outer_facts.enter(scope), step);
+                let tuples = Variable::new_from(outer_tuples.enter(scope), step);
 
-            // arrange facts
-            let facts_arranged = facts.arrange_by_key();
+                // enter inputs into stratum scope
+                let relations = relations.enter(scope);
+                let nodes = nodes.enter(scope);
 
-            // arrange relations
-            let relations_arranged = relations.arrange_by_key();
+                // arrange tuples for all fetch operations
+                let tuples_arranged = tuples.arrange_by_key();
 
-            // fetch node inputs
-            let node_input = nodes.map(|(key, node)| (key, node.input));
+                // arrange facts
+                let facts_arranged = facts.arrange_by_key();
 
-            // extract sources of left sides of join operations
-            let join_lhs = &node_input
-                .flat_map(map_value(NodeInput::join_lhs))
-                .map(|(dst, (src, num))| (src, (dst, num)));
+                // arrange relations
+                let relations_arranged = relations.arrange_by_key();
 
-            // extract sources of right sides of join operations
-            let join_rhs = &node_input
-                .flat_map(map_value(NodeInput::join_rhs))
-                .map(|(dst, (src, num))| (src, (dst, num)));
+                // fetch node inputs
+                let node_input = nodes.map(|(key, node)| (key, node.input));
 
-            // extract unprocessed input sources
-            let source = &node_input
-                .flat_map(|(key, input)| input.sources().into_iter().map(move |src| (src, key)));
+                // extract sources of left sides of join operations
+                let join_lhs = &node_input
+                    .flat_map(map_value(NodeInput::join_lhs))
+                    .map(|(dst, (src, num))| (src, (dst, num)));
 
-            // aggregate all sources to retrieve all load masks
-            let load_mask = join_lhs
-                .concat(join_rhs)
-                .map(key)
-                .concat(&source.map(key))
-                .flat_map(NodeSource::relation_mask)
-                .join_core(&facts_arranged, load_mask)
-                .arrange_by_key();
+                // extract sources of right sides of join operations
+                let join_rhs = &node_input
+                    .flat_map(map_value(NodeInput::join_rhs))
+                    .map(|(dst, (src, num))| (src, (dst, num)));
 
-            // load each source's tuples
-            let join_lhs = load_source(
-                &tuples_arranged,
-                &load_mask,
-                &relations_arranged,
-                join_slice,
-                join_lhs,
-            );
+                // extract unprocessed input sources
+                let source = &node_input.flat_map(|(key, input)| {
+                    input.sources().into_iter().map(move |src| (src, key))
+                });
 
-            let join_rhs = load_source(
-                &tuples_arranged,
-                &load_mask,
-                &relations_arranged,
-                join_slice,
-                join_rhs,
-            );
+                // aggregate all sources to retrieve all load masks
+                let load_mask = join_lhs
+                    .concat(join_rhs)
+                    .map(key)
+                    .concat(&source.map(key))
+                    .flat_map(NodeSource::relation_mask)
+                    .join_core(&facts_arranged, load_mask)
+                    .arrange_by_key();
 
-            let source = load_source(
-                &tuples_arranged,
-                &load_mask,
-                &relations_arranged,
-                |node, tuple| (*node, tuple),
-                source,
-            );
+                // load each source's tuples
+                let join_lhs = load_source(
+                    &tuples_arranged,
+                    &load_mask,
+                    &relations_arranged,
+                    join_slice,
+                    join_lhs,
+                );
 
-            // select and merge sides of join source nodes
-            let joined = join_lhs.join_map(&join_rhs, join);
+                let join_rhs = load_source(
+                    &tuples_arranged,
+                    &load_mask,
+                    &relations_arranged,
+                    join_slice,
+                    join_rhs,
+                );
 
-            // extract the new tuples and gates from a join
-            let join = joined.map(key);
-            let join_gates = joined.flat_map(value);
+                let source = load_source(
+                    &tuples_arranged,
+                    &load_mask,
+                    &relations_arranged,
+                    |node, tuple| (*node, tuple),
+                    source,
+                );
 
-            // collect all node input tuples and do logic
-            let node_contents = join
-                .concat(&source)
-                .join_core(&nodes.arrange_by_key(), node_logic);
+                // select and merge sides of join source nodes
+                let joined = join_lhs.join_map(&join_rhs, join);
 
-            // write node contents outputs to tuples
-            tuples
-                .set_concat(&node_contents.flat_map(NodeResult::node))
-                .inspect(inspect("tuple"));
+                // extract the new tuples and gates from a join
+                let join = joined.map(key);
+                let join_gates = joined.flat_map(value);
 
-            // filter output facts from all facts
-            let outputs = facts_arranged
-                .semijoin(&relations.filter(|(_key, rel)| rel.is_output()).map(key))
-                .map(value)
-                .inspect(inspect("output"));
+                // collect all node input tuples and do logic
+                let node_contents = join
+                    .concat(&source)
+                    .join_core(&nodes.arrange_by_key(), node_logic);
 
-            // store tuples to corresponding relations
-            let stored = node_contents.flat_map(NodeResult::store);
+                // write node contents outputs to tuples
+                let tuples = tuples
+                    .set_concat(&node_contents.flat_map(NodeResult::node))
+                    .inspect(inspect("tuple"));
 
-            // extract facts to give to next iteration
-            // TODO: make a wrapper trait for distinct() on Arranged instead
-            // of using distinct() here when facts get arranged next iteration
-            let store = stored.map(key).distinct().map(Fact::relation_pair);
-            facts.set_concat(&store).inspect(inspect("facts"));
+                // filter output facts from all facts
+                let outputs = facts_arranged
+                    .semijoin(&relations.filter(|(_key, rel)| rel.is_output()).map(key))
+                    .map(value)
+                    .inspect(inspect("output"));
 
-            // collect implications to build conditional gates with
-            let implies = stored.flat_map(|(fact, (kind, cond))| {
-                kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
+                // store tuples to corresponding relations
+                let stored = node_contents.flat_map(NodeResult::store);
+
+                // extract facts to give to next iteration
+                // TODO: make a wrapper trait for distinct() on Arranged instead
+                // of using distinct() here when facts get arranged next iteration
+                let store = stored.map(key).distinct().map(Fact::relation_pair);
+                let facts = facts.set_concat(&store).inspect(inspect("facts"));
+
+                // collect implications to build conditional gates with
+                let implies = stored.flat_map(|(fact, (kind, cond))| {
+                    kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
+                });
+
+                // collect constraint groups
+                let constraints = node_contents.flat_map(NodeResult::constraint);
+
+                // return outputs of all extended collections
+                (
+                    facts.leave(),
+                    tuples.leave(),
+                    join_gates.leave(),
+                    implies.leave(),
+                    outputs.leave(),
+                    constraints.leave(),
+                )
             });
 
-            // collect constraint groups
-            let constraints = node_contents.flat_map(NodeResult::constraint);
+            // extract all results of one stratum
+            let (stratum_facts, stratum_tuples, gates, implies, outputs, constraints) = stratum;
 
-            // return outputs of all extended collections
+            // pass stratum variables to next stratum
+            outer_facts.set_concat(&stratum_facts.distinct());
+            outer_tuples.set_concat(&stratum_tuples.distinct());
+
+            // pass the collective results out of the main loop
             (
-                join_gates.leave(),
+                gates.leave(),
                 implies.leave(),
                 outputs.leave(),
                 constraints.leave(),

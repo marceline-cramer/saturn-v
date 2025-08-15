@@ -201,6 +201,10 @@ impl Node {
             _ => None,
         }
     }
+
+    pub fn stratum(&self) -> u16 {
+        0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
