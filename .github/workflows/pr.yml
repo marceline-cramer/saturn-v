@@ -15,7 +15,7 @@ jobs:
     - uses: actions-rs/cargo@v1
       with:
         command: test
-        args: --all-targets
+        args: --workspace --exclude saturn-v-check-fuzz
   rustfmt:
     runs-on: ubuntu-latest
     steps:
