@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use flume::Receiver;
 use load::Loader;
+use saturn_v_ir::StructuredType;
 use solve::Solver;
 use types::*;
 use utils::{run_pumps, InputRouter, InputSource, Key, OutputRouter, Update};
@@ -47,10 +48,10 @@ pub async fn run(loader: Loader<String>) {
 
     std::thread::spawn(move || drop(workers));
 
-    let formatting: HashMap<_, _> = loader
+    let formats: HashMap<_, _> = loader
         .relations
         .values()
-        .map(|rel| (Key::new(rel), rel.formatting.clone()))
+        .map(|rel| (Key::new(rel), format_relation(&rel.name, &rel.ty)))
         .collect();
 
     let (mut inputs, mut solver, output_rx) = routers.split();
@@ -70,16 +71,56 @@ pub async fn run(loader: Loader<String>) {
 
     outputs.sort();
 
+    let mut stdout = std::io::stdout();
     for output in outputs {
-        let mut format = formatting.get(&output.relation).unwrap().iter();
+        let mut format = formats.get(&output.relation).unwrap().iter();
 
-        print!("{}", format.next().unwrap());
-
+        // intersperse formatting segments with each value in the tuple
+        write!(stdout, "{}", format.next().unwrap()).unwrap();
         for (format, val) in format.zip(output.values.iter()) {
-            print!("{val}{format}");
+            write!(stdout, "{val}{format}").unwrap();
         }
 
-        println!();
+        writeln!(stdout).unwrap();
+    }
+
+    stdout.flush().unwrap();
+}
+
+/// Create formatting string segments for a relation.
+pub fn format_relation(name: &str, ty: &StructuredType) -> Vec<String> {
+    // create a string with '*' characters where each value goes
+    let mut formatted = String::new();
+
+    // push the name of the relation itself
+    formatted.push_str(name);
+
+    // format the root type based on its type
+    if let StructuredType::Primitive(_) = ty {
+        // for primitives, separate the value from the relation name
+        formatted.push_str(" *");
+    } else {
+        // every other type is deeply structured and doesn't need a space
+        formatted.push_str(&format_type(ty));
+    }
+
+    // append a period to the final formatting string
+    formatted.push('.');
+
+    // split the formatting string into segments
+    formatted.split("*").map(str::to_string).collect()
+}
+
+/// Format a structured type.
+pub fn format_type(ty: &StructuredType) -> String {
+    use StructuredType::*;
+    match ty {
+        Primitive(_) => "*".to_string(),
+        Tuple(els) => {
+            let terms: Vec<_> = els.iter().map(format_type).collect();
+            let inner = terms.join(", ");
+            format!("({inner})")
+        }
     }
 }
 

@@ -16,11 +16,7 @@
 
 use std::sync::Arc;
 
-use saturn_v_ir::{
-    self as ir, BinaryOpKind, CardinalityConstraintKind, Constraint, ConstraintKind,
-    ConstraintWeight, Expr, Instruction, Program, QueryTerm, RelationKind, Rule, RuleBody, Type,
-    Value,
-};
+use saturn_v_ir::*;
 
 use crate::{load::Loader, run};
 
@@ -28,13 +24,12 @@ use crate::{load::Loader, run};
 async fn test_pick_one() {
     let mut program = Program::default();
 
-    program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer],
-        formatting: vec!["Choice ".to_string(), ".".to_string()],
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
         store: "Choice".to_string(),
         facts: (1..=10).map(|idx| vec![Value::Integer(idx)]).collect(),
         kind: RelationKind::Decision,
-        is_output: true,
+        io: RelationIO::Output,
         rules: vec![],
     });
 
@@ -63,13 +58,12 @@ async fn test_pick_one() {
 async fn test_pick_pairs() {
     let mut program = Program::default();
 
-    program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer],
-        formatting: vec!["Base ".to_string(), ".".to_string()],
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
         store: "Base".to_string(),
         facts: vec![vec![Value::Integer(0)]],
         kind: RelationKind::Basic,
-        is_output: false,
+        io: RelationIO::None,
         rules: vec![Rule {
             head: vec![QueryTerm::Variable(0)],
             body: RuleBody {
@@ -98,13 +92,15 @@ async fn test_pick_pairs() {
         }],
     });
 
-    program.insert_relation(ir::Relation {
-        ty: vec![Type::Integer, Type::Integer],
-        formatting: vec!["Pair(".to_string(), ", ".to_string(), ").".to_string()],
+    program.insert_relation(Relation {
+        ty: StructuredType::Tuple(vec![
+            StructuredType::Primitive(Type::Integer),
+            StructuredType::Primitive(Type::Integer),
+        ]),
         store: "Pair".to_string(),
         facts: vec![],
         kind: RelationKind::Decision,
-        is_output: true,
+        io: RelationIO::Output,
         rules: vec![Rule {
             head: vec![QueryTerm::Variable(0), QueryTerm::Variable(1)],
             body: RuleBody {

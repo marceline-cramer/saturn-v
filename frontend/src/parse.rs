@@ -44,8 +44,8 @@ pub struct RelationDefinition<'db> {
     /// Whether this relation is a decision.
     pub is_decision: bool,
 
-    /// Whether this relation is a output.
-    pub is_output: bool,
+    /// The IO of this relation.
+    pub io: ir::RelationIO,
 
     /// This relation's abstract type (pure syntax).
     #[return_ref]
@@ -175,13 +175,32 @@ pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinitio
 
     // relation attributes
     let is_decision = node.get_field(db, "decision").is_some();
-    let is_output = node.get_field(db, "output").is_some();
+
+    // handle the relation IO
+    let input = node.get_field(db, "input");
+    let output = node.get_field(db, "output");
+    let io = match (input, output) {
+        (None, None) => ir::RelationIO::None,
+        (Some(_), None) => ir::RelationIO::Input,
+        (None, Some(_)) => ir::RelationIO::Output,
+        // if the IO conflicts, report error and default to no IO
+        (Some(input), Some(output)) => {
+            ConflictingIO {
+                name: name.inner.clone(),
+                input,
+                output,
+            }
+            .accumulate(db);
+
+            ir::RelationIO::None
+        }
+    };
 
     // parse the type
     let ty = parse_abstract_type(db, node.expect_field(db, "type"));
 
     // create the full decision
-    RelationDefinition::new(db, node, name, is_decision, is_output, ty)
+    RelationDefinition::new(db, node, name, is_decision, io, ty)
 }
 
 /// Parses an [AbstractType] from an AST node.
@@ -636,5 +655,34 @@ impl BasicDiagnostic for RelationDefinedAgain {
 
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![self.original.with("originally defined here".to_string())]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ConflictingIO {
+    pub name: String,
+    pub input: AstNode,
+    pub output: AstNode,
+}
+
+impl BasicDiagnostic for ConflictingIO {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.input..self.output
+    }
+
+    fn message(&self) -> String {
+        format!("relation {} cannot be both input and output", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![]
     }
 }

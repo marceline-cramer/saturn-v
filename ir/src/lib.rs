@@ -105,9 +105,8 @@ impl<R: Clone + Hash + Eq> Program<R> {
 
                 let relation = Relation {
                     ty: relation.ty,
-                    formatting: relation.formatting,
                     kind: relation.kind,
-                    is_output: relation.is_output,
+                    io: relation.io,
                     facts: relation.facts,
                     store: cb(relation.store),
                     rules,
@@ -194,13 +193,7 @@ pub enum CardinalityConstraintKind {
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Relation<R> {
     /// The relation's type.
-    pub ty: Vec<Type>,
-
-    /// The formatting of this relation.
-    ///
-    /// The first segment is prepended to the formatted string, the rest of the
-    /// segments are appended to each value of every tuple.
-    pub formatting: Vec<String>,
+    pub ty: StructuredType,
 
     /// The custom relation data that this relation stores to.
     pub store: R,
@@ -208,14 +201,45 @@ pub struct Relation<R> {
     /// The kind of relation this is.
     pub kind: RelationKind,
 
-    /// Whether or not this relation should be outputted.
-    pub is_output: bool,
+    /// The IO of this relation.
+    pub io: RelationIO,
 
     /// A list of facts initially stored by this relation.
     pub facts: Vec<Vec<Value>>,
 
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+pub enum RelationIO {
+    /// This relation does not interact with IO at all.
+    None,
+
+    /// This relation is an input relation.
+    Input,
+
+    /// This relation is an output relation.
+    Output,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[cfg_attr(feature = "fuzz", derive(Arbitrary))]
+pub enum StructuredType {
+    Tuple(Vec<StructuredType>),
+    Primitive(Type),
+}
+
+impl StructuredType {
+    /// Flattens the structured type into a list of primitives.
+    pub fn flatten(&self) -> Vec<Type> {
+        use StructuredType::*;
+        match self {
+            Tuple(els) => els.iter().flat_map(Self::flatten).collect(),
+            Primitive(ty) => vec![*ty],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -456,7 +480,7 @@ impl Value {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Type {
     Boolean,

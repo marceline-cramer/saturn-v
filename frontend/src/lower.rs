@@ -23,8 +23,7 @@ use crate::{
     desugar::desugar_rule_body,
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     infer::{
-        infer_resolved_relation_type, typed_constraint, typed_rule, NaiveType, TypedConstraint,
-        TypedRule,
+        infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
     lookup::relation_is_conditional,
     parse::{file_constraints, file_rules, Pattern, RelationDefinition},
@@ -59,13 +58,11 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
         // infer it
         let ty = infer_resolved_relation_type(db, ty).to_naive();
 
-        // flatten the head type
-        let Some(head) = ty.flatten() else {
+        // convert the head type into the structured IR type
+        // catch if there are any unknown types
+        let Some(ty) = ty.to_structured() else {
             continue;
         };
-
-        // format the output
-        let formatting = format_tuple(rule.relation(db).as_ref(), &ty);
 
         // pick the kind of the relation
         let relation = typed.relation(db);
@@ -82,10 +79,9 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
             store: typed.relation(db),
             facts: Vec::new(),
             rules: Vec::new(),
-            is_output: typed.relation(db).is_output(db),
-            ty: head.into_iter().map(Into::into).collect(),
+            io: typed.relation(db).io(db),
             kind,
-            formatting,
+            ty,
         });
 
         // lower the rule and then add it to the relation based on kind
@@ -112,50 +108,6 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
     ir::Program {
         relations,
         constraints,
-    }
-}
-
-/// Create formatting string segments out of a naive type.
-pub fn format_tuple(name: &str, ty: &NaiveType) -> Vec<String> {
-    // create the formatted string list
-    let mut formatted = vec![name.to_string()];
-
-    // format the inner string
-    format_naive(ty, true, &mut formatted);
-
-    // append the period to the formatted
-    formatted.last_mut().unwrap().push('.');
-
-    // return the completed formatting string
-    formatted
-}
-
-/// Returns whether a token has been newly pushed.
-pub fn format_naive(ty: &NaiveType, first: bool, formatted: &mut Vec<String>) {
-    match ty {
-        NaiveType::Tuple(els) => {
-            formatted.last_mut().unwrap().push('(');
-
-            for (idx, el) in els.iter().enumerate() {
-                if idx != 0 {
-                    formatted.last_mut().unwrap().push_str(", ");
-                }
-
-                format_naive(el, false, formatted);
-            }
-
-            formatted.last_mut().unwrap().push(')');
-        }
-        NaiveType::Primitive(_) => {
-            if first {
-                formatted.last_mut().unwrap().push(' ');
-            }
-
-            formatted.push("".to_string());
-        }
-        // flattening is performed before formatting
-        // panic is alright
-        NaiveType::Unknown => unreachable!(),
     }
 }
 

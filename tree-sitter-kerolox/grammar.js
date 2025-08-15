@@ -42,6 +42,7 @@ module.exports = grammar({
 
     definition: $ => seq(
       "define",
+      field("input", optional("input")),
       field("output", optional("output")),
       field("decision", optional("decision")),
       field("relation", $.symbol),
