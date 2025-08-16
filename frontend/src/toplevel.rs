@@ -14,10 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Debug,
+};
 
 use ropey::Rope;
-use salsa::Database;
+use salsa::{Database, Update};
 use smallvec::SmallVec;
 
 use url::Url;
@@ -26,6 +29,7 @@ pub use salsa::DatabaseImpl as Db;
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
+    parse::{RelationDefinition, TypeAlias},
     types::WithAst,
 };
 
@@ -33,6 +37,20 @@ use crate::{
 pub struct Workspace {
     #[return_ref]
     pub files: HashMap<Url, File>,
+}
+
+#[salsa::tracked]
+pub struct Namespace<'db> {
+    pub items: BTreeMap<String, NamespaceItem<'db>>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Update)]
+pub enum NamespaceItem<'db> {
+    File(File),
+    Namespace(Namespace<'db>),
+    Relation(RelationDefinition<'db>),
+    TypeAlias(TypeAlias<'db>),
+    Unknown,
 }
 
 #[salsa::input]
@@ -108,6 +126,12 @@ impl AstNode {
 
     pub fn get_children(&self, db: &dyn Database) -> impl Iterator<Item = Self> + 'static {
         self.children(db).clone().into_iter()
+    }
+
+    pub fn with_contents(&self, db: &dyn Database) -> Option<WithAst<String>> {
+        self.contents(db)
+            .as_ref()
+            .map(|contents| self.with(contents.clone()))
     }
 
     pub fn location(&self, db: &dyn Database) -> lsp_types::Location {

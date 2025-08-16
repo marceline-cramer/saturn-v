@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use salsa::{Database, Update};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
-    parse::{file_relations, AbstractType, RelationDefinition, TypeAlias},
-    toplevel::{AstNode, File},
+    parse::{file_relations, AbstractImport, AbstractType, RelationDefinition, TypeAlias},
+    toplevel::{AstNode, File, Namespace, NamespaceItem},
     types::{PrimitiveType, WithAst},
 };
 
@@ -152,6 +152,92 @@ pub enum ResolvedType<'db> {
 pub enum Unresolved<'db> {
     Relation(RelationDefinition<'db>),
     Alias(TypeAlias<'db>),
+}
+
+/// Resolves a file's exported namespace.
+#[salsa::tracked]
+pub fn resolve_file_exports<'db>(db: &'db dyn Database, file: File) -> Namespace<'db> {
+    // start with no items in the namespace
+    let mut items = BTreeMap::new();
+
+    // insert each relation defined by this file
+    for (name, rel) in file_relations(db, file) {
+        // TODO: resolve conflicting type aliases vs relations
+        items.insert(name, NamespaceItem::Relation(rel));
+    }
+
+    // return the completed export namespace
+    Namespace::new(db, items)
+}
+
+/// Resolves an abstract import to a table of namespace items.
+#[salsa::tracked]
+pub fn resolve_import<'db>(
+    db: &'db dyn Database,
+    import: AbstractImport<'db>,
+) -> BTreeMap<String, WithAst<NamespaceItem<'db>>> {
+    // begin with the file externs
+    let mut ns = resolve_file_externs(db, import.ast(db).file(db));
+
+    // walk through each segment of the path
+    for segment in import.path(db).iter() {
+        // resolve the path segment in the current namespace
+        let child = resolve_namespace_item(db, ns, segment.clone());
+
+        // read the namespace from the child item
+        match child {
+            // look up child file export namespaces
+            NamespaceItem::File(file) => {
+                ns = resolve_file_exports(db, file);
+                continue;
+            }
+            // simply recursively search child namespaces
+            NamespaceItem::Namespace(child_ns) => {
+                ns = child_ns;
+                continue;
+            }
+            // ignore; error for unknown items has already been thrown
+            NamespaceItem::Unknown => {}
+            NamespaceItem::Relation(rel) => todo!(),
+            NamespaceItem::TypeAlias(ty) => todo!(),
+        }
+
+        // if child could not be found, return a fresh namespace with unknown items
+        return import
+            .items(db)
+            .iter()
+            .map(|item| (item.inner.clone(), item.with(NamespaceItem::Unknown)))
+            .collect();
+    }
+
+    // resolve each item
+    import
+        .items(db)
+        .iter()
+        .map(|item| {
+            let name = item.inner.clone();
+            let resolved = resolve_namespace_item(db, ns, item.clone());
+            (name, item.with(resolved))
+        })
+        .collect()
+}
+
+/// Resolve a path within a namespace to an item.
+///
+/// Throws an error diagnostic if the item could not be found.
+#[salsa::tracked]
+pub fn resolve_namespace_item<'db>(
+    db: &dyn Database,
+    ns: Namespace<'db>,
+    name: WithAst<String>,
+) -> NamespaceItem<'db> {
+    todo!()
+}
+
+/// Resolves the namespace available for a file to import from.
+#[salsa::tracked]
+pub fn resolve_file_externs<'db>(db: &dyn Database, file: File) -> Namespace<'db> {
+    todo!()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
