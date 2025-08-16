@@ -510,25 +510,9 @@ impl Editor {
             return *ast_node;
         }
 
-        // if we don't have any fields, get text contents of the AST node
-        let contents = if fields.is_empty() {
-            Some(self.contents.byte_slice(node.byte_range()).to_string())
-        } else {
-            None
-        };
-
         // create the AST node
         let symbol = node.grammar_name();
-        let ast_node = AstNode::new(
-            db,
-            self.file,
-            node.id(),
-            symbol,
-            span,
-            contents,
-            children,
-            fields,
-        );
+        let ast_node = AstNode::new(db, self.file, node.id(), symbol, span, children, fields);
 
         // insert the AST node into the new AST
         new_ast.insert(node.id(), ast_node);
