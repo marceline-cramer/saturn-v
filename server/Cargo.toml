@@ -1,0 +1,17 @@
+[package]
+name = "saturn-v-server"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+axum = "0.8"
+differential-dataflow.workspace = true
+futures-util.workspace = true
+ordered-float.workspace = true
+saturn-v-eval.workspace = true
+saturn-v-ir.workspace = true
+serde.workspace = true
+timely.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tower = "0.4"
