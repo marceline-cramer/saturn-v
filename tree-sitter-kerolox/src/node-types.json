@@ -381,7 +381,7 @@
     "fields": {
       "item": {
         "multiple": true,
-        "required": false,
+        "required": true,
         "types": [
           {
             "type": "symbol",
@@ -399,16 +399,6 @@
           }
         ]
       }
-    },
-    "children": {
-      "multiple": false,
-      "required": false,
-      "types": [
-        {
-          "type": "symbol",
-          "named": true
-        }
-      ]
     }
   },
   {

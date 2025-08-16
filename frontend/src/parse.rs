@@ -171,7 +171,7 @@ pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, Relation
 pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
     // get the name
     let relation = node.expect_field(db, "relation");
-    let name = relation.with(relation.contents(db).clone().unwrap());
+    let name = relation.with_contents(db).unwrap();
 
     // relation attributes
     let is_decision = node.get_field(db, "decision").is_some();
@@ -266,13 +266,48 @@ pub enum ItemKind {
     Constraint,
 }
 
+/// Parses an abstract import from an AST.
+#[salsa::tracked]
+pub fn parse_import(db: &dyn Database, ast: AstNode) -> AbstractImport<'_> {
+    // parse each segments of the import path
+    let path = ast
+        .get_fields(db, "path")
+        .map(|node| node.with_contents(db).unwrap())
+        .collect();
+
+    // parse each items
+    let items = ast
+        .get_fields(db, "item")
+        .map(|node| node.with_contents(db).unwrap())
+        .collect();
+
+    // assemble the whole import
+    AbstractImport::new(db, ast, path, items)
+}
+
+/// An abstract item import (syntax representation).
+#[salsa::tracked]
+#[derive(Debug)]
+pub struct AbstractImport<'db> {
+    /// The AST node of this import item.
+    pub ast: AstNode,
+
+    /// Each of the components of this import's path.
+    #[return_ref]
+    pub path: Vec<WithAst<String>>,
+
+    /// Each of the item names imported.
+    #[return_ref]
+    pub items: Vec<WithAst<String>>,
+}
+
 /// Parses an abstract constraint from an AST.
 #[salsa::tracked]
 pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'_> {
     // parse each capture into the head
     let head = ast
         .get_fields(db, "capture")
-        .map(|node| node.with(node.contents(db).to_owned().unwrap()))
+        .map(|node| node.with_contents(db).unwrap())
         .collect();
 
     // attempt to parse the soft constraint
@@ -338,7 +373,7 @@ pub struct AbstractConstraint<'db> {
 pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
     // get the name of the relation
     let relation_node = ast.expect_field(db, "relation");
-    let relation = relation_node.with(relation_node.contents(db).clone().unwrap());
+    let relation = relation_node.with_contents(db).unwrap();
 
     // parse the head
     let head = parse_pattern(db, ast.expect_field(db, "head"));

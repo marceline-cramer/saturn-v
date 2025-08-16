@@ -37,7 +37,10 @@ module.exports = grammar({
       field("path", $.symbol),
       repeat(seq(".", field("path", $.symbol))),
       ".",
-      choice($.symbol, paren_list1(field("item", $.symbol))),
+      choice(
+        field("item", $.symbol),
+        paren_list1(field("item", $.symbol))
+      ),
     ),
 
     definition: $ => seq(
