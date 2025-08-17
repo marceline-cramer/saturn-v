@@ -32,6 +32,9 @@ use saturn_v_eval::{DataflowInputs, load::Loader, solve::Solver};
 use serde::Deserialize;
 use tokio::sync::{Mutex, broadcast};
 
+#[cfg(test)]
+pub mod tests;
+
 pub fn start_server() -> State {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
@@ -104,8 +107,6 @@ async fn subscribe_to_output(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(futures_util::stream::empty())
 }
-
-pub type Program = saturn_v_ir::Program<String>;
 
 pub type ExtractState = axum::extract::State<State>;
 

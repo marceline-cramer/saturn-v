@@ -2408,11 +2408,13 @@ dependencies = [
 name = "saturn-v-server"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "axum",
  "differential-dataflow",
  "flume",
  "futures-util",
  "ordered-float 4.6.0",
+ "saturn-v-client",
  "saturn-v-eval",
  "saturn-v-ir",
  "serde",

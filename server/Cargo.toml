@@ -5,11 +5,13 @@ edition = "2024"
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 axum = "0.8"
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
 ordered-float.workspace = true
+saturn-v-client.workspace = true
 saturn-v-eval.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
