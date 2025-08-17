@@ -7,6 +7,7 @@ license = "AGPL-3.0-or-later"
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
+anyhow = "1"
 chumsky = "0.9"
 differential-dataflow = "0.16"
 flume = "0.11"
@@ -30,6 +31,7 @@ url = "2.5"
 
 # internal workspace members
 saturn-v-check.path = "check"
+saturn-v-client.path = "client"
 saturn-v-eval.path = "eval"
 saturn-v-frontend.path = "frontend"
 saturn-v-ir.path = "ir"
