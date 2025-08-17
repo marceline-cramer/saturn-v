@@ -117,6 +117,29 @@ async fn test_update_program() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_invalid_program() -> Result<()> {
+    let program = Program {
+        constraints: vec![],
+        relations: vec![ir::Relation {
+            store: "Invalid".to_string(),
+            ty: StructuredType::Primitive(ir::Type::String),
+            kind: ir::RelationKind::Basic,
+            io: ir::RelationIO::None,
+            facts: vec![vec![ir::Value::Integer(0)]],
+            rules: vec![],
+        }]
+        .into_iter()
+        .map(|rel| (rel.store.clone(), rel))
+        .collect(),
+    };
+
+    let client = local_client().await?;
+    let result = client.set_program(&program).await;
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_switch_program() -> Result<()> {
     let client = local_client().await?;
 

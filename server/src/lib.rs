@@ -91,6 +91,10 @@ async fn get_program(server: ExtractState) -> Json<Program> {
 }
 
 async fn post_program(server: ExtractState, Json(program): Json<Program>) {
+    if program.validate().is_err() {
+        return;
+    }
+
     server.lock().await.set_program(program);
 }
 
