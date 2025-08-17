@@ -74,6 +74,16 @@ impl Client {
             .collect())
     }
 
+    /// Gets an input by name.
+    pub async fn get_input(&self, name: &str) -> Result<Option<Input>> {
+        Ok(self
+            .get_inputs()
+            .await
+            .context("failed to get all inputs")?
+            .into_iter()
+            .find(|input| input.name == name))
+    }
+
     /// Gets a list of all outputs currently on the server.
     pub async fn get_outputs(&self) -> Result<Vec<Output>> {
         Ok(self
@@ -88,17 +98,27 @@ impl Client {
             .collect())
     }
 
+    /// Gets an output by name.
+    pub async fn get_output(&self, name: &str) -> Result<Option<Output>> {
+        Ok(self
+            .get_outputs()
+            .await
+            .context("failed to get all outputs")?
+            .into_iter()
+            .find(|output| output.name == name))
+    }
+
     /// Builds a request to the server with specified method and path.
     ///
     /// Automatically adds client-wide headers such as authentication.
-    pub fn make_request(&self, method: Method, path: &str) -> RequestBuilder {
+    pub(crate) fn begin_request(&self, method: Method, path: &str) -> RequestBuilder {
         let url = self.server.join(path).unwrap();
         self.web.request(method, url)
     }
 
     /// Makes a GET request and parses it to JSON.
-    pub async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T> {
-        self.make_request(Method::GET, path)
+    pub(crate) async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T> {
+        self.begin_request(Method::GET, path)
             .send()
             .await
             .context("failed to make GET request")?
@@ -108,8 +128,8 @@ impl Client {
     }
 
     /// POSTs a JSON payload.
-    pub async fn post_json<T: Serialize>(&self, path: &str, json: &T) -> Result<()> {
-        self.make_request(Method::POST, path)
+    pub(crate) async fn post_json<T: Serialize>(&self, path: &str, json: &T) -> Result<()> {
+        self.begin_request(Method::POST, path)
             .json(json)
             .send()
             .await
