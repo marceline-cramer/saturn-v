@@ -89,6 +89,16 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         inputs.nodes.flush();
     }
 
+    /// Gets an immutable reference to this loader's relations.
+    pub fn get_relations(&self) -> &HashMap<R, Relation> {
+        &self.relations
+    }
+
+    /// Gets the key of a loaded relation, if available.
+    pub fn relation_key(&self, relation: &R) -> Option<Key<Relation>> {
+        self.relations.get(relation).map(Key::new)
+    }
+
     /// Creates a new loader with the given set of indexed relations.
     ///
     /// Private because you're intended to use [Self::load_program] to work

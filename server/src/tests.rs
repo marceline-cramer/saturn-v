@@ -25,6 +25,8 @@ use super::*;
 
 /// Spins up a local server and returns a client connected to it.
 async fn local_client() -> Result<Client> {
+    let _ = tracing_subscriber::fmt::try_init();
+
     static PORT: AtomicU32 = AtomicU32::new(3000);
 
     let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -200,6 +202,8 @@ async fn test_passthru() -> Result<()> {
     let input = client.get_input("Input").await?.unwrap();
     let value = "test".to_string();
     input.insert(&value).await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     let output = client.get_output("Output").await?.unwrap();
     let values = output.get_all::<String>().await?;

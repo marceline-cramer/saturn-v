@@ -168,15 +168,16 @@ impl Input {
     }
 
     /// Updates a value in this relation. `true` adds, `false` removes.
-    pub async fn update<T: AsValue>(&self, val: &T, add: bool) -> Result<()> {
+    pub async fn update<T: AsValue>(&self, val: &T, state: bool) -> Result<()> {
         if !self.matches_ty::<T>() {
             bail!("input type mismatch");
         }
 
-        let val = val.as_value();
+        let value = val.as_value();
+        let body = vec![TupleUpdate { state, value }];
 
         self.client
-            .post_json(&format!("/input/{}/update", self.id), &(add, val))
+            .post_json(&format!("/input/{}/update", self.id), &body)
             .await
             .context("failed to update value")?;
 
@@ -261,6 +262,16 @@ pub trait FromValue: Typed {
     fn from_value(val: Value) -> Self;
 }
 
+/// An individual tuple update within a relation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct TupleUpdate {
+    /// The new state of the tuple. `true` for present, `false` for absent.
+    pub state: bool,
+
+    /// The tuple being updated.
+    pub value: Value,
+}
+
 /// A Saturn V-compatible value type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum Value {
@@ -278,6 +289,9 @@ pub enum Value {
 
     /// A real-numbered value, approximated as a float.
     Real(OrderedFloat<f64>),
+
+    /// A symbol.
+    Symbol(String),
 }
 
 macro_rules! impl_typed_primitive {

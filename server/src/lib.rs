@@ -15,9 +15,8 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
-    hash::Hash,
     sync::Arc,
 };
 
@@ -28,7 +27,7 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::Stream;
-use saturn_v_client::{Program, RelationInfo, StructuredType, Value};
+use saturn_v_client::{Program, RelationInfo, StructuredType, TupleUpdate, Value};
 use saturn_v_eval::{
     DataflowInputs,
     load::Loader,
@@ -37,10 +36,10 @@ use saturn_v_eval::{
     utils::{Key, Update},
 };
 use saturn_v_ir::{self as ir};
-use serde::Deserialize;
 use tokio::sync::{Mutex, broadcast};
 
 pub use axum;
+use tracing::debug;
 
 #[cfg(test)]
 pub mod tests;
@@ -103,14 +102,12 @@ async fn inputs_list(server: ExtractState) -> Json<Vec<RelationInfo>> {
         server
             .lock()
             .await
-            .program
-            .relations
-            .values()
-            .filter(|rel| rel.io == ir::RelationIO::Input)
-            .map(|rel| RelationInfo {
-                name: rel.store.clone(),
-                id: rel.store.clone(),
-                ty: rel.ty.clone(),
+            .inputs
+            .iter()
+            .map(|(name, input)| RelationInfo {
+                name: name.clone(),
+                id: name.clone(),
+                ty: input.ty.clone(),
             })
             .collect(),
     )
@@ -129,7 +126,7 @@ async fn input_update(
     };
 
     // drop immutable reference to input
-    let rel = input.rel.clone();
+    let rel = input.rel;
 
     for update in updates.into_iter() {
         // TODO: assert types match (and unit test it!)
@@ -139,6 +136,8 @@ async fn input_update(
             values: value_to_fact(update.value).into(),
         };
 
+        debug!("{fact:?}");
+
         // TODO: unit test to assert that you can't remove program facts
         // might require making a separate "inputs" dataflow input
         match update.state {
@@ -146,6 +145,8 @@ async fn input_update(
             false => server.dataflow.facts.remove(fact),
         };
     }
+
+    server.dataflow.facts.flush();
 }
 
 fn value_to_fact(val: Value) -> Vec<ir::Value> {
@@ -155,6 +156,7 @@ fn value_to_fact(val: Value) -> Vec<ir::Value> {
         Value::String(val) => vec![ir::Value::String(val)],
         Value::Integer(val) => vec![ir::Value::Integer(val)],
         Value::Real(val) => vec![ir::Value::Real(val)],
+        Value::Symbol(val) => vec![ir::Value::Symbol(val)],
     }
 }
 
@@ -212,11 +214,20 @@ impl Server {
         // load the program
         let loader = Loader::load_program(&program);
 
-        // remove the previous program from dataflow
-        self.dataflow.clear();
+        // update inputs
+        self.inputs.clear();
+        for rel in program.relations.values() {
+            if rel.io != ir::RelationIO::Input {
+                continue;
+            }
 
-        // add the new program
-        loader.add_to_dataflow(&mut self.dataflow);
+            let input = Input {
+                ty: rel.ty.clone(),
+                rel: loader.relation_key(&rel.store).unwrap(),
+            };
+
+            self.inputs.insert(rel.store.clone(), input);
+        }
 
         // update outputs
         self.outputs.clear();
@@ -230,6 +241,7 @@ impl Server {
             let output = Output {
                 state: HashSet::new(),
                 ty: rel.ty.clone(),
+                rel: loader.relation_key(&rel.store).unwrap(),
                 watcher,
                 watcher_rx,
             };
@@ -237,15 +249,88 @@ impl Server {
             self.outputs.insert(rel.store.clone(), output);
         }
 
+        // remove the previous program from dataflow
+        self.dataflow.clear();
+
+        // add the new program
+        loader.add_to_dataflow(&mut self.dataflow);
+
         // store the program for retrieval
         self.program = program;
     }
 
     pub async fn handle_dataflow(
         server: State,
-        solver: Solver,
+        mut solver: Solver,
         output_rx: flume::Receiver<Update<Fact>>,
     ) {
+        let mut running = true;
+        while running {
+            let _ = solver.step().await;
+
+            let mut outputs = Vec::new();
+            loop {
+                match output_rx.recv_async().await {
+                    Ok(Update::Push(output, state)) => outputs.push((output, state)),
+                    Ok(Update::Flush) => break,
+                    Err(_) => {
+                        running = false;
+                        break;
+                    }
+                }
+            }
+
+            if outputs.is_empty() {
+                continue;
+            }
+
+            let mut server = server.lock().await;
+
+            let mut relations: BTreeMap<_, _> = server
+                .outputs
+                .values_mut()
+                .map(|output| (output.rel, output))
+                .collect();
+
+            for (output, state) in outputs {
+                let relation = relations.get_mut(&output.relation).unwrap();
+
+                let mut vals = output.values.iter();
+                let value = structure_values(&relation.ty, &mut vals);
+
+                match state {
+                    false => relation.state.remove(&value),
+                    true => relation.state.insert(value.clone()),
+                };
+
+                let _ = relation.watcher.send(TupleUpdate { state, value });
+            }
+        }
+    }
+}
+
+pub fn structure_values<'a>(
+    ty: &StructuredType,
+    values: &mut impl Iterator<Item = &'a ir::Value>,
+) -> Value {
+    match ty {
+        StructuredType::Tuple(els) => Value::Tuple(
+            els.iter()
+                .map(move |ty| structure_values(ty, values))
+                .collect(),
+        ),
+        StructuredType::Primitive(ty) => {
+            use {Value::*, ir::Type};
+            let val = values.next().unwrap();
+            match (val, ty) {
+                (ir::Value::Boolean(val), Type::Boolean) => Boolean(*val),
+                (ir::Value::Integer(val), Type::Integer) => Integer(*val),
+                (ir::Value::Real(val), Type::Real) => Real(*val),
+                (ir::Value::String(val), Type::String) => String(val.clone()),
+                (ir::Value::Symbol(val), Type::Symbol) => Symbol(val.clone()),
+                _ => panic!(),
+            }
+        }
     }
 }
 
@@ -257,12 +342,7 @@ pub struct Input {
 pub struct Output {
     state: HashSet<Value>,
     ty: StructuredType,
-    watcher: broadcast::Sender<Value>,
-    watcher_rx: broadcast::Receiver<Value>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
-pub struct TupleUpdate {
-    pub state: bool,
-    pub value: Value,
+    rel: Key<Relation>,
+    watcher: broadcast::Sender<TupleUpdate>,
+    watcher_rx: broadcast::Receiver<TupleUpdate>,
 }
