@@ -1,5 +1,5 @@
 [workspace]
-members = [ "check", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "server", "tree-sitter-kerolox" ]
+members = [ "check", "client", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "server", "tree-sitter-kerolox" ]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -9,6 +9,7 @@ arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
 chumsky = "0.9"
 differential-dataflow = "0.16"
+flume = "0.11"
 futures-util = "0.3"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }

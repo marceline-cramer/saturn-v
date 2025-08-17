@@ -1,4 +1,24 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+// Copyright (C) 2025 Marceline Cramer
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Saturn V is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Saturn V is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+// more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
+
+use std::{
+    collections::{HashMap, HashSet},
+    convert::Infallible,
+    sync::Arc,
+};
 
 use axum::{
     Json, Router,
@@ -12,7 +32,7 @@ use saturn_v_eval::{DataflowInputs, load::Loader, solve::Solver};
 use serde::Deserialize;
 use tokio::sync::{Mutex, broadcast};
 
-pub fn start_server() -> Server {
+pub fn start_server() -> State {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
 
@@ -29,34 +49,57 @@ pub fn start_server() -> Server {
     std::thread::spawn(move || drop(workers));
 
     let (inputs, solver, output_rx) = routers.split();
+
+    let server = Arc::new(Mutex::new(Server {
+        dataflow: inputs,
+        outputs: HashMap::new(),
+    }));
+
+    tokio::spawn(Server::handle_dataflow(server.clone(), solver, output_rx));
+
+    server
 }
 
-pub fn route(server: Server) -> Router<Arc<Mutex<Server>>> {
+pub fn route(server: State) -> Router<State> {
     Router::new()
-        .with_state(Arc::new(Mutex::new(server)))
+        .with_state(server)
         .route("/program", get(get_program).post(post_program))
         .route("/inputs/list", get(inputs_list))
         .route("/input/{input}/update", post(input_update))
         .route("/outputs/list", get(outputs_list))
+        .route("/output/{output}", get(get_output))
         .route("/output/{output}/subscribe", get(subscribe_to_output))
 }
 
-async fn get_program(server: State) -> Json<Program> {}
+async fn get_program(server: ExtractState) -> Json<Program> {}
 
-async fn post_program(server: State, Json(program): Json<Program>) {}
+async fn post_program(server: ExtractState, Json(program): Json<Program>) {}
 
-async fn inputs_list(server: State) -> Json<Vec<String>> {
+async fn inputs_list(server: ExtractState) -> Json<Vec<String>> {
     todo!()
 }
 
-async fn input_update(server: State, input: Path<String>, updates: Json<Vec<TupleUpdate>>) {}
+async fn input_update(server: ExtractState, input: Path<String>, updates: Json<Vec<TupleUpdate>>) {}
 
-async fn outputs_list(server: State) -> Json<Vec<String>> {
+async fn outputs_list(server: ExtractState) -> Json<Vec<String>> {
     todo!()
+}
+
+async fn get_output(
+    server: ExtractState,
+    Path(output): Path<String>,
+) -> Json<Option<HashSet<Value>>> {
+    server
+        .lock()
+        .await
+        .outputs
+        .get(&output)
+        .map(|output| output.state.clone())
+        .into()
 }
 
 async fn subscribe_to_output(
-    server: State,
+    server: ExtractState,
     output: Path<String>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(futures_util::stream::empty())
@@ -64,25 +107,37 @@ async fn subscribe_to_output(
 
 pub type Program = saturn_v_ir::Program<String>;
 
-pub type State = axum::extract::State<Arc<Mutex<Server>>>;
+pub type ExtractState = axum::extract::State<State>;
+
+pub type State = Arc<Mutex<Server>>;
 
 pub struct Server {
-    inputs: DataflowInputs,
-    outputs: HashMap<String, broadcast::Sender<Value>>,
+    dataflow: DataflowInputs,
+    outputs: HashMap<String, Output>,
 }
 
 impl Server {
     /// Updates the currently-running program on the server.
     pub fn set_program(&mut self, loader: Loader<String>) {
-        // remove the previous program
-        self.inputs.clear();
-
-        // destroy all output subscriptions
-        self.outputs.clear();
+        // remove the previous program from dataflow
+        self.dataflow.clear();
 
         // add the new program
-        loader.add_to_dataflow(&mut self.inputs);
+        loader.add_to_dataflow(&mut self.dataflow);
     }
+
+    pub async fn handle_dataflow(
+        server: State,
+        solver: Solver,
+        output_rx: flume::Receiver<Update<Fact>>,
+    ) {
+        let _ = solver.step();
+    }
+}
+
+pub struct Output {
+    state: HashSet<Value>,
+    watcher: broadcast::Sender<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize)]
