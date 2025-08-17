@@ -49,6 +49,7 @@ edition = "2021"
 ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
 salsa.workspace = true
+saturn-v-client.workspace = true
 saturn-v-eval.workspace = true
 saturn-v-frontend.workspace = true
 saturn-v-ir.workspace = true

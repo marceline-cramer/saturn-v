@@ -2285,6 +2285,7 @@ dependencies = [
  "ariadne",
  "clap",
  "salsa",
+ "saturn-v-client",
  "saturn-v-eval",
  "saturn-v-frontend",
  "saturn-v-ir",

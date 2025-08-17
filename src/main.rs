@@ -18,12 +18,14 @@ use std::{collections::HashMap, error::Error, net::SocketAddr, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use salsa::Setter;
+use saturn_v_client::Client;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
 use tokio::net::TcpListener;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
+use url::Url;
 
 #[derive(Parser)]
 pub struct Args {
@@ -61,6 +63,25 @@ pub enum Command {
         /// A TCP address to bind to
         #[clap(short, long)]
         host: Vec<SocketAddr>,
+    },
+
+    /// Commands that interact with a Saturn V server.
+    Client {
+        /// The base URL of the Saturn V server
+        #[clap(short, long)]
+        server: Url,
+
+        #[command(subcommand)]
+        cmd: ClientCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ClientCommands {
+    /// Compiles a program and pushes it to the server.
+    Push {
+        /// The path to the source file.
+        path: PathBuf,
     },
 }
 
@@ -127,6 +148,19 @@ async fn main() {
             let router = route(state);
             let listener = TcpListener::bind(host.as_slice()).await.unwrap();
             axum::serve(listener, router).await.unwrap();
+        }
+        Command::Client { server, cmd } => {
+            let client = Client::new(server);
+
+            match cmd {
+                ClientCommands::Push { path } => {
+                    let Some(program) = build_file(&path) else {
+                        return;
+                    };
+
+                    client.set_program(&program).await.unwrap();
+                }
+            }
         }
     }
 }
