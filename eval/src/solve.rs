@@ -65,10 +65,6 @@ impl Solver {
         }
     }
 
-    pub async fn run(&mut self) {
-        while self.step().await.is_some() {}
-    }
-
     pub async fn step(&mut self) -> Option<bool> {
         // track time that step started
         let start = std::time::Instant::now();
