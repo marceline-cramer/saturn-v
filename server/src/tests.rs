@@ -220,6 +220,7 @@ async fn test_output_subscription() -> Result<()> {
     let mut rx = output.subscribe().await?;
     let value = "test".to_string();
     input.insert(&value).await?;
-    assert_eq!(rx.next().await, Some(value));
+    let received: (String, bool) = rx.next().await.unwrap()?;
+    assert_eq!(received, (value, true));
     Ok(())
 }

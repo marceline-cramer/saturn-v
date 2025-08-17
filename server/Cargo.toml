@@ -17,6 +17,7 @@ saturn-v-ir.workspace = true
 serde.workspace = true
 timely.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+tokio-stream.workspace = true
 tower = "0.4"
 tracing.workspace = true
 tracing-subscriber.workspace = true

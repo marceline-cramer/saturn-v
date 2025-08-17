@@ -16,7 +16,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    convert::Infallible,
     sync::Arc,
 };
 
@@ -26,7 +25,7 @@ use axum::{
     response::{Sse, sse::Event},
     routing::{get, post},
 };
-use futures_util::Stream;
+use futures_util::{StreamExt, stream::BoxStream};
 use saturn_v_client::{Program, RelationInfo, StructuredType, TupleUpdate, Value};
 use saturn_v_eval::{
     DataflowInputs,
@@ -37,9 +36,10 @@ use saturn_v_eval::{
 };
 use saturn_v_ir::{self as ir};
 use tokio::sync::{Mutex, broadcast};
+use tokio_stream::wrappers::BroadcastStream;
+use tracing::debug;
 
 pub use axum;
-use tracing::debug;
 
 #[cfg(test)]
 pub mod tests;
@@ -191,10 +191,25 @@ async fn get_output(
 }
 
 async fn subscribe_to_output(
-    _server: ExtractState,
-    _output: Path<String>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    Sse::new(futures_util::stream::empty())
+    server: ExtractState,
+    Path(output): Path<String>,
+) -> Sse<BoxStream<'static, Result<Event, String>>> {
+    let server = server.lock().await;
+
+    let Some(output) = server.outputs.get(&output) else {
+        // TODO: return error (and check error with unit test)
+        return Sse::new(futures_util::stream::empty().boxed());
+    };
+
+    let rx = output.watcher.subscribe();
+    drop(server);
+
+    let stream = BroadcastStream::new(rx).map(|update| match update {
+        Ok(tuple) => Ok(Event::default().json_data(tuple).unwrap()),
+        Err(_) => Err("lagged".to_string()),
+    });
+
+    Sse::new(stream.boxed())
 }
 
 pub type ExtractState = axum::extract::State<State>;

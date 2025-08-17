@@ -21,9 +21,10 @@
 use std::{fmt::Debug, ops::Deref};
 
 use anyhow::{Context, Result, bail};
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use ordered_float::OrderedFloat;
 use reqwest::{Method, RequestBuilder, Url};
+use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_ir::{self as ir};
 use serde::{Deserialize, Serialize};
 
@@ -218,9 +219,28 @@ impl Output {
     }
 
     /// Subscribes to live updates on values in this output.
-    pub async fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = T>> {
-        bail!("unimplemented");
-        Ok(futures_util::stream::empty())
+    pub async fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<(T, bool)>>> {
+        if !self.matches_ty::<T>() {
+            bail!("output type mismatch");
+        }
+
+        let src = self
+            .client
+            .begin_request(Method::GET, &format!("/output/{}/subscribe", self.id))
+            .eventsource()
+            .context("failed to create outputs event source")?;
+
+        Ok(src.filter_map(|ev| {
+            std::future::ready(match ev {
+                Ok(Event::Open) => None,
+                Err(err) => Some(Err(err).context("SSE error")),
+                Ok(Event::Message(msg)) => Some(
+                    serde_json::from_reader(msg.data.as_bytes())
+                        .context("failed to parse value")
+                        .map(|update: TupleUpdate| (T::from_value(update.value), update.state)),
+                ),
+            })
+        }))
     }
 }
 
