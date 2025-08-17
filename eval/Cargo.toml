@@ -5,6 +5,7 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
+batsat = "0.6.0"
 bitvec = { version = "1", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true

@@ -2334,6 +2334,7 @@ dependencies = [
 name = "saturn-v-eval"
 version = "0.1.0"
 dependencies = [
+ "batsat",
  "bitvec",
  "differential-dataflow",
  "flume",
