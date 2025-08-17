@@ -30,11 +30,17 @@ use axum::{
 use futures_util::Stream;
 use saturn_v_client::{Program, RelationInfo, StructuredType, Value};
 use saturn_v_eval::{
-    load::Loader, solve::Solver, types::{Fact, Relation}, utils::{Key, Update}, DataflowInputs
+    DataflowInputs,
+    load::Loader,
+    solve::Solver,
+    types::{Fact, Relation},
+    utils::{Key, Update},
 };
 use saturn_v_ir::{self as ir};
 use serde::Deserialize;
 use tokio::sync::{Mutex, broadcast};
+
+pub use axum;
 
 #[cfg(test)]
 pub mod tests;
@@ -106,7 +112,11 @@ async fn inputs_list(server: ExtractState) -> Json<Vec<RelationInfo>> {
     )
 }
 
-async fn input_update(server: ExtractState, input: Path<String>, Json(updates): Json<Vec<TupleUpdate>>) {
+async fn input_update(
+    server: ExtractState,
+    input: Path<String>,
+    Json(updates): Json<Vec<TupleUpdate>>,
+) {
     let mut server = server.lock().await;
 
     let Some(input) = server.inputs.get(input.as_str()) else {

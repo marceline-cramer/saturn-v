@@ -54,6 +54,7 @@ saturn-v-frontend.workspace = true
 saturn-v-ir.workspace = true
 saturn-v-lower.workspace = true
 saturn-v-lsp.workspace = true
+saturn-v-server.workspace = true
 tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
 tower-lsp.workspace = true
 tracing-subscriber.workspace = true

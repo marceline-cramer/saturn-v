@@ -2290,6 +2290,7 @@ dependencies = [
  "saturn-v-ir",
  "saturn-v-lower",
  "saturn-v-lsp",
+ "saturn-v-server",
  "tokio",
  "tower-lsp",
  "tracing-subscriber",

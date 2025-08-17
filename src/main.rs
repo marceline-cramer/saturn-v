@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, error::Error, path::PathBuf};
+use std::{collections::HashMap, error::Error, net::SocketAddr, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use salsa::Setter;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
+use tokio::net::TcpListener;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
@@ -53,6 +54,13 @@ pub enum Command {
 
         /// The path to the source file.
         path: PathBuf,
+    },
+
+    /// Runs a server.
+    Server {
+        /// A TCP address to bind to
+        #[clap(short, long)]
+        host: Vec<SocketAddr>,
     },
 }
 
@@ -105,13 +113,20 @@ async fn main() {
                 eprintln!("{err}");
             }
         }
-        Command::Run { path, input, .. } => {
+        Command::Run { path, .. } => {
             let Some(program) = build_file(&path) else {
                 return;
             };
 
             let loader = saturn_v_eval::load::Loader::load_program(&program);
             saturn_v_eval::run(loader).await;
+        }
+        Command::Server { host } => {
+            use saturn_v_server::*;
+            let state = start_server();
+            let router = route(state);
+            let listener = TcpListener::bind(host.as_slice()).await.unwrap();
+            axum::serve(listener, router).await.unwrap();
         }
     }
 }
