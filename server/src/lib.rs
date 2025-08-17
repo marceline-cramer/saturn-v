@@ -127,16 +127,18 @@ async fn input_update(
 
     // drop immutable reference to input
     let rel = input.rel;
+    let ty = input.ty.clone();
 
     for update in updates.into_iter() {
         // TODO: assert types match (and unit test it!)
+        if update.value.ty() != ty {
+            continue;
+        }
 
         let fact = Fact {
             relation: rel,
             values: value_to_fact(update.value).into(),
         };
-
-        debug!("{fact:?}");
 
         // TODO: unit test to assert that you can't remove program facts
         // might require making a separate "inputs" dataflow input

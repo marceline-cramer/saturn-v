@@ -314,6 +314,22 @@ pub enum Value {
     Symbol(String),
 }
 
+impl Value {
+    /// Returns the type of this value.
+    pub fn ty(&self) -> StructuredType {
+        use StructuredType::*;
+        use ir::Type::*;
+        match self {
+            Value::Tuple(els) => Tuple(els.iter().map(|val| val.ty()).collect()),
+            Value::String(_) => Primitive(String),
+            Value::Boolean(_) => Primitive(Boolean),
+            Value::Integer(_) => Primitive(Integer),
+            Value::Real(_) => Primitive(Real),
+            Value::Symbol(_) => Primitive(Symbol),
+        }
+    }
+}
+
 macro_rules! impl_typed_primitive {
     ($ty:ty, $name:ident) => {
         impl Typed for $ty {

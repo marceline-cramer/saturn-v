@@ -213,6 +213,34 @@ async fn test_passthru() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_remove_fact() -> Result<()> {
+    let client = local_client().await?;
+
+    let fact = "Fact".to_string();
+
+    let mut program = passthru_program();
+    let relation = program.relations.get_mut("Input").unwrap();
+    relation.facts.push(vec![ir::Value::String(fact.clone())]);
+
+    client.set_program(&program).await?;
+
+    let input = client.get_input("Input").await?.unwrap();
+    let output = client.get_output("Output").await?.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let values = output.get_all::<String>().await?;
+    assert_eq!(values, vec![fact.clone()], "fact not already present");
+
+    input.remove(&fact).await?;
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let values = output.get_all::<String>().await?;
+    assert_eq!(values, vec![fact.clone()], "fact removed");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_output_subscription() -> Result<()> {
     let client = passthru_client().await?;
     let input = client.get_input("Input").await?.unwrap();
