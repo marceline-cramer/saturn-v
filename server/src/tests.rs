@@ -14,21 +14,37 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses>.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::atomic::AtomicU32};
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use saturn_v_client::*;
 use saturn_v_ir as ir;
 
+use super::*;
+
 /// Spins up a local server and returns a client connected to it.
-fn local_client() -> Client {
-    todo!()
+async fn local_client() -> Result<Client> {
+    static PORT: AtomicU32 = AtomicU32::new(3000);
+
+    let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let state = start_server();
+    let router = route(state).into_make_service();
+    let host = format!("localhost:{port}");
+    let listener = tokio::net::TcpListener::bind(&host).await?;
+
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    let url = format!("http://{host}").as_str().try_into().unwrap();
+    let client = Client::new(url);
+    Ok(client)
 }
 
 /// Spins up a local server and gives it [passthru_program].
 async fn passthru_client() -> Result<Client> {
-    let client = local_client();
+    let client = local_client().await?;
 
     client
         .set_program(&passthru_program())
@@ -84,7 +100,7 @@ fn passthru_program() -> Program {
 
 #[tokio::test]
 async fn test_no_program() -> Result<()> {
-    let client = local_client();
+    let client = local_client().await?;
     let result = client.get_program().await;
     assert!(result.is_err());
     Ok(())
@@ -92,7 +108,7 @@ async fn test_no_program() -> Result<()> {
 
 #[tokio::test]
 async fn test_update_program() -> Result<()> {
-    let client = local_client();
+    let client = local_client().await?;
     let program = Program::default();
     client.set_program(&program).await?;
     let retrieved = client.get_program().await?;
@@ -102,7 +118,7 @@ async fn test_update_program() -> Result<()> {
 
 #[tokio::test]
 async fn test_switch_program() -> Result<()> {
-    let client = local_client();
+    let client = local_client().await?;
 
     let program = Program::default();
     client.set_program(&program).await?;

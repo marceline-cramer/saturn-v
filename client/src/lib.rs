@@ -24,8 +24,10 @@ use anyhow::{Context, Result, bail};
 use futures_util::Stream;
 use ordered_float::OrderedFloat;
 use reqwest::{Method, RequestBuilder, Url};
-use saturn_v_ir::{self as ir, StructuredType};
+use saturn_v_ir::{self as ir};
 use serde::{Deserialize, Serialize};
+
+pub use ir::StructuredType;
 
 /// Type alias for IR programs that can be loaded on the server.
 pub type Program = saturn_v_ir::Program<String>;
@@ -39,9 +41,9 @@ pub struct Client {
 
 impl Client {
     /// Creates a client to the Saturn V server at the given base URL.
-    pub fn new(base: impl Into<Url>) -> Self {
+    pub fn new(base: Url) -> Self {
         Self {
-            server: base.into(),
+            server: base,
             web: reqwest::Client::new(),
         }
     }
