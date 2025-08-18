@@ -16,6 +16,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ops::DerefMut,
     sync::Arc,
 };
 
@@ -120,31 +121,39 @@ async fn input_update(
 ) {
     let mut server = server.lock().await;
 
-    let Some(input) = server.inputs.get(input.as_str()) else {
+    // dereference server lock to split mutable borrow
+    let server: &mut Server = server.deref_mut();
+    let facts = &mut server.dataflow.facts;
+
+    let Some(input) = server.inputs.get_mut(input.as_str()) else {
         // TODO: return some error (and unit test it!)
         return;
     };
 
-    // drop immutable reference to input
-    let rel = input.rel;
-    let ty = input.ty.clone();
-
     for update in updates.into_iter() {
         // TODO: assert types match (and unit test it!)
-        if update.value.ty() != ty {
+        if update.value.ty() != input.ty {
             continue;
         }
 
         let fact = Fact {
-            relation: rel,
-            values: value_to_fact(update.value).into(),
+            relation: input.rel,
+            values: value_to_fact(update.value.clone()).into(),
         };
 
-        // TODO: unit test to assert that you can't remove program facts
-        // might require making a separate "inputs" dataflow input
+        // use state to guide updating of dataflow
+        // this avoids removal of program facts
         match update.state {
-            true => server.dataflow.facts.insert(fact),
-            false => server.dataflow.facts.remove(fact),
+            true => {
+                if input.state.insert(update.value) {
+                    facts.insert(fact);
+                }
+            }
+            false => {
+                if input.state.remove(&update.value) {
+                    facts.remove(fact);
+                }
+            }
         };
     }
 
@@ -239,6 +248,7 @@ impl Server {
             }
 
             let input = Input {
+                state: HashSet::new(),
                 ty: rel.ty.clone(),
                 rel: loader.relation_key(&rel.store).unwrap(),
             };
@@ -352,6 +362,7 @@ pub fn structure_values<'a>(
 }
 
 pub struct Input {
+    state: HashSet<Value>,
     ty: StructuredType,
     rel: Key<Relation>,
 }
