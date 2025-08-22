@@ -47,7 +47,8 @@ pub struct LspBackend {
 impl LspBackend {
     pub fn new(client: Client) -> Self {
         let db = Db::new();
-        let workspace = Workspace::new(&db, HashMap::new());
+        let stdlib = Default::default();
+        let workspace = Workspace::new(&db, HashMap::new(), stdlib);
         let language = Language::new(tree_sitter_kerolox::LANGUAGE);
         let editors = Default::default();
 

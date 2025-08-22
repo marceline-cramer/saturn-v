@@ -124,7 +124,8 @@ pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
     let language = Language::new(tree_sitter_kerolox::LANGUAGE);
 
     let mut file_urls = HashMap::new();
-    let workspace = Workspace::new(&db, file_urls.clone());
+    let stdlib = Default::default();
+    let workspace = Workspace::new(&db, file_urls.clone(), stdlib);
 
     let ed = Editor::new(&mut db, workspace, url.clone(), &language, &src);
     let file = ed.get_file();

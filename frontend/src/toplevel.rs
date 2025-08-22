@@ -37,10 +37,13 @@ use crate::{
 pub struct Workspace {
     #[return_ref]
     pub files: HashMap<Url, File>,
+    #[return_ref]
+    pub stdlib: HashMap<String, File>,
 }
 
 #[salsa::tracked]
 pub struct Namespace<'db> {
+    #[return_ref]
     pub items: BTreeMap<String, NamespaceItem<'db>>,
 }
 

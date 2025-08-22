@@ -21,7 +21,7 @@ use infer::TypeKey;
 use locate::{entity, entity_info};
 use parse::{AbstractConstraint, AbstractRule};
 use salsa::Database;
-use toplevel::{AstNode, File, Point, Span, Workspace};
+use toplevel::{AstNode, File, NamespaceItem, Point, Span, Workspace};
 
 pub mod desugar;
 pub mod diagnostic;
@@ -52,7 +52,7 @@ pub fn check_all_diagnostics(db: &dyn Database, ws: Workspace) -> Vec<&DynDiagno
 pub fn check_all(db: &dyn Database, ws: Workspace) {
     for (_url, file) in ws.files(db).iter() {
         toplevel::file_syntax_errors(db, *file);
-        parse::file_relations(db, *file);
+        resolve::file_interns(db, *file);
 
         for (_name, rules) in parse::file_rules(db, *file) {
             for rule in rules {
@@ -106,24 +106,42 @@ pub fn hover(db: &dyn Database, file: File, at: Point) -> Option<(Span, String)>
 pub fn completion(
     db: &dyn Database,
     file: File,
-    at: Point,
+    _at: Point,
 ) -> Option<Vec<lsp_types::CompletionItem>> {
-    // fetch the relation table for this file
-    let relations = parse::file_relations(db, file);
-
-    // convert each relation into items
     Some(
-        relations
-            .keys()
-            .map(|name| lsp_types::CompletionItem {
-                label: name.clone(),
-                kind: Some(lsp_types::CompletionItemKind::EVENT),
-                // TODO: documentation for the selection
-                // TODO: use insert_text/_format to expand out the type of this relation
-                ..Default::default()
-            })
+        resolve::file_interns(db, file)
+            .into_iter()
+            .flat_map(|(name, item)| item_to_completion(db, name, item.inner))
             .collect(),
     )
+}
+
+pub fn item_to_completion(
+    _db: &dyn Database,
+    label: String,
+    item: NamespaceItem,
+) -> Option<lsp_types::CompletionItem> {
+    // TODO: item documentation
+    // TODO: use insert_text/_format to expand out completions
+    use lsp_types::*;
+    match item {
+        NamespaceItem::File(_file) => Some(CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::FILE),
+            ..Default::default()
+        }),
+        NamespaceItem::Relation(_rel) => Some(CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::EVENT),
+            ..Default::default()
+        }),
+        NamespaceItem::TypeAlias(_alias) => Some(CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::STRUCT),
+            ..Default::default()
+        }),
+        _ => None,
+    }
 }
 
 #[salsa::tracked]

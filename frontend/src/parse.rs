@@ -121,54 +121,9 @@ pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstr
         .collect()
 }
 
-/// Looks up a relation definition in a file by name.
-#[salsa::tracked]
-pub fn file_relation(
-    db: &dyn Database,
-    file: File,
-    name: WithAst<String>,
-) -> Option<RelationDefinition<'_>> {
-    let rel = file_relations(db, file).get(name.as_ref()).copied();
-
-    // emit a fatal error if this relation could not be found
-    if rel.is_none() {
-        RelationNotFound { name }.accumulate(db);
-    }
-
-    rel
-}
-
-/// Gets the full relation table of a file.
-#[salsa::tracked]
-pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, RelationDefinition<'_>> {
-    // iterate over all relation items
-    let mut relations: HashMap<String, RelationDefinition> = HashMap::new();
-    for node in file_item_kind_ast(db, file, ItemKind::Definition) {
-        let def = parse_relation_def(db, node);
-        let name = def.name(db).clone().inner;
-        use std::collections::hash_map::Entry;
-        match relations.entry(name.clone()) {
-            Entry::Occupied(entry) => {
-                RelationDefinedAgain {
-                    name,
-                    original: entry.get().ast(db),
-                    redefinition: def.ast(db),
-                }
-                .accumulate(db);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(def);
-            }
-        }
-    }
-
-    // done!
-    relations
-}
-
 /// Parses a relation from a relation definition AST node.
 #[salsa::tracked]
-pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
+pub fn abstract_relation(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
     // get the name
     let relation = node.expect_field(db, "relation");
     let name = relation.with_contents(db).unwrap();
@@ -268,7 +223,7 @@ pub enum ItemKind {
 
 /// Parses an abstract import from an AST.
 #[salsa::tracked]
-pub fn parse_import(db: &dyn Database, ast: AstNode) -> AbstractImport<'_> {
+pub fn abstract_import(db: &dyn Database, ast: AstNode) -> AbstractImport<'_> {
     // parse each segments of the import path
     let path = ast
         .get_fields(db, "path")
@@ -638,58 +593,6 @@ impl From<UnaryOpKind> for ir::UnaryOpKind {
             UnaryOpKind::Not => Not,
             UnaryOpKind::Negate => Negate,
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RelationNotFound {
-    pub name: WithAst<String>,
-}
-
-impl BasicDiagnostic for RelationNotFound {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.name.ast..self.name.ast
-    }
-
-    fn message(&self) -> String {
-        format!("undefined relation {}", self.name)
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RelationDefinedAgain {
-    pub name: String,
-    pub original: AstNode,
-    pub redefinition: AstNode,
-}
-
-impl BasicDiagnostic for RelationDefinedAgain {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.redefinition..self.redefinition
-    }
-
-    fn message(&self) -> String {
-        format!("relation {} defined again", self.name)
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
-    }
-
-    fn notes(&self) -> Vec<WithAst<String>> {
-        vec![self.original.with("originally defined here".to_string())]
     }
 }
 

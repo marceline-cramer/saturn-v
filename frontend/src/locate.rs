@@ -22,7 +22,7 @@ use crate::{
     infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
     lookup,
     parse::*,
-    resolve::{file_unresolved_types, resolve_relation_type, Unresolved},
+    resolve::{file_relation, file_unresolved_types, resolve_relation_type, Unresolved},
     toplevel::{AstNode, File, Point},
     types::WithAst,
 };
@@ -163,7 +163,7 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
                 return match kind {
                     ItemKind::Import => Some(Entity::new(db, ast, EntityKind::Import(ast))),
                     ItemKind::Definition => {
-                        let def = parse_relation_def(db, ast);
+                        let def = abstract_relation(db, ast);
                         definition(db, def, at)
                     }
                     ItemKind::Rule => {

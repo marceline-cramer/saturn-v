@@ -21,6 +21,7 @@ use salsa::{Database, Update};
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     parse::*,
+    resolve::file_relation,
     toplevel::{AstNode, Workspace},
     types::WithAst,
 };

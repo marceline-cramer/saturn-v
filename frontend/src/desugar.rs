@@ -26,9 +26,8 @@ use saturn_v_ir::{self as ir, QueryTerm};
 
 use crate::{
     infer::{TypeKey, TypeTable, TypedRuleBody},
-    parse::{
-        file_relation, BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind,
-    },
+    parse::{BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind},
+    resolve::file_relation,
     toplevel::File,
     types::{PrimitiveType, WithAst},
 };
