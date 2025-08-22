@@ -56,6 +56,19 @@ pub enum NamespaceItem<'db> {
     Unknown,
 }
 
+impl<'db> NamespaceItem<'db> {
+    /// Returns a user-readable string identifier for what kind of item this is.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            NamespaceItem::File(_) => "file",
+            NamespaceItem::Namespace(_) => "namespace",
+            NamespaceItem::Relation(_) => "relation",
+            NamespaceItem::TypeAlias(_) => "type alias",
+            NamespaceItem::Unknown => "unknown",
+        }
+    }
+}
+
 #[salsa::input]
 #[derive(Debug)]
 pub struct File {

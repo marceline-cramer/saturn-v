@@ -170,9 +170,17 @@ pub fn file_relation(
             RelationNotFound { name }.accumulate(db);
             None
         }
-        Some(item) => match item.inner {
-            NamespaceItem::Relation(rel) => Some(rel),
-            _ => todo!(), // throw an error about expecting a relation
+        Some(item) => match &item.inner {
+            NamespaceItem::Relation(rel) => Some(*rel),
+            item => {
+                ExpectedRelation {
+                    ast: name.ast,
+                    got: item.kind(),
+                }
+                .accumulate(db);
+
+                None
+            }
         },
     }
 }
@@ -253,8 +261,12 @@ pub fn import_items<'db>(
             }
             // ignore; error for unknown items has already been thrown
             NamespaceItem::Unknown => {}
-            NamespaceItem::Relation(rel) => todo!(),
-            NamespaceItem::TypeAlias(ty) => todo!(),
+            // other items may not be indexed
+            _ => NoChildren {
+                item: segment.clone(),
+                kind: child.kind(),
+            }
+            .accumulate(db),
         }
 
         // if child could not be found, return a fresh namespace with unknown items
@@ -404,6 +416,54 @@ impl BasicDiagnostic for RelationNotFound {
 
     fn message(&self) -> String {
         format!("undefined relation {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NoChildren {
+    pub item: WithAst<String>,
+    pub kind: &'static str,
+}
+
+impl BasicDiagnostic for NoChildren {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.item.ast..self.item.ast
+    }
+
+    fn message(&self) -> String {
+        format!("{} {} does not have child items", self.kind, self.item)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExpectedRelation {
+    pub ast: AstNode,
+    pub got: &'static str,
+}
+
+impl BasicDiagnostic for ExpectedRelation {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.ast..self.ast
+    }
+
+    fn message(&self) -> String {
+        format!("expected relation, got {}", self.got)
     }
 
     fn kind(&self) -> DiagnosticKind {
