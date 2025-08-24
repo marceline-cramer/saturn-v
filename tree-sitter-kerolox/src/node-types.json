@@ -357,6 +357,10 @@
       "required": false,
       "types": [
         {
+          "type": "comment",
+          "named": true
+        },
+        {
           "type": "constraint",
           "named": true
         },
@@ -366,6 +370,10 @@
         },
         {
           "type": "import",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         },
         {
@@ -736,6 +744,10 @@
   {
     "type": "input",
     "named": false
+  },
+  {
+    "type": "newline",
+    "named": true
   },
   {
     "type": "output",

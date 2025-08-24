@@ -9,6 +9,14 @@
         "members": [
           {
             "type": "SYMBOL",
+            "name": "newline"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "comment"
+          },
+          {
+            "type": "SYMBOL",
             "name": "import"
           },
           {
@@ -26,9 +34,17 @@
         ]
       }
     },
+    "newline": {
+      "type": "PATTERN",
+      "value": "[\\n\\r]"
+    },
     "_whitespace": {
       "type": "PATTERN",
       "value": "[ \\n\\r\\t]"
+    },
+    "docs": {
+      "type": "PATTERN",
+      "value": "(?:;.*\\n)*"
     },
     "comment": {
       "type": "PATTERN",

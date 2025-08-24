@@ -1,0 +1,11 @@
+define Stuff Integer.
+; not a doc
+
+; a doc
+define Stuff Integer.
+
+; multiple not-docs
+; spreading multiple lines
+
+; still a doc
+define Stuff Integer.
