@@ -239,23 +239,18 @@ pub fn file_item_kind_ast<'db>(
         .collect()
 }
 
-/// Gets the top-level item AST nodes from a file.
+/// Gets the top-level items from a file in order of appearance.
 #[salsa::tracked]
-pub fn file_items<'db>(db: &'db dyn Database, file: File) -> BTreeSet<Item<'db>> {
+pub fn file_items<'db>(db: &'db dyn Database, file: File) -> Vec<Item<'db>> {
     // iterate all children
     let root = file.ast(db);
-    let mut items = BTreeSet::new();
+    let mut items = Vec::new();
     let mut docs = Vec::new();
     for child in root.children(db).iter() {
         // select item kind based on symbol
         use ItemKind::*;
         let kind = match child.symbol(db) {
-            // newlines clear running docs
-            "newline" => {
-                docs.clear();
-                continue;
-            }
-            // accumulate doc comments
+            // accumulate top-level or doc comments
             "comment" => {
                 docs.push(*child);
                 continue;
@@ -265,6 +260,7 @@ pub fn file_items<'db>(db: &'db dyn Database, file: File) -> BTreeSet<Item<'db>>
             "definition" => Definition,
             "rule" => Rule,
             "constraint" => Constraint,
+            "newline" => Comment,
             // TODO: accumulate a diagnostic?
             _ => continue,
         };
@@ -273,7 +269,7 @@ pub fn file_items<'db>(db: &'db dyn Database, file: File) -> BTreeSet<Item<'db>>
         let item = Item::new(db, std::mem::take(&mut docs), *child, kind);
 
         // push this item to the list
-        items.insert(item);
+        items.push(item);
     }
 
     // all done :)
@@ -283,10 +279,14 @@ pub fn file_items<'db>(db: &'db dyn Database, file: File) -> BTreeSet<Item<'db>>
 #[salsa::tracked]
 pub struct Item<'db> {
     /// The documentation comments before the item.
+    ///
+    /// For top-level comment items, contains the list of actual comments.
     #[return_ref]
     pub docs: Vec<AstNode>,
 
     /// The AST node of the item body.
+    ///
+    /// For consecutive top-level comments, this is the newline terminating them.
     pub ast: AstNode,
 
     /// The kind of this item.
@@ -299,6 +299,7 @@ pub enum ItemKind {
     Definition,
     Rule,
     Constraint,
+    Comment,
 }
 
 /// Parses an abstract constraint from an AST.

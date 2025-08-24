@@ -177,6 +177,8 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
                     let def = parse_constraint(db, item);
                     constraint(db, def, at)
                 }
+                // TODO: parse entity references within comments
+                ItemKind::Comment => None,
             };
         }
     }
