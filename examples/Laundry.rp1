@@ -17,8 +17,6 @@ define Article(Symbol, Symbol).
 Article(Shirt, item) :- Shirt item.
 Article(Pants, item) :- Pants item.
 
-; not docs
-
 ; Each day to be planned.
 define Day Integer.
 Day 1.
