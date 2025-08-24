@@ -73,12 +73,13 @@ impl Client {
     }
 
     /// Gets an input by name.
-    pub async fn get_input(&self, name: &str) -> Result<Option<Input>> {
-        Ok(self
-            .get_inputs()
+    pub async fn get_input(&self, name: &str) -> Result<Input> {
+        self.get_inputs()
             .await?
             .into_iter()
-            .find(|input| input.name == name))
+            .find(|input| input.name == name)
+            .ok_or_else(|| ServerError::NoSuchInput(name.to_string()))
+            .map_err(Into::into)
     }
 
     /// Gets a list of all outputs currently on the server.
@@ -95,12 +96,13 @@ impl Client {
     }
 
     /// Gets an output by name.
-    pub async fn get_output(&self, name: &str) -> Result<Option<Output>> {
-        Ok(self
-            .get_outputs()
+    pub async fn get_output(&self, name: &str) -> Result<Output> {
+        self.get_outputs()
             .await?
             .into_iter()
-            .find(|output| output.name == name))
+            .find(|output| output.name == name)
+            .ok_or_else(|| ServerError::NoSuchOutput(name.to_string()))
+            .map_err(Into::into)
     }
 
     /// Builds a request to the server with specified method and path.
@@ -248,10 +250,15 @@ impl Output {
             std::future::ready(match ev {
                 Ok(Event::Open) => None,
                 Err(err) => Some(Err(Error::EventSource(Box::new(err)))),
-                Ok(Event::Message(msg)) => serde_json::from_reader(msg.data.as_bytes())
-                    .map_err(Into::into)
-                    .map(|update: TupleUpdate| Some((T::from_value(update.value), update.state)))
-                    .transpose(),
+                Ok(Event::Message(msg)) => Some(
+                    match serde_json::from_reader::<_, ServerResult<TupleUpdate>>(
+                        msg.data.as_bytes(),
+                    ) {
+                        Ok(Ok(update)) => Ok((T::from_value(update.value), update.state)),
+                        Ok(Err(err)) => Err(Error::Server(err)),
+                        Err(err) => Err(Error::Parse(err)),
+                    },
+                ),
             })
         }))
     }
