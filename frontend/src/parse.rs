@@ -15,7 +15,7 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     str::FromStr,
 };
@@ -98,9 +98,9 @@ impl Display for AbstractType {
 pub fn file_rules(db: &dyn Database, file: File) -> HashMap<String, HashSet<AbstractRule<'_>>> {
     // iterate over all rule items
     let mut rules: HashMap<_, HashSet<_>> = HashMap::new();
-    for node in file_item_kind_ast(db, file, ItemKind::Rule) {
+    for item in file_item_kind_ast(db, file, ItemKind::Rule) {
         // parse the rule
-        let rule = parse_rule(db, node);
+        let rule = parse_rule(db, item);
 
         // add it into the set corresponding to each relation name
         rules
@@ -168,17 +168,20 @@ pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, Relation
 
 /// Parses a relation from a relation definition AST node.
 #[salsa::tracked]
-pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
+pub fn parse_relation_def<'db>(db: &'db dyn Database, item: Item<'db>) -> RelationDefinition<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // get the name
-    let relation = node.expect_field(db, "relation");
+    let relation = ast.expect_field(db, "relation");
     let name = relation.with(relation.contents(db).to_string());
 
     // relation attributes
-    let is_decision = node.get_field(db, "decision").is_some();
+    let is_decision = ast.get_field(db, "decision").is_some();
 
     // handle the relation IO
-    let input = node.get_field(db, "input");
-    let output = node.get_field(db, "output");
+    let input = ast.get_field(db, "input");
+    let output = ast.get_field(db, "output");
     let io = match (input, output) {
         (None, None) => ir::RelationIO::None,
         (Some(_), None) => ir::RelationIO::Input,
@@ -197,10 +200,10 @@ pub fn parse_relation_def(db: &dyn Database, node: AstNode) -> RelationDefinitio
     };
 
     // parse the type
-    let ty = parse_abstract_type(db, node.expect_field(db, "type"));
+    let ty = parse_abstract_type(db, ast.expect_field(db, "type"));
 
     // create the full decision
-    RelationDefinition::new(db, node, name, is_decision, io, ty)
+    RelationDefinition::new(db, ast, name, is_decision, io, ty)
 }
 
 /// Parses an [AbstractType] from an AST node.
@@ -225,23 +228,39 @@ pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> WithAst<AbstractT
 
 /// Gets all top-level AST nodes of a particular item kind from a file.
 #[salsa::tracked]
-pub fn file_item_kind_ast(db: &dyn Database, file: File, kind: ItemKind) -> HashSet<AstNode> {
-    file_item_ast(db, file)
-        .get(&kind)
-        .cloned()
-        .unwrap_or_default()
+pub fn file_item_kind_ast<'db>(
+    db: &'db dyn Database,
+    file: File,
+    kind: ItemKind,
+) -> BTreeSet<Item<'db>> {
+    file_items(db, file)
+        .into_iter()
+        .filter(|item| item.kind(db) == kind)
+        .collect()
 }
 
 /// Gets the top-level item AST nodes from a file.
 #[salsa::tracked]
-pub fn file_item_ast(db: &dyn Database, file: File) -> HashMap<ItemKind, HashSet<AstNode>> {
+pub fn file_items<'db>(db: &'db dyn Database, file: File) -> BTreeSet<Item<'db>> {
     // iterate all children
     let root = file.ast(db);
-    let mut items: HashMap<_, HashSet<_>> = HashMap::default();
+    let mut items = BTreeSet::new();
+    let mut docs = Vec::new();
     for child in root.children(db).iter() {
         // select item kind based on symbol
         use ItemKind::*;
         let kind = match child.symbol(db) {
+            // newlines clear running docs
+            "newline" => {
+                docs.clear();
+                continue;
+            }
+            // accumulate doc comments
+            "comment" => {
+                docs.push(*child);
+                continue;
+            }
+            // parse each main item kind
             "import" => Import,
             "definition" => Definition,
             "rule" => Rule,
@@ -250,12 +269,28 @@ pub fn file_item_ast(db: &dyn Database, file: File) -> HashMap<ItemKind, HashSet
             _ => continue,
         };
 
-        // add this AST to the items list
-        items.entry(kind).or_default().insert(*child);
+        // assemble the complete item
+        let item = Item::new(db, std::mem::take(&mut docs), *child, kind);
+
+        // push this item to the list
+        items.insert(item);
     }
 
     // all done :)
     items
+}
+
+#[salsa::tracked]
+pub struct Item<'db> {
+    /// The documentation comments before the item.
+    #[return_ref]
+    pub docs: Vec<AstNode>,
+
+    /// The AST node of the item body.
+    pub ast: AstNode,
+
+    /// The kind of this item.
+    pub kind: ItemKind,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -268,7 +303,10 @@ pub enum ItemKind {
 
 /// Parses an abstract constraint from an AST.
 #[salsa::tracked]
-pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'_> {
+pub fn parse_constraint<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractConstraint<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // parse each capture into the head
     let head = ast
         .get_fields(db, "capture")
@@ -334,7 +372,10 @@ pub struct AbstractConstraint<'db> {
 
 /// Parses an abstract rule from an AST.
 #[salsa::tracked]
-pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
+pub fn parse_rule<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractRule<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // get the name of the relation
     let relation_node = ast.expect_field(db, "relation");
     let relation = relation_node.with(relation_node.contents(db).to_string());
