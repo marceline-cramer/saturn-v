@@ -5,16 +5,17 @@ edition = "2021"
 license.workspace = true
 
 [dependencies]
+batsat = "0.6.0"
 bitvec = { version = "1", features = ["serde"] }
-differential-dataflow = "0.16"
-flume = "0.11"
-futures-util = "0.3"
+differential-dataflow.workspace = true
+flume.workspace = true
+futures-util.workspace = true
 indexmap.workspace = true
 rustsat = "0.7.1"
 # rustsat-cadical = { version = "0.7.1", features = ["v2-1-3"] }
 rustsat-batsat = "0.7.1"
 saturn-v-ir.workspace = true
 serde.workspace = true
-timely = "0.21"
+timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true

@@ -14,15 +14,18 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, error::Error, path::PathBuf};
+use std::{collections::HashMap, error::Error, net::SocketAddr, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use salsa::Setter;
+use saturn_v_client::Client;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
+use tokio::net::TcpListener;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
+use url::Url;
 
 #[derive(Parser)]
 pub struct Args {
@@ -51,6 +54,32 @@ pub enum Command {
         #[clap(short, long, value_parser = parse_key_val::<String, PathBuf>)]
         input: Vec<(String, PathBuf)>,
 
+        /// The path to the source file.
+        path: PathBuf,
+    },
+
+    /// Runs a server.
+    Server {
+        /// A TCP address to bind to
+        #[clap(short, long)]
+        host: Vec<SocketAddr>,
+    },
+
+    /// Commands that interact with a Saturn V server.
+    Client {
+        /// The base URL of the Saturn V server
+        #[clap(short, long)]
+        server: Url,
+
+        #[command(subcommand)]
+        cmd: ClientCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ClientCommands {
+    /// Compiles a program and pushes it to the server.
+    Push {
         /// The path to the source file.
         path: PathBuf,
     },
@@ -105,13 +134,33 @@ async fn main() {
                 eprintln!("{err}");
             }
         }
-        Command::Run { path, input, .. } => {
+        Command::Run { path, .. } => {
             let Some(program) = build_file(&path) else {
                 return;
             };
 
             let loader = saturn_v_eval::load::Loader::load_program(&program);
             saturn_v_eval::run(loader).await;
+        }
+        Command::Server { host } => {
+            use saturn_v_server::*;
+            let state = start_server();
+            let router = route(state);
+            let listener = TcpListener::bind(host.as_slice()).await.unwrap();
+            axum::serve(listener, router).await.unwrap();
+        }
+        Command::Client { server, cmd } => {
+            let client = Client::new(server);
+
+            match cmd {
+                ClientCommands::Push { path } => {
+                    let Some(program) = build_file(&path) else {
+                        return;
+                    };
+
+                    client.set_program(&program).await.unwrap();
+                }
+            }
         }
     }
 }
@@ -155,6 +204,11 @@ pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
     // TODO: relation names should be mangled in programs with more than one file
     let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
         .map_relations(|def| def.name(&db).inner.to_string());
+
+    if let Err(err) = program.validate() {
+        eprintln!("failed to lower program: {err}");
+        return None;
+    }
 
     // return built program
     Some(program)

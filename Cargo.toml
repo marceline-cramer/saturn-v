@@ -1,5 +1,5 @@
 [workspace]
-members = [ "check", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "tree-sitter-kerolox" ]
+members = [ "check", "client", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "server", "tree-sitter-kerolox" ]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -7,17 +7,24 @@ license = "AGPL-3.0-or-later"
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
+anyhow = "1"
 chumsky = "0.9"
+differential-dataflow = "0.16"
+flume = "0.11"
+futures-util = "0.3"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
 pretty = "0.12"
 ropey = "1.6"
 salsa = "0.20"
 serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
 smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
+timely = "0.21"
 tokio = "1.42"
+tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree-sitter = "0.25.1"
@@ -26,11 +33,13 @@ url = "2.5"
 
 # internal workspace members
 saturn-v-check.path = "check"
+saturn-v-client.path = "client"
 saturn-v-eval.path = "eval"
 saturn-v-frontend.path = "frontend"
 saturn-v-ir.path = "ir"
 saturn-v-lower.path = "lower"
 saturn-v-lsp.path = "lsp"
+saturn-v-server.path = "server"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
 
 [package]
@@ -42,11 +51,13 @@ edition = "2021"
 ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
 salsa.workspace = true
+saturn-v-client.workspace = true
 saturn-v-eval.workspace = true
 saturn-v-frontend.workspace = true
 saturn-v-ir.workspace = true
 saturn-v-lower.workspace = true
 saturn-v-lsp.workspace = true
+saturn-v-server.workspace = true
 tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
 tower-lsp.workspace = true
 tracing-subscriber.workspace = true
