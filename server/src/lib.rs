@@ -92,6 +92,7 @@ async fn get_program(server: ExtractState) -> Json<Program> {
 
 async fn post_program(server: ExtractState, Json(program): Json<Program>) {
     if program.validate().is_err() {
+        panic!("program invalid");
         return;
     }
 
@@ -127,12 +128,14 @@ async fn input_update(
 
     let Some(input) = server.inputs.get_mut(input.as_str()) else {
         // TODO: return some error (and unit test it!)
+        panic!();
         return;
     };
 
     for update in updates.into_iter() {
         // TODO: assert types match (and unit test it!)
         if update.value.ty() != input.ty {
+            panic!("{:?}", update.value);
             continue;
         }
 
