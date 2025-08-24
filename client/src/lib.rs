@@ -20,7 +20,6 @@
 
 use std::{fmt::Debug, ops::Deref};
 
-use anyhow::{Context, Result, bail};
 use futures_util::{Stream, StreamExt};
 use ordered_float::OrderedFloat;
 use reqwest::{Method, RequestBuilder, Url};
@@ -29,6 +28,7 @@ use saturn_v_ir::{self as ir};
 use serde::{Deserialize, Serialize};
 
 pub use ir::StructuredType;
+use thiserror::Error;
 
 /// Type alias for IR programs that can be loaded on the server.
 pub type Program = saturn_v_ir::Program<String>;
@@ -51,24 +51,19 @@ impl Client {
 
     /// Gets the program currently loaded.
     pub async fn get_program(&self) -> Result<Program> {
-        self.get_json("/program")
-            .await
-            .context("failed to retrieve loaded program")
+        self.get_json("/program").await
     }
 
     /// Replaces the program currently loaded with a new program.
     pub async fn set_program(&self, program: &Program) -> Result<()> {
-        self.post_json("/program", program)
-            .await
-            .context("failed to update program")
+        self.post_json("/program", program).await
     }
 
     /// Gets a list of all inputs currently on the server.
     pub async fn get_inputs(&self) -> Result<Vec<Input>> {
         Ok(self
             .get_json::<Vec<RelationInfo>>("/inputs/list")
-            .await
-            .context("failed to list inputs")?
+            .await?
             .into_iter()
             .map(|info| Input {
                 client: self.clone(),
@@ -81,8 +76,7 @@ impl Client {
     pub async fn get_input(&self, name: &str) -> Result<Option<Input>> {
         Ok(self
             .get_inputs()
-            .await
-            .context("failed to get all inputs")?
+            .await?
             .into_iter()
             .find(|input| input.name == name))
     }
@@ -91,8 +85,7 @@ impl Client {
     pub async fn get_outputs(&self) -> Result<Vec<Output>> {
         Ok(self
             .get_json::<Vec<RelationInfo>>("/outputs/list")
-            .await
-            .context("failed to list outputs")?
+            .await?
             .into_iter()
             .map(|info| Output {
                 client: self.clone(),
@@ -105,8 +98,7 @@ impl Client {
     pub async fn get_output(&self, name: &str) -> Result<Option<Output>> {
         Ok(self
             .get_outputs()
-            .await
-            .context("failed to get all outputs")?
+            .await?
             .into_iter()
             .find(|output| output.name == name))
     }
@@ -121,24 +113,54 @@ impl Client {
 
     /// Makes a GET request and parses it to JSON.
     pub(crate) async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T> {
-        self.begin_request(Method::GET, path)
+        let response: ServerResult<T> = self
+            .begin_request(Method::GET, path)
             .send()
-            .await
-            .context("failed to make GET request")?
+            .await?
             .json()
-            .await
-            .context("failed to decode JSON response")
+            .await?;
+
+        Ok(response?)
     }
 
     /// POSTs a JSON payload.
     pub(crate) async fn post_json<T: Serialize>(&self, path: &str, json: &T) -> Result<()> {
-        self.begin_request(Method::POST, path)
+        let response: ServerResult<()> = self
+            .begin_request(Method::POST, path)
             .json(json)
             .send()
-            .await
-            .context("failed to make POST request")?;
+            .await?
+            .json()
+            .await?;
 
-        Ok(())
+        Ok(response?)
+    }
+}
+
+#[cfg(feature = "invalid-requests")]
+impl Client {
+    /// Creates an output by name, even if it doesn't necessarily exist.
+    pub fn get_invalid_output(&self, name: &str, ty: StructuredType) -> Output {
+        Output {
+            client: self.clone(),
+            info: RelationInfo {
+                name: name.to_string(),
+                id: name.to_string(),
+                ty,
+            },
+        }
+    }
+
+    /// Creates an output by name, even if it doesn't necessarily exist.
+    pub fn get_invalid_input(&self, id: &str, ty: StructuredType) -> Input {
+        Input {
+            client: self.clone(),
+            info: RelationInfo {
+                name: id.to_string(),
+                id: id.to_string(),
+                ty,
+            },
+        }
     }
 }
 
@@ -170,17 +192,14 @@ impl Input {
 
     /// Updates a value in this relation. `true` adds, `false` removes.
     pub async fn update<T: AsValue>(&self, val: &T, state: bool) -> Result<()> {
-        if !self.matches_ty::<T>() {
-            bail!("input type mismatch");
-        }
+        self.check_ty::<T>()?;
 
         let value = val.as_value();
         let body = vec![TupleUpdate { state, value }];
 
         self.client
             .post_json(&format!("/input/{}/update", self.id), &body)
-            .await
-            .context("failed to update value")?;
+            .await?;
 
         Ok(())
     }
@@ -204,41 +223,35 @@ impl Deref for Output {
 impl Output {
     /// Gets the set of values currently in this output.
     pub async fn get_all<T: FromValue>(&self) -> Result<Vec<T>> {
-        if !self.matches_ty::<T>() {
-            bail!("output type mismatch");
-        }
+        self.check_ty::<T>()?;
 
         Ok(self
             .client
             .get_json::<Vec<Value>>(&format!("/output/{}", self.id))
-            .await
-            .context("failed to retrieve output values")?
+            .await?
             .into_iter()
             .map(|val| T::from_value(val))
             .collect())
     }
 
     /// Subscribes to live updates on values in this output.
-    pub async fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<(T, bool)>>> {
-        if !self.matches_ty::<T>() {
-            bail!("output type mismatch");
-        }
+    pub fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<(T, bool)>>> {
+        self.check_ty::<T>()?;
 
         let src = self
             .client
             .begin_request(Method::GET, &format!("/output/{}/subscribe", self.id))
             .eventsource()
-            .context("failed to create outputs event source")?;
+            .unwrap();
 
         Ok(src.filter_map(|ev| {
             std::future::ready(match ev {
                 Ok(Event::Open) => None,
-                Err(err) => Some(Err(err).context("SSE error")),
-                Ok(Event::Message(msg)) => Some(
-                    serde_json::from_reader(msg.data.as_bytes())
-                        .context("failed to parse value")
-                        .map(|update: TupleUpdate| (T::from_value(update.value), update.state)),
-                ),
+                Err(err) => Some(Err(Error::EventSource(Box::new(err)))),
+                Ok(Event::Message(msg)) => serde_json::from_reader(msg.data.as_bytes())
+                    .map_err(Into::into)
+                    .map(|update: TupleUpdate| Some((T::from_value(update.value), update.state)))
+                    .transpose(),
             })
         }))
     }
@@ -258,6 +271,18 @@ pub struct RelationInfo {
 }
 
 impl RelationInfo {
+    /// Helper method to test if a type matches this relation.
+    pub fn check_ty<T: Typed>(&self) -> Result<()> {
+        if self.matches_ty::<T>() {
+            Ok(())
+        } else {
+            Err(Error::Server(ServerError::TypeMismatch {
+                expected: self.ty.clone(),
+                got: T::ty(),
+            }))
+        }
+    }
+
     /// Checks if a typed Saturn V value matches this relation's type.
     pub fn matches_ty<T: Typed>(&self) -> bool {
         T::ty() == self.ty
@@ -402,3 +427,53 @@ macro_rules! typed_tuple {
 }
 
 typed_tuple!(A, B, C, D, E, F, G, H);
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    Server(#[from] ServerError),
+    #[error(transparent)]
+    Request(#[from] reqwest::Error),
+    #[error(transparent)]
+    EventSource(#[from] Box<reqwest_eventsource::Error>),
+    #[error(transparent)]
+    Parse(#[from] serde_json::Error),
+}
+
+impl Error {
+    /// Attempts to convert this error into a server error.
+    pub fn into_server_error(self) -> Result<ServerError> {
+        match self {
+            Error::Server(err) => Ok(err),
+            other => Err(other),
+        }
+    }
+}
+
+pub type ServerResult<T> = std::result::Result<T, ServerError>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Error, Deserialize, Serialize)]
+pub enum ServerError {
+    #[error("program did not pass validation. error: {0}")]
+    InvalidProgram(ir::validate::Error<String>),
+
+    #[error("no program is loaded")]
+    NoProgramLoaded,
+
+    #[error("input with ID {0:?} does not exist")]
+    NoSuchInput(String),
+
+    #[error("output with ID {0:?} does not exist")]
+    NoSuchOutput(String),
+
+    #[error("type mismatch: expected {expected}, got {got}")]
+    TypeMismatch {
+        expected: StructuredType,
+        got: StructuredType,
+    },
+
+    #[error("the server side event stream has lagged")]
+    Lagged,
+}
