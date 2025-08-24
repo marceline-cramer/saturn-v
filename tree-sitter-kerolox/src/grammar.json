@@ -47,8 +47,21 @@
       "value": "(?:;.*\\n)*"
     },
     "comment": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": ";[ \\t]*"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "commentInner"
+        }
+      ]
+    },
+    "commentInner": {
       "type": "PATTERN",
-      "value": ";.*\\n"
+      "value": "[^\\n]*"
     },
     "variable": {
       "type": "PATTERN",

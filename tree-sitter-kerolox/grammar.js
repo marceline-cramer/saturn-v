@@ -11,8 +11,6 @@ const listComma = el => seq(el, choice(",", repeat1(seq(",", el))))
 const parenList = (el) => seq("(", list(el), ")");
 const parenListComma = (el) => seq("(", listComma(el), ")");
 
-const docsThenKeyword = (kw) => field("docs", token(new RustRegex("(?:[ \\t]*;.*\\n)*[ \\t]*" + kw)))
-
 /// Shorthand to write a binary expression with left precedence of the given priority.
 const expr_prec = (expr, precedence, op) => prec.left(precedence,
   seq(field("lhs", expr), field("op", op), field("rhs", expr)))
@@ -34,7 +32,8 @@ module.exports = grammar({
     newline: _ => /[\n\r]/,
     _whitespace: _ => /[ \n\r\t]/,
     docs: _ => /(?:;.*\n)*/,
-    comment: _ => /;.*\n/,
+    comment: $ => seq(/;[ \t]*/, $.commentInner),
+    commentInner: _ => /[^\n]*/,
 
     variable: _ => /[a-z][a-zA-Z0-9_]*/,
     symbol: _ => /[A-Z][a-zA-Z0-9]*/,
