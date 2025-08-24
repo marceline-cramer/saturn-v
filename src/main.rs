@@ -205,6 +205,11 @@ pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
     let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
         .map_relations(|def| def.name(&db).inner.to_string());
 
+    if let Err(err) = program.validate() {
+        eprintln!("failed to lower program: {err}");
+        return None;
+    }
+
     // return built program
     Some(program)
 }
