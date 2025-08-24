@@ -181,9 +181,29 @@ async fn test_no_input() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_input_ty_mismatch() -> Result<()> {
+    let client = passthru_client().await?;
+    let name = "Input".to_string();
+    let ty = StructuredType::Primitive(Type::Integer);
+    let input = client.get_invalid_input(&name, ty.clone());
+    let value = 47;
+    let result = input.insert(&value).await;
+
+    assert_eq!(
+        server_error(result)?,
+        ServerError::TypeMismatch {
+            expected: StructuredType::Primitive(Type::String),
+            got: ty
+        }
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_input_operations() -> Result<()> {
     let client = passthru_client().await?;
-    let input = client.get_input("Input").await?.unwrap();
+    let input = client.get_input("Input").await?;
     let value = "test".to_string();
     input.insert(&value).await?;
     input.remove(&value).await?;
@@ -202,7 +222,7 @@ async fn test_list_outputs() -> Result<()> {
 #[tokio::test]
 async fn test_output_operations() -> Result<()> {
     let client = passthru_client().await?;
-    let output = client.get_output("Output").await?.unwrap();
+    let output = client.get_output("Output").await?;
     let values = output.get_all::<String>().await?;
     assert_eq!(values, Vec::<String>::new());
     Ok(())
@@ -212,13 +232,13 @@ async fn test_output_operations() -> Result<()> {
 async fn test_passthru() -> Result<()> {
     let client = passthru_client().await?;
 
-    let input = client.get_input("Input").await?.unwrap();
+    let input = client.get_input("Input").await?;
     let value = "test".to_string();
     input.insert(&value).await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
-    let output = client.get_output("Output").await?.unwrap();
+    let output = client.get_output("Output").await?;
     let values = output.get_all::<String>().await?;
     assert_eq!(values, vec![value]);
 
@@ -237,8 +257,8 @@ async fn test_remove_fact() -> Result<()> {
 
     client.set_program(&program).await?;
 
-    let input = client.get_input("Input").await?.unwrap();
-    let output = client.get_output("Output").await?.unwrap();
+    let input = client.get_input("Input").await?;
+    let output = client.get_output("Output").await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let values = output.get_all::<String>().await?;
@@ -256,13 +276,25 @@ async fn test_remove_fact() -> Result<()> {
 #[tokio::test]
 async fn test_output_subscription() -> Result<()> {
     let client = passthru_client().await?;
-    let input = client.get_input("Input").await?.unwrap();
-    let output = client.get_output("Output").await?.unwrap();
+    let input = client.get_input("Input").await?;
+    let output = client.get_output("Output").await?;
     let mut rx = output.subscribe()?;
     let value = "test".to_string();
     input.insert(&value).await?;
     let received: (String, bool) = rx.next().await.unwrap()?;
     assert_eq!(received, (value, true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_subscription_no_output() -> Result<()> {
+    let client = passthru_client().await?;
+    let name = "NotAnOutput".to_string();
+    let ty = StructuredType::Primitive(Type::String);
+    let output = client.get_invalid_output(&name, ty);
+    let mut rx = output.subscribe::<String>()?;
+    let response = rx.next().await.unwrap();
+    assert_eq!(server_error(response)?, ServerError::NoSuchOutput(name));
     Ok(())
 }
 

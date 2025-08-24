@@ -24,7 +24,6 @@ use std::{
 use axum::{
     Json, Router,
     extract::Path,
-    handler::Handler,
     response::{Sse, sse::Event},
     routing::{get, post},
 };
@@ -67,7 +66,7 @@ pub fn start_server() -> State {
     let (inputs, solver, output_rx) = routers.split();
 
     let server = Arc::new(Mutex::new(Server {
-        program: Program::default(),
+        program: None,
         dataflow: inputs,
         inputs: HashMap::new(),
         outputs: HashMap::new(),
@@ -90,7 +89,13 @@ pub fn route(server: State) -> Router {
 }
 
 async fn get_program(server: ExtractState) -> ServerResponse<Program> {
-    Ok(server.lock().await.program.clone()).into()
+    server
+        .lock()
+        .await
+        .program
+        .clone()
+        .ok_or(ServerError::NoProgramLoaded)
+        .into()
 }
 
 async fn post_program(server: ExtractState, Json(program): Json<Program>) -> ServerResponse<()> {
@@ -129,12 +134,10 @@ async fn input_update(
     let facts = &mut server.dataflow.facts;
 
     let Some(input) = server.inputs.get_mut(input.as_str()) else {
-        // TODO: return some error (and unit test it!)
         return Err(ServerError::NoSuchInput(input.clone())).into();
     };
 
     for update in updates.into_iter() {
-        // TODO: assert types match (and unit test it!)
         if update.value.ty() != input.ty {
             return Err(ServerError::TypeMismatch {
                 expected: input.ty.clone(),
@@ -180,20 +183,19 @@ fn value_to_fact(val: Value) -> Vec<ir::Value> {
     }
 }
 
-async fn outputs_list(server: ExtractState) -> Json<Vec<RelationInfo>> {
-    Json(
-        server
-            .lock()
-            .await
-            .outputs
-            .iter()
-            .map(|(name, output)| RelationInfo {
-                name: name.clone(),
-                id: name.clone(),
-                ty: output.ty.clone(),
-            })
-            .collect(),
-    )
+async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> {
+    Ok(server
+        .lock()
+        .await
+        .outputs
+        .iter()
+        .map(|(name, output)| RelationInfo {
+            name: name.clone(),
+            id: name.clone(),
+            ty: output.ty.clone(),
+        })
+        .collect())
+    .into()
 }
 
 async fn get_output(
@@ -216,7 +218,6 @@ async fn subscribe_to_output(
     let server = server.lock().await;
 
     let Some(output) = server.outputs.get(&output) else {
-        // TODO: return error (and check error with unit test)
         let err: ServerResult<()> = Err(ServerError::NoSuchOutput(output.clone()));
         let ev = Ok(Event::default().json_data(err).unwrap());
         let fut = std::future::ready(ev);
@@ -242,7 +243,7 @@ pub type ExtractState = axum::extract::State<State>;
 pub type State = Arc<Mutex<Server>>;
 
 pub struct Server {
-    program: Program,
+    program: Option<Program>,
     dataflow: DataflowInputs,
     inputs: HashMap<String, Input>,
     outputs: HashMap<String, Output>,
@@ -297,7 +298,7 @@ impl Server {
         loader.add_to_dataflow(&mut self.dataflow);
 
         // store the program for retrieval
-        self.program = program;
+        self.program = Some(program);
     }
 
     pub async fn handle_dataflow(
