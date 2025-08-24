@@ -34,18 +34,6 @@
         ]
       }
     },
-    "newline": {
-      "type": "PATTERN",
-      "value": "[\\n\\r]"
-    },
-    "_whitespace": {
-      "type": "PATTERN",
-      "value": "[ \\n\\r\\t]"
-    },
-    "docs": {
-      "type": "PATTERN",
-      "value": "(?:;.*\\n)*"
-    },
     "comment": {
       "type": "SEQ",
       "members": [
@@ -60,8 +48,23 @@
       ]
     },
     "commentInner": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[^\\n]*\\n"
+      }
+    },
+    "newline": {
       "type": "PATTERN",
-      "value": "[^\\n]*"
+      "value": "[\\n\\r]"
+    },
+    "_whitespace": {
+      "type": "PATTERN",
+      "value": "[ \\n\\r\\t]"
+    },
+    "docs": {
+      "type": "PATTERN",
+      "value": "(?:;.*\\n)*"
     },
     "variable": {
       "type": "PATTERN",

@@ -29,11 +29,11 @@ module.exports = grammar({
       $.import, $.definition, $.rule, $.constraint
     )),
 
+    comment: $ => seq(/;[ \t]*/, $.commentInner),
+    commentInner: _ => token.immediate(/[^\n]*\n/),
     newline: _ => /[\n\r]/,
     _whitespace: _ => /[ \n\r\t]/,
     docs: _ => /(?:;.*\n)*/,
-    comment: $ => seq(/;[ \t]*/, $.commentInner),
-    commentInner: _ => /[^\n]*/,
 
     variable: _ => /[a-z][a-zA-Z0-9_]*/,
     symbol: _ => /[A-Z][a-zA-Z0-9]*/,
