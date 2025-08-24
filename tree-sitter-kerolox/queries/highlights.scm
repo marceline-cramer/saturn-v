@@ -28,3 +28,8 @@
 ] @keyword
 
 (constraint_kind) @keyword.control
+
+; doc comments
+((comment)+ @comment.docs . (definition))
+((comment)+ @comment.docs . (rule))
+((comment)+ @comment.docs . (constraint))

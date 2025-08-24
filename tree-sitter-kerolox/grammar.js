@@ -7,9 +7,9 @@
 // @ts-check
 
 const list = el => seq(el, repeat(seq(",", el)))
-const list1 = el => seq(el, choice(",", repeat1(seq(",", el))))
-const paren_list = (el) => seq("(", list(el), ")");
-const paren_list1 = (el) => seq("(", list1(el), ")");
+const listComma = el => seq(el, choice(",", repeat1(seq(",", el))))
+const parenList = (el) => seq("(", list(el), ")");
+const parenListComma = (el) => seq("(", listComma(el), ")");
 
 /// Shorthand to write a binary expression with left precedence of the given priority.
 const expr_prec = (expr, precedence, op) => prec.left(precedence,
@@ -21,10 +21,19 @@ module.exports = grammar({
   extras: $ => [$._whitespace, $.comment],
 
   rules: {
-    file: $ => repeat(choice($.import, $.definition, $.rule, $.constraint)),
+    file: $ => repeat(choice(
+      // explicitly parse newlines and comments separately
+      // this helps determine which comments are doc comments
+      $.newline, $.comment,
+      // the actual items
+      $.import, $.definition, $.rule, $.constraint
+    )),
 
+    comment: $ => seq(/;[ \t]*/, $.commentInner),
+    commentInner: _ => token.immediate(/[^\n]*\n/),
+    newline: _ => /[\n\r]/,
     _whitespace: _ => /[ \n\r\t]/,
-    comment: _ => /;.*\n/,
+    docs: _ => /(?:;.*\n)*/,
 
     variable: _ => /[a-z][a-zA-Z0-9_]*/,
     symbol: _ => /[A-Z][a-zA-Z0-9]*/,
@@ -37,7 +46,7 @@ module.exports = grammar({
       field("path", $.symbol),
       repeat(seq(".", field("path", $.symbol))),
       ".",
-      choice($.symbol, paren_list1(field("item", $.symbol))),
+      choice($.symbol, parenList(field("item", $.symbol))),
     ),
 
     definition: $ => seq(
@@ -52,7 +61,7 @@ module.exports = grammar({
 
     type: $ => choice(
       field("named", $.symbol),
-      paren_list1(field("tuple", $.type)),
+      parenListComma(field("tuple", $.type)),
     ),
 
     rule: $ => seq(
@@ -65,15 +74,15 @@ module.exports = grammar({
     pattern: $ => choice(
       field("value", $.value),
       field("variable", $.variable),
-      paren_list1(field("tuple", $.pattern)),
+      parenListComma(field("tuple", $.pattern)),
     ),
 
-    rule_body: $ => list1(field("clause", $.expr)),
+    rule_body: $ => list(field("clause", $.expr)),
 
     constraint: $ => seq(
       "constrain",
       optional(seq("soft", "(", field("soft", $.integer), ")")),
-      optional(paren_list(field("capture", $.variable))),
+      optional(parenList(field("capture", $.variable))),
       field("kind", $.constraint_kind),
       ":-",
       field("body", $.rule_body),
@@ -103,7 +112,7 @@ module.exports = grammar({
 
     atom: $ => prec.right(2, seq(field("head", $.symbol), field("body", $.expr))),
 
-    tuple: $ => paren_list1(field("el", $.expr)),
+    tuple: $ => parenListComma(field("el", $.expr)),
 
     value: $ => choice(
       field("true", "True"),
