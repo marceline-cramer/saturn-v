@@ -154,6 +154,22 @@
     }
   },
   {
+    "type": "comment",
+    "named": true,
+    "extra": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "commentInner",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "constraint",
     "named": true,
     "fields": {
@@ -357,6 +373,10 @@
       "required": false,
       "types": [
         {
+          "type": "comment",
+          "named": true
+        },
+        {
           "type": "constraint",
           "named": true
         },
@@ -366,6 +386,10 @@
         },
         {
           "type": "import",
+          "named": true
+        },
+        {
+          "type": "newline",
           "named": true
         },
         {
@@ -713,9 +737,8 @@
     "named": false
   },
   {
-    "type": "comment",
-    "named": true,
-    "extra": true
+    "type": "commentInner",
+    "named": true
   },
   {
     "type": "constrain",
@@ -736,6 +759,10 @@
   {
     "type": "input",
     "named": false
+  },
+  {
+    "type": "newline",
+    "named": true
   },
   {
     "type": "output",
