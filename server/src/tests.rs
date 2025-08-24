@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::atomic::AtomicU32};
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use saturn_v_client::*;
-use saturn_v_ir as ir;
+use saturn_v_ir::{self as ir, Type};
 
 use super::*;
 
@@ -104,7 +104,7 @@ fn passthru_program() -> Program {
 async fn test_no_program() -> Result<()> {
     let client = local_client().await?;
     let result = client.get_program().await;
-    assert!(result.is_err());
+    assert_eq!(server_error(result)?, ServerError::NoProgramLoaded);
     Ok(())
 }
 
@@ -137,7 +137,8 @@ async fn test_invalid_program() -> Result<()> {
 
     let client = local_client().await?;
     let result = client.set_program(&program).await;
-    assert!(result.is_err());
+    let expected_error = ServerError::InvalidProgram(program.validate().err().unwrap());
+    assert_eq!(server_error(result)?, expected_error);
     Ok(())
 }
 
@@ -164,6 +165,18 @@ async fn test_list_inputs() -> Result<()> {
     let inputs = client.get_inputs().await?;
     assert_eq!(inputs.len(), 1);
     assert_eq!(inputs[0].name, "Input");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_no_input() -> Result<()> {
+    let client = passthru_client().await?;
+    let name = "NotAnInput".to_string();
+    let ty = StructuredType::Primitive(Type::String);
+    let input = client.get_invalid_input(&name, ty);
+    let value = "test".to_string();
+    let result = input.insert(&value).await;
+    assert_eq!(server_error(result)?, ServerError::NoSuchInput(name));
     Ok(())
 }
 
@@ -245,10 +258,15 @@ async fn test_output_subscription() -> Result<()> {
     let client = passthru_client().await?;
     let input = client.get_input("Input").await?.unwrap();
     let output = client.get_output("Output").await?.unwrap();
-    let mut rx = output.subscribe().await?;
+    let mut rx = output.subscribe()?;
     let value = "test".to_string();
     input.insert(&value).await?;
     let received: (String, bool) = rx.next().await.unwrap()?;
     assert_eq!(received, (value, true));
     Ok(())
+}
+
+/// Helper method to expect server errors from client results.
+pub fn server_error<T>(result: saturn_v_client::Result<T>) -> Result<ServerError> {
+    Ok(result.err().context("not an error")?.into_server_error()?)
 }
