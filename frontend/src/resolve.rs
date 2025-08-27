@@ -171,6 +171,10 @@ pub fn file_relation(
             None
         }
         Some(item) => match &item.inner {
+            NamespaceItem::Unknown => {
+                RelationNotFound { name }.accumulate(db);
+                None
+            }
             NamespaceItem::Relation(rel) => Some(*rel),
             item => {
                 ExpectedRelation {
