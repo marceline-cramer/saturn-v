@@ -1,0 +1,26 @@
+[package]
+name = "saturn-v-server"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+axum = "0.8"
+differential-dataflow.workspace = true
+flume.workspace = true
+futures-util.workspace = true
+ordered-float.workspace = true
+saturn-v-client.workspace = true
+saturn-v-eval.workspace = true
+saturn-v-ir.workspace = true
+serde.workspace = true
+timely.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tokio-stream.workspace = true
+tower = "0.4"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+saturn-v-client = { workspace = true, features = ["invalid-requests"] }

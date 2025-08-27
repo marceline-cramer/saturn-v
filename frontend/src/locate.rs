@@ -157,29 +157,29 @@ pub struct EntityInfo {
 #[salsa::tracked]
 pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
     // scan all top-level items of the file
-    for (kind, nodes) in file_item_ast(db, file) {
-        for ast in nodes {
-            if ast.span(db).contains(at) {
-                return match kind {
-                    ItemKind::Import => Some(Entity::new(
-                        db,
-                        ast,
-                        EntityKind::Import(abstract_import(db, ast)),
-                    )),
-                    ItemKind::Definition => {
-                        let def = abstract_relation(db, ast);
-                        definition(db, def, at)
-                    }
-                    ItemKind::Rule => {
-                        let def = parse_rule(db, ast);
-                        rule(db, def, at)
-                    }
-                    ItemKind::Constraint => {
-                        let def = parse_constraint(db, ast);
-                        constraint(db, def, at)
-                    }
-                };
-            }
+    for item in file_items(db, file) {
+        if item.ast(db).span(db).contains(at) {
+            return match item.kind(db) {
+                ItemKind::Import => Some(Entity::new(
+                    db,
+                    item.ast(db),
+                    EntityKind::Import(abstract_import(db, item)),
+                )),
+                ItemKind::Definition => {
+                    let def = abstract_relation(db, item);
+                    definition(db, def, at)
+                }
+                ItemKind::Rule => {
+                    let def = parse_rule(db, item);
+                    rule(db, def, at)
+                }
+                ItemKind::Constraint => {
+                    let def = parse_constraint(db, item);
+                    constraint(db, def, at)
+                }
+                // TODO: parse entity references within comments
+                ItemKind::Comment => None,
+            };
         }
     }
 

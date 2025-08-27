@@ -629,7 +629,7 @@ impl<T, R> WithContext<R> for Result<T, R> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Error<R> {
     pub context: Vec<ErrorContext<R>>,
     pub kind: Box<ErrorKind<R>>,
@@ -656,7 +656,7 @@ impl<R: Display> Display for Error<R> {
     }
 }
 
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Deserialize, Serialize)]
 pub enum ErrorContext<R> {
     #[error("in {0:?} instruction")]
     Instruction(InstructionKind),
@@ -686,7 +686,7 @@ pub enum ErrorContext<R> {
     Right,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error, Deserialize, Serialize)]
 pub enum ErrorKind<R> {
     #[error("relation index #{0} is invalid")]
     InvalidRelationIndex(u32),

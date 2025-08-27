@@ -19,7 +19,7 @@ use std::{
     fmt::Debug,
 };
 
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 use salsa::{Database, Update};
 use smallvec::SmallVec;
 
@@ -73,6 +73,7 @@ impl<'db> NamespaceItem<'db> {
 #[derive(Debug)]
 pub struct File {
     pub workspace: Workspace,
+    #[return_ref]
     pub contents: Rope,
     #[return_ref]
     pub url: Url,
@@ -94,8 +95,6 @@ pub struct AstNode {
     pub symbol: &'static str,
     pub span: Span,
     #[return_ref]
-    pub contents: Option<String>,
-    #[return_ref]
     pub children: Children,
     #[return_ref]
     pub fields: Vec<(&'static str, AstNode)>,
@@ -108,6 +107,14 @@ impl Debug for AstNode {
 }
 
 impl AstNode {
+    pub fn contents<'db>(&self, db: &'db dyn Database) -> RopeSlice<'db> {
+        let span = self.span(db);
+        let contents = self.file(db).contents(db);
+        let start = contents.line_to_char(span.start.line) + span.start.column;
+        let end = contents.line_to_char(span.end.line) + span.end.column;
+        contents.slice(start..end)
+    }
+
     pub fn with<T>(self, inner: T) -> WithAst<T> {
         WithAst { ast: self, inner }
     }
@@ -144,10 +151,8 @@ impl AstNode {
         self.children(db).clone().into_iter()
     }
 
-    pub fn with_contents(&self, db: &dyn Database) -> Option<WithAst<String>> {
-        self.contents(db)
-            .as_ref()
-            .map(|contents| self.with(contents.clone()))
+    pub fn with_contents(&self, db: &dyn Database) -> WithAst<String> {
+        self.with(self.contents(db).to_string())
     }
 
     pub fn location(&self, db: &dyn Database) -> lsp_types::Location {

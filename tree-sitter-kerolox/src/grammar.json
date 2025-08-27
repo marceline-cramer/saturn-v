@@ -9,6 +9,14 @@
         "members": [
           {
             "type": "SYMBOL",
+            "name": "newline"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "comment"
+          },
+          {
+            "type": "SYMBOL",
             "name": "import"
           },
           {
@@ -26,13 +34,37 @@
         ]
       }
     },
+    "comment": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "PATTERN",
+          "value": ";[ \\t]*"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "commentInner"
+        }
+      ]
+    },
+    "commentInner": {
+      "type": "IMMEDIATE_TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "[^\\n]*\\n"
+      }
+    },
+    "newline": {
+      "type": "PATTERN",
+      "value": "[\\n\\r]"
+    },
     "_whitespace": {
       "type": "PATTERN",
       "value": "[ \\n\\r\\t]"
     },
-    "comment": {
+    "docs": {
       "type": "PATTERN",
-      "value": ";.*\\n"
+      "value": "(?:;.*\\n)*"
     },
     "variable": {
       "type": "PATTERN",
@@ -137,33 +169,24 @@
                       }
                     },
                     {
-                      "type": "CHOICE",
-                      "members": [
-                        {
-                          "type": "STRING",
-                          "value": ","
-                        },
-                        {
-                          "type": "REPEAT1",
-                          "content": {
-                            "type": "SEQ",
-                            "members": [
-                              {
-                                "type": "STRING",
-                                "value": ","
-                              },
-                              {
-                                "type": "FIELD",
-                                "name": "item",
-                                "content": {
-                                  "type": "SYMBOL",
-                                  "name": "symbol"
-                                }
-                              }
-                            ]
+                      "type": "REPEAT",
+                      "content": {
+                        "type": "SEQ",
+                        "members": [
+                          {
+                            "type": "STRING",
+                            "value": ","
+                          },
+                          {
+                            "type": "FIELD",
+                            "name": "item",
+                            "content": {
+                              "type": "SYMBOL",
+                              "name": "symbol"
+                            }
                           }
-                        }
-                      ]
+                        ]
+                      }
                     }
                   ]
                 },
@@ -455,33 +478,24 @@
           }
         },
         {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "STRING",
-              "value": ","
-            },
-            {
-              "type": "REPEAT1",
-              "content": {
-                "type": "SEQ",
-                "members": [
-                  {
-                    "type": "STRING",
-                    "value": ","
-                  },
-                  {
-                    "type": "FIELD",
-                    "name": "clause",
-                    "content": {
-                      "type": "SYMBOL",
-                      "name": "expr"
-                    }
-                  }
-                ]
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ","
+              },
+              {
+                "type": "FIELD",
+                "name": "clause",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "expr"
+                }
               }
-            }
-          ]
+            ]
+          }
         }
       ]
     },

@@ -231,6 +231,24 @@ pub enum StructuredType {
     Primitive(Type),
 }
 
+impl Display for StructuredType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StructuredType::Primitive(ty) => write!(f, "{ty:?}"),
+            StructuredType::Tuple(els) => {
+                write!(
+                    f,
+                    "({})",
+                    els.iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        }
+    }
+}
+
 impl StructuredType {
     /// Flattens the structured type into a list of primitives.
     pub fn flatten(&self) -> Vec<Type> {

@@ -15,7 +15,7 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Display,
     str::FromStr,
 };
@@ -98,9 +98,9 @@ impl Display for AbstractType {
 pub fn file_rules(db: &dyn Database, file: File) -> HashMap<String, HashSet<AbstractRule<'_>>> {
     // iterate over all rule items
     let mut rules: HashMap<_, HashSet<_>> = HashMap::new();
-    for node in file_item_kind_ast(db, file, ItemKind::Rule) {
+    for item in file_item_kind_ast(db, file, ItemKind::Rule) {
         // parse the rule
-        let rule = parse_rule(db, node);
+        let rule = parse_rule(db, item);
 
         // add it into the set corresponding to each relation name
         rules
@@ -123,17 +123,20 @@ pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstr
 
 /// Parses a relation from a relation definition AST node.
 #[salsa::tracked]
-pub fn abstract_relation(db: &dyn Database, node: AstNode) -> RelationDefinition<'_> {
+pub fn abstract_relation<'db>(db: &'db dyn Database, item: Item<'db>) -> RelationDefinition<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // get the name
-    let relation = node.expect_field(db, "relation");
-    let name = relation.with_contents(db).unwrap();
+    let relation = ast.expect_field(db, "relation");
+    let name = relation.with_contents(db);
 
     // relation attributes
-    let is_decision = node.get_field(db, "decision").is_some();
+    let is_decision = ast.get_field(db, "decision").is_some();
 
     // handle the relation IO
-    let input = node.get_field(db, "input");
-    let output = node.get_field(db, "output");
+    let input = ast.get_field(db, "input");
+    let output = ast.get_field(db, "output");
     let io = match (input, output) {
         (None, None) => ir::RelationIO::None,
         (Some(_), None) => ir::RelationIO::Input,
@@ -152,20 +155,20 @@ pub fn abstract_relation(db: &dyn Database, node: AstNode) -> RelationDefinition
     };
 
     // parse the type
-    let ty = parse_abstract_type(db, node.expect_field(db, "type"));
+    let ty = parse_abstract_type(db, ast.expect_field(db, "type"));
 
     // create the full decision
-    RelationDefinition::new(db, node, name, is_decision, io, ty)
+    RelationDefinition::new(db, ast, name, is_decision, io, ty)
 }
 
 /// Parses an [AbstractType] from an AST node.
 #[salsa::tracked]
 pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> WithAst<AbstractType> {
     let ty = if let Some(named) = ast.get_field(db, "named") {
-        let name = named.contents(db).as_ref().unwrap();
+        let name = named.contents(db).to_string();
         match name.parse() {
             Ok(prim) => AbstractType::Primitive(prim),
-            Err(_) => AbstractType::Named(name.to_string()),
+            Err(_) => AbstractType::Named(name),
         }
     } else {
         AbstractType::Tuple(
@@ -180,37 +183,69 @@ pub fn parse_abstract_type(db: &dyn Database, ast: AstNode) -> WithAst<AbstractT
 
 /// Gets all top-level AST nodes of a particular item kind from a file.
 #[salsa::tracked]
-pub fn file_item_kind_ast(db: &dyn Database, file: File, kind: ItemKind) -> HashSet<AstNode> {
-    file_item_ast(db, file)
-        .get(&kind)
-        .cloned()
-        .unwrap_or_default()
+pub fn file_item_kind_ast<'db>(
+    db: &'db dyn Database,
+    file: File,
+    kind: ItemKind,
+) -> BTreeSet<Item<'db>> {
+    file_items(db, file)
+        .into_iter()
+        .filter(|item| item.kind(db) == kind)
+        .collect()
 }
 
-/// Gets the top-level item AST nodes from a file.
+/// Gets the top-level items from a file in order of appearance.
 #[salsa::tracked]
-pub fn file_item_ast(db: &dyn Database, file: File) -> HashMap<ItemKind, HashSet<AstNode>> {
+pub fn file_items<'db>(db: &'db dyn Database, file: File) -> Vec<Item<'db>> {
     // iterate all children
     let root = file.ast(db);
-    let mut items: HashMap<_, HashSet<_>> = HashMap::default();
+    let mut items = Vec::new();
+    let mut docs = Vec::new();
     for child in root.children(db).iter() {
         // select item kind based on symbol
         use ItemKind::*;
         let kind = match child.symbol(db) {
+            // accumulate top-level or doc comments
+            "comment" => {
+                docs.push(*child);
+                continue;
+            }
+            // parse each main item kind
             "import" => Import,
             "definition" => Definition,
             "rule" => Rule,
             "constraint" => Constraint,
+            "newline" => Comment,
             // TODO: accumulate a diagnostic?
             _ => continue,
         };
 
-        // add this AST to the items list
-        items.entry(kind).or_default().insert(*child);
+        // assemble the complete item
+        let item = Item::new(db, std::mem::take(&mut docs), *child, kind);
+
+        // push this item to the list
+        items.push(item);
     }
 
     // all done :)
     items
+}
+
+#[salsa::tracked]
+pub struct Item<'db> {
+    /// The documentation comments before the item.
+    ///
+    /// For top-level comment items, contains the list of actual comments.
+    #[return_ref]
+    pub docs: Vec<AstNode>,
+
+    /// The AST node of the item body.
+    ///
+    /// For consecutive top-level comments, this is the newline terminating them.
+    pub ast: AstNode,
+
+    /// The kind of this item.
+    pub kind: ItemKind,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -219,21 +254,25 @@ pub enum ItemKind {
     Definition,
     Rule,
     Constraint,
+    Comment,
 }
 
 /// Parses an abstract import from an AST.
 #[salsa::tracked]
-pub fn abstract_import(db: &dyn Database, ast: AstNode) -> AbstractImport<'_> {
+pub fn abstract_import<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractImport<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // parse each segments of the import path
     let path = ast
         .get_fields(db, "path")
-        .map(|node| node.with_contents(db).unwrap())
+        .map(|node| node.with_contents(db))
         .collect();
 
     // parse each items
     let items = ast
         .get_fields(db, "item")
-        .map(|node| node.with_contents(db).unwrap())
+        .map(|node| node.with_contents(db))
         .collect();
 
     // assemble the whole import
@@ -258,23 +297,26 @@ pub struct AbstractImport<'db> {
 
 /// Parses an abstract constraint from an AST.
 #[salsa::tracked]
-pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'_> {
+pub fn parse_constraint<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractConstraint<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // parse each capture into the head
     let head = ast
         .get_fields(db, "capture")
-        .map(|node| node.with_contents(db).unwrap())
+        .map(|node| node.with_contents(db))
         .collect();
 
     // attempt to parse the soft constraint
-    let soft = ast.get_field(db, "soft").and_then(|ast| {
-        match ast.contents(db).as_ref().unwrap().parse() {
-            Ok(weight) => Some(ast.with(weight)),
-            Err(_) => {
-                SimpleError::new(ast, "failed to parse soft constraint weight").accumulate(db);
-                None
-            }
-        }
-    });
+    let soft =
+        ast.get_field(db, "soft")
+            .and_then(|ast| match ast.contents(db).to_string().parse() {
+                Ok(weight) => Some(ast.with(weight)),
+                Err(_) => {
+                    SimpleError::new(ast, "failed to parse soft constraint weight").accumulate(db);
+                    None
+                }
+            });
 
     // match the constraint kind
     let kind = {
@@ -290,8 +332,7 @@ pub fn parse_constraint(db: &dyn Database, ast: AstNode) -> AbstractConstraint<'
         let threshold = cardinality
             .expect_field(db, "threshold")
             .contents(db)
-            .as_ref()
-            .unwrap()
+            .to_string()
             .parse()
             .unwrap();
 
@@ -325,10 +366,13 @@ pub struct AbstractConstraint<'db> {
 
 /// Parses an abstract rule from an AST.
 #[salsa::tracked]
-pub fn parse_rule(db: &dyn Database, ast: AstNode) -> AbstractRule<'_> {
+pub fn parse_rule<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractRule<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
     // get the name of the relation
     let relation_node = ast.expect_field(db, "relation");
-    let relation = relation_node.with_contents(db).unwrap();
+    let relation = relation_node.with_contents(db);
 
     // parse the head
     let head = parse_pattern(db, ast.expect_field(db, "head"));
@@ -388,7 +432,7 @@ pub fn parse_pattern(db: &dyn Database, ast: AstNode) -> WithAst<Pattern> {
     let inner = if let Some(val) = ast.get_field(db, "value") {
         Pattern::Value(parse_value(db, val))
     } else if let Some(variable) = ast.get_field(db, "variable") {
-        Pattern::Variable(variable.contents(db).clone().unwrap())
+        Pattern::Variable(variable.contents(db).to_string())
     } else {
         Pattern::Tuple(
             ast.get_fields(db, "tuple")
@@ -415,10 +459,10 @@ pub fn parse_value(db: &dyn Database, ast: AstNode) -> Value {
     } else if ast.get_field(db, "false").is_some() {
         Value::Boolean(false)
     } else if let Some(sym) = ast.get_field(db, "symbol") {
-        Value::Symbol(sym.contents(db).clone().unwrap())
+        Value::Symbol(sym.contents(db).to_string())
     } else {
         let int = ast.expect_field(db, "integer");
-        match int.contents(db).as_ref().unwrap().parse() {
+        match int.contents(db).to_string().parse() {
             Ok(val) => Value::Integer(val),
             Err(_) => {
                 SimpleError::new(int, "failed to parse integer literal").accumulate(db);
@@ -441,7 +485,7 @@ pub fn parse_expr(db: &dyn Database, ast: AstNode) -> Expr<'_> {
     } else if let Some(val) = ast.get_field(db, "value") {
         ExprKind::Value(parse_value(db, val))
     } else if let Some(var) = ast.get_field(db, "variable") {
-        ExprKind::Variable(var.contents(db).to_owned().unwrap())
+        ExprKind::Variable(var.contents(db).to_string())
     } else if let Some(binary) = ast.get_field(db, "binary") {
         let op = parse_binary_op(db, binary.expect_field(db, "op"));
         let lhs = parse_expr(db, binary.expect_field(db, "lhs"));
@@ -453,7 +497,7 @@ pub fn parse_expr(db: &dyn Database, ast: AstNode) -> Expr<'_> {
         ExprKind::UnaryOp { op, term }
     } else if let Some(atom) = ast.get_field(db, "atom") {
         let head = atom.expect_field(db, "head");
-        let head = WithAst::new(head, head.contents(db).to_owned().unwrap());
+        let head = WithAst::new(head, head.contents(db).to_string());
         let body = parse_expr(db, atom.expect_field(db, "body"));
         ExprKind::Atom { head, body }
     } else if let Some(parens) = ast.get_field(db, "parens") {
@@ -494,7 +538,7 @@ pub enum ExprKind<'db> {
 }
 
 pub fn parse_binary_op(db: &dyn Database, ast: AstNode) -> WithAst<BinaryOpKind> {
-    match ast.contents(db).as_ref().unwrap().parse() {
+    match ast.contents(db).to_string().parse() {
         Ok(op) => WithAst::new(ast, op),
         Err(_) => {
             SimpleError::new(ast, "failed to parse binary operator").accumulate(db);
@@ -558,7 +602,7 @@ impl BinaryOpKind {
 }
 
 pub fn parse_unary_op(db: &dyn Database, ast: AstNode) -> WithAst<UnaryOpKind> {
-    match ast.contents(db).as_ref().unwrap().parse() {
+    match ast.contents(db).to_string().parse() {
         Ok(op) => WithAst::new(ast, op),
         Err(_) => {
             SimpleError::new(ast, "failed to parse unary operator").accumulate(db);

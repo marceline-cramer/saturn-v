@@ -16,6 +16,7 @@
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
+use batsat::Callbacks;
 use flume::Sender;
 use rustsat::{
     encodings::{
@@ -31,7 +32,12 @@ use rustsat::{
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 use tracing::{debug, span, Level};
 
-pub type Oracle = rustsat_batsat::BasicSolver;
+pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
+
+#[derive(Default)]
+pub struct SolverCallbacks;
+
+impl Callbacks for SolverCallbacks {}
 
 use crate::{
     types::{Condition, ConditionalLink, ConstraintGroup, Fact, Gate},
@@ -63,10 +69,6 @@ impl Solver {
             output_tx,
             model: Model::default(),
         }
-    }
-
-    pub async fn run(&mut self) {
-        while self.step().await.is_some() {}
     }
 
     pub async fn step(&mut self) -> Option<bool> {

@@ -25,10 +25,10 @@ use crate::{
     infer::{
         infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
-    lookup::relation_is_conditional,
-    parse::{file_constraints, file_rules, Pattern, RelationDefinition},
-    resolve::resolve_relation_type,
-    toplevel::{AstNode, File, Workspace},
+    lookup::{relation_indirect_deps, relation_is_conditional, relation_rules},
+    parse::{file_constraints, Pattern, RelationDefinition},
+    resolve::{file_interns, resolve_relation_type},
+    toplevel::{AstNode, File, NamespaceItem, Workspace},
     types::WithAst,
 };
 
@@ -44,50 +44,38 @@ pub fn lower_workspace<'db>(
 }
 
 pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<RelationDefinition<'db>> {
-    // add the lowered rules
-    let mut relations: HashMap<_, ir::Relation<_>> = HashMap::new();
-    for rule in file_rules(db, file).values().flatten() {
-        // type a rule, if possible
-        let Some(typed) = typed_rule(db, *rule) else {
-            continue;
-        };
+    // retrieve all relation interns in the file
+    let file_relations: Vec<_> = file_interns(db, file)
+        .into_values()
+        .flat_map(|item| match item.inner {
+            NamespaceItem::Relation(rel) => Some(rel),
+            _ => None,
+        })
+        .collect();
 
-        // resolve the relation type
-        let ty = resolve_relation_type(db, typed.relation(db));
+    // begin lowering all relations touched by the program
+    let mut relations: HashMap<_, ir::Relation<_>> = file_relations
+        .clone()
+        .into_iter()
+        .flat_map(|rel| relation_indirect_deps(db, rel))
+        .chain(file_relations)
+        .flat_map(|rel| init_relation(db, rel))
+        .map(|rel| (rel.store, rel))
+        .collect();
 
-        // infer it
-        let ty = infer_resolved_relation_type(db, ty).to_naive();
+    // lower every relation's rule
+    for (rel, lowered) in relations.iter_mut() {
+        for rule in relation_rules(db, *rel) {
+            // type a rule, if possible
+            let Some(typed) = typed_rule(db, rule) else {
+                continue;
+            };
 
-        // convert the head type into the structured IR type
-        // catch if there are any unknown types
-        let Some(ty) = ty.to_structured() else {
-            continue;
-        };
-
-        // pick the kind of the relation
-        let relation = typed.relation(db);
-        let kind = if relation.is_decision(db) {
-            ir::RelationKind::Decision
-        } else if relation_is_conditional(db, relation) {
-            ir::RelationKind::Conditional
-        } else {
-            ir::RelationKind::Basic
-        };
-
-        // initialize the lowered relation
-        let relation = relations.entry(typed.relation(db)).or_insert(ir::Relation {
-            store: typed.relation(db),
-            facts: Vec::new(),
-            rules: Vec::new(),
-            io: typed.relation(db).io(db),
-            kind,
-            ty,
-        });
-
-        // lower the rule and then add it to the relation based on kind
-        match lower_rule(db, typed) {
-            BodiesOrFact::Bodies(rules) => relation.rules.extend(rules),
-            BodiesOrFact::Fact(fact) => relation.facts.push(fact),
+            // lower the rule and then add it to the relation based on kind
+            match lower_rule(db, typed) {
+                BodiesOrFact::Bodies(rules) => lowered.rules.extend(rules),
+                BodiesOrFact::Fact(fact) => lowered.facts.push(fact),
+            }
         }
     }
 
@@ -109,6 +97,38 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
         relations,
         constraints,
     }
+}
+
+pub fn init_relation<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> Option<ir::Relation<RelationDefinition<'db>>> {
+    // pick the kind of the relation
+    let kind = if rel.is_decision(db) {
+        ir::RelationKind::Decision
+    } else if relation_is_conditional(db, rel) {
+        ir::RelationKind::Conditional
+    } else {
+        ir::RelationKind::Basic
+    };
+
+    // resolve the relation type
+    let ty = resolve_relation_type(db, rel);
+
+    // convert the head type into the structured IR type
+    let ty = infer_resolved_relation_type(db, ty)
+        .to_naive()
+        .to_structured()?;
+
+    // initialize the relation
+    Some(ir::Relation {
+        store: rel,
+        facts: Vec::new(),
+        rules: Vec::new(),
+        io: rel.io(db),
+        kind,
+        ty,
+    })
 }
 
 pub fn lower_constraint<'db>(
