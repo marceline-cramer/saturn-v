@@ -161,7 +161,11 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
         for ast in nodes {
             if ast.span(db).contains(at) {
                 return match kind {
-                    ItemKind::Import => Some(Entity::new(db, ast, EntityKind::Import(ast))),
+                    ItemKind::Import => Some(Entity::new(
+                        db,
+                        ast,
+                        EntityKind::Import(abstract_import(db, ast)),
+                    )),
                     ItemKind::Definition => {
                         let def = abstract_relation(db, ast);
                         definition(db, def, at)
@@ -397,8 +401,8 @@ pub struct Entity<'db> {
 /// A singular kind of semantic element in the language.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
 pub enum EntityKind<'db> {
-    /// An import item. Unimplemented so far.
-    Import(AstNode),
+    /// An import item.
+    Import(AbstractImport<'db>),
 
     /// Refers to a single file.
     File(File),
