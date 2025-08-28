@@ -25,7 +25,9 @@ use saturn_v_ir::{BinaryOpCategory, StructuredType};
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     parse::*,
-    resolve::{resolve_relation_type, ResolvedRelationType, ResolvedType, ResolvedTypeAlias},
+    resolve::{
+        file_relation, resolve_relation_type, ResolvedRelationType, ResolvedType, ResolvedTypeAlias,
+    },
     toplevel::AstNode,
     types::{PrimitiveType, WithAst},
 };

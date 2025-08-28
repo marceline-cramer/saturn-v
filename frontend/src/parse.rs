@@ -121,60 +121,15 @@ pub fn file_constraints(db: &dyn Database, file: File) -> HashSet<AbstractConstr
         .collect()
 }
 
-/// Looks up a relation definition in a file by name.
-#[salsa::tracked]
-pub fn file_relation(
-    db: &dyn Database,
-    file: File,
-    name: WithAst<String>,
-) -> Option<RelationDefinition<'_>> {
-    let rel = file_relations(db, file).get(name.as_ref()).copied();
-
-    // emit a fatal error if this relation could not be found
-    if rel.is_none() {
-        RelationNotFound { name }.accumulate(db);
-    }
-
-    rel
-}
-
-/// Gets the full relation table of a file.
-#[salsa::tracked]
-pub fn file_relations(db: &dyn Database, file: File) -> HashMap<String, RelationDefinition<'_>> {
-    // iterate over all relation items
-    let mut relations: HashMap<String, RelationDefinition> = HashMap::new();
-    for node in file_item_kind_ast(db, file, ItemKind::Definition) {
-        let def = parse_relation_def(db, node);
-        let name = def.name(db).clone().inner;
-        use std::collections::hash_map::Entry;
-        match relations.entry(name.clone()) {
-            Entry::Occupied(entry) => {
-                RelationDefinedAgain {
-                    name,
-                    original: entry.get().ast(db),
-                    redefinition: def.ast(db),
-                }
-                .accumulate(db);
-            }
-            Entry::Vacant(entry) => {
-                entry.insert(def);
-            }
-        }
-    }
-
-    // done!
-    relations
-}
-
 /// Parses a relation from a relation definition AST node.
 #[salsa::tracked]
-pub fn parse_relation_def<'db>(db: &'db dyn Database, item: Item<'db>) -> RelationDefinition<'db> {
+pub fn abstract_relation<'db>(db: &'db dyn Database, item: Item<'db>) -> RelationDefinition<'db> {
     // extract the item's AST
     let ast = item.ast(db);
 
     // get the name
     let relation = ast.expect_field(db, "relation");
-    let name = relation.with(relation.contents(db).to_string());
+    let name = relation.with_contents(db);
 
     // relation attributes
     let is_decision = ast.get_field(db, "decision").is_some();
@@ -302,6 +257,44 @@ pub enum ItemKind {
     Comment,
 }
 
+/// Parses an abstract import from an AST.
+#[salsa::tracked]
+pub fn abstract_import<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractImport<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
+    // parse each segments of the import path
+    let path = ast
+        .get_fields(db, "path")
+        .map(|node| node.with_contents(db))
+        .collect();
+
+    // parse each items
+    let items = ast
+        .get_fields(db, "item")
+        .map(|node| node.with_contents(db))
+        .collect();
+
+    // assemble the whole import
+    AbstractImport::new(db, ast, path, items)
+}
+
+/// An abstract item import (syntax representation).
+#[salsa::tracked]
+#[derive(Debug)]
+pub struct AbstractImport<'db> {
+    /// The AST node of this import item.
+    pub ast: AstNode,
+
+    /// Each of the components of this import's path.
+    #[return_ref]
+    pub path: Vec<WithAst<String>>,
+
+    /// Each of the item names imported.
+    #[return_ref]
+    pub items: Vec<WithAst<String>>,
+}
+
 /// Parses an abstract constraint from an AST.
 #[salsa::tracked]
 pub fn parse_constraint<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractConstraint<'db> {
@@ -311,7 +304,7 @@ pub fn parse_constraint<'db>(db: &'db dyn Database, item: Item<'db>) -> Abstract
     // parse each capture into the head
     let head = ast
         .get_fields(db, "capture")
-        .map(|node| node.with(node.contents(db).to_string()))
+        .map(|node| node.with_contents(db))
         .collect();
 
     // attempt to parse the soft constraint
@@ -379,7 +372,7 @@ pub fn parse_rule<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractRule<'
 
     // get the name of the relation
     let relation_node = ast.expect_field(db, "relation");
-    let relation = relation_node.with(relation_node.contents(db).to_string());
+    let relation = relation_node.with_contents(db);
 
     // parse the head
     let head = parse_pattern(db, ast.expect_field(db, "head"));
@@ -644,58 +637,6 @@ impl From<UnaryOpKind> for ir::UnaryOpKind {
             UnaryOpKind::Not => Not,
             UnaryOpKind::Negate => Negate,
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RelationNotFound {
-    pub name: WithAst<String>,
-}
-
-impl BasicDiagnostic for RelationNotFound {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.name.ast..self.name.ast
-    }
-
-    fn message(&self) -> String {
-        format!("undefined relation {}", self.name)
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct RelationDefinedAgain {
-    pub name: String,
-    pub original: AstNode,
-    pub redefinition: AstNode,
-}
-
-impl BasicDiagnostic for RelationDefinedAgain {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.redefinition..self.redefinition
-    }
-
-    fn message(&self) -> String {
-        format!("relation {} defined again", self.name)
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
-    }
-
-    fn notes(&self) -> Vec<WithAst<String>> {
-        vec![self.original.with("originally defined here".to_string())]
     }
 }
 

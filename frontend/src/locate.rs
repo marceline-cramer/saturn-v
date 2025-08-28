@@ -22,7 +22,7 @@ use crate::{
     infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
     lookup,
     parse::*,
-    resolve::{file_unresolved_types, resolve_relation_type, Unresolved},
+    resolve::{file_relation, file_unresolved_types, resolve_relation_type, Unresolved},
     toplevel::{AstNode, File, Point},
     types::WithAst,
 };
@@ -163,10 +163,10 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
                 ItemKind::Import => Some(Entity::new(
                     db,
                     item.ast(db),
-                    EntityKind::Import(item.ast(db)),
+                    EntityKind::Import(abstract_import(db, item)),
                 )),
                 ItemKind::Definition => {
-                    let def = parse_relation_def(db, item);
+                    let def = abstract_relation(db, item);
                     definition(db, def, at)
                 }
                 ItemKind::Rule => {
@@ -401,8 +401,8 @@ pub struct Entity<'db> {
 /// A singular kind of semantic element in the language.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Update)]
 pub enum EntityKind<'db> {
-    /// An import item. Unimplemented so far.
-    Import(AstNode),
+    /// An import item.
+    Import(AbstractImport<'db>),
 
     /// Refers to a single file.
     File(File),

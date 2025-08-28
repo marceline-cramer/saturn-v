@@ -26,9 +26,9 @@ use crate::{
         infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
     lookup::{relation_indirect_deps, relation_is_conditional, relation_rules},
-    parse::{file_constraints, file_relations, Pattern, RelationDefinition},
-    resolve::resolve_relation_type,
-    toplevel::{AstNode, File, Workspace},
+    parse::{file_constraints, Pattern, RelationDefinition},
+    resolve::{file_interns, resolve_relation_type},
+    toplevel::{AstNode, File, NamespaceItem, Workspace},
     types::WithAst,
 };
 
@@ -44,11 +44,21 @@ pub fn lower_workspace<'db>(
 }
 
 pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<RelationDefinition<'db>> {
-    // begin lowering all relations touched by the program
-    let mut relations: HashMap<_, ir::Relation<_>> = file_relations(db, file)
+    // retrieve all relation interns in the file
+    let file_relations: Vec<_> = file_interns(db, file)
         .into_values()
+        .flat_map(|item| match item.inner {
+            NamespaceItem::Relation(rel) => Some(rel),
+            _ => None,
+        })
+        .collect();
+
+    // begin lowering all relations touched by the program
+    let mut relations: HashMap<_, ir::Relation<_>> = file_relations
+        .clone()
+        .into_iter()
         .flat_map(|rel| relation_indirect_deps(db, rel))
-        .chain(file_relations(db, file).into_values())
+        .chain(file_relations)
         .flat_map(|rel| init_relation(db, rel))
         .map(|rel| (rel.store, rel))
         .collect();

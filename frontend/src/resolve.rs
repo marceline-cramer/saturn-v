@@ -14,14 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use salsa::{Database, Update};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
-    parse::{file_relations, AbstractType, RelationDefinition, TypeAlias},
-    toplevel::{AstNode, File},
+    parse::{self, AbstractImport, AbstractType, ItemKind, RelationDefinition, TypeAlias},
+    toplevel::{AstNode, File, Namespace, NamespaceItem, Workspace},
     types::{PrimitiveType, WithAst},
 };
 
@@ -100,17 +100,14 @@ pub fn file_unresolved_types<'a>(
     db: &'a dyn Database,
     file: File,
 ) -> HashMap<String, Unresolved<'a>> {
-    // track running types
-    let mut unresolved = HashMap::new();
-
-    // add relations
-    for (name, def) in file_relations(db, file) {
-        let ty = Unresolved::Relation(def);
-        unresolved.insert(name, ty);
-    }
-
-    // return the complete list
-    unresolved
+    file_interns(db, file)
+        .into_iter()
+        .flat_map(|(name, item)| match item.inner {
+            NamespaceItem::Relation(rel) => Some((name, Unresolved::Relation(rel))),
+            NamespaceItem::TypeAlias(alias) => Some((name, Unresolved::Alias(alias))),
+            _ => None,
+        })
+        .collect()
 }
 
 /// A resolved relation type definition.
@@ -154,6 +151,188 @@ pub enum Unresolved<'db> {
     Alias(TypeAlias<'db>),
 }
 
+/// Resolves a file's exported namespace.
+#[salsa::tracked]
+pub fn resolve_file_exports<'db>(db: &'db dyn Database, _file: File) -> Namespace<'db> {
+    // no exports for now
+    Namespace::new(db, Default::default())
+}
+
+/// Resolves a relation definition in a file by name.
+#[salsa::tracked]
+pub fn file_relation(
+    db: &dyn Database,
+    file: File,
+    name: WithAst<String>,
+) -> Option<RelationDefinition<'_>> {
+    match file_interns(db, file).get(name.as_ref()) {
+        None => {
+            RelationNotFound { name }.accumulate(db);
+            None
+        }
+        Some(item) => match &item.inner {
+            NamespaceItem::Unknown => {
+                RelationNotFound { name }.accumulate(db);
+                None
+            }
+            NamespaceItem::Relation(rel) => Some(*rel),
+            item => {
+                ExpectedRelation {
+                    ast: name.ast,
+                    got: item.kind(),
+                }
+                .accumulate(db);
+
+                None
+            }
+        },
+    }
+}
+
+/// Resolves a file's internal name table.
+#[salsa::tracked]
+pub fn file_interns<'db>(
+    db: &'db dyn Database,
+    file: File,
+) -> BTreeMap<String, WithAst<NamespaceItem<'db>>> {
+    // create empty name list
+    let mut names = Vec::new();
+
+    // initialize name table using file's imports
+    names.extend(
+        parse::file_item_kind_ast(db, file, ItemKind::Import)
+            .into_iter()
+            .map(|ast| parse::abstract_import(db, ast))
+            .flat_map(|import| import_items(db, import)),
+    );
+
+    // add all relation definitions
+    names.extend(
+        parse::file_item_kind_ast(db, file, ItemKind::Definition)
+            .into_iter()
+            .map(|ast| parse::abstract_relation(db, ast))
+            .map(|rel| (rel.name(db).clone(), NamespaceItem::Relation(rel))),
+    );
+
+    // merge all names together in a single table
+    let mut table = BTreeMap::new();
+    for (name, item) in names {
+        use std::collections::btree_map::Entry;
+        match table.entry(name.inner.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(name.with(item));
+            }
+            Entry::Occupied(entry) => {
+                ItemDefinedAgain {
+                    name: name.inner.clone(),
+                    original: entry.get().ast,
+                    redefinition: name.ast,
+                }
+                .accumulate(db);
+            }
+        }
+    }
+
+    // return the completed name table
+    table
+}
+
+/// Resolves an abstract import to a table of namespace items.
+#[salsa::tracked]
+pub fn import_items<'db>(
+    db: &'db dyn Database,
+    import: AbstractImport<'db>,
+) -> Vec<(WithAst<String>, NamespaceItem<'db>)> {
+    // begin with the file externs
+    let mut ns = file_externs(db, import.ast(db).file(db));
+
+    // walk through each segment of the path
+    for segment in import.path(db).iter() {
+        // resolve the path segment in the current namespace
+        let child = namespace_item(db, ns, segment.clone());
+
+        // read the namespace from the child item
+        match child {
+            // look up child file export namespaces
+            NamespaceItem::File(file) => {
+                ns = resolve_file_exports(db, file);
+                continue;
+            }
+            // simply recursively search child namespaces
+            NamespaceItem::Namespace(child_ns) => {
+                ns = child_ns;
+                continue;
+            }
+            // ignore; error for unknown items has already been thrown
+            NamespaceItem::Unknown => {}
+            // other items may not be indexed
+            _ => NoChildren {
+                item: segment.clone(),
+                kind: child.kind(),
+            }
+            .accumulate(db),
+        }
+
+        // if child could not be found, return a fresh namespace with unknown items
+        return import
+            .items(db)
+            .iter()
+            .map(|item| (item.clone(), NamespaceItem::Unknown))
+            .collect();
+    }
+
+    // resolve each item
+    import
+        .items(db)
+        .iter()
+        .map(|item| (item.clone(), namespace_item(db, ns, item.clone())))
+        .collect()
+}
+
+/// Resolve a path within a namespace to an item.
+///
+/// Throws an error diagnostic if the item could not be found.
+#[salsa::tracked]
+pub fn namespace_item<'db>(
+    db: &'db dyn Database,
+    ns: Namespace<'db>,
+    name: WithAst<String>,
+) -> NamespaceItem<'db> {
+    match ns.items(db).get(name.as_ref()) {
+        Some(NamespaceItem::Unknown) | None => {
+            UnknownNamespaceItem { name }.accumulate(db);
+            NamespaceItem::Unknown
+        }
+        Some(item) => item.clone(),
+    }
+}
+
+/// Resolves the namespace available for a file to import from.
+#[salsa::tracked]
+pub fn file_externs<'db>(db: &'db dyn Database, file: File) -> Namespace<'db> {
+    // create a namespace
+    let mut items = BTreeMap::new();
+
+    // add the stdlib namespace
+    let stdlib = workspace_stdlib(db, file.workspace(db));
+    items.insert("Stdlib".to_string(), NamespaceItem::Namespace(stdlib));
+
+    // return the complete externs namespace
+    Namespace::new(db, items)
+}
+
+/// Creates the stdlib namespace from the workspace input.
+#[salsa::tracked]
+pub fn workspace_stdlib<'db>(db: &'db dyn Database, ws: Workspace) -> Namespace<'db> {
+    let items = ws
+        .stdlib(db)
+        .iter()
+        .map(|(name, file)| (name.clone(), NamespaceItem::File(*file)))
+        .collect();
+
+    Namespace::new(db, items)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct UnknownType {
     pub name: WithAst<String>,
@@ -166,6 +345,129 @@ impl BasicDiagnostic for UnknownType {
 
     fn message(&self) -> String {
         format!("could not find type {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnknownNamespaceItem {
+    pub name: WithAst<String>,
+}
+
+impl BasicDiagnostic for UnknownNamespaceItem {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.name.ast..self.name.ast
+    }
+
+    fn message(&self) -> String {
+        format!("could not find {} in namespace", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ItemDefinedAgain {
+    pub name: String,
+    pub original: AstNode,
+    pub redefinition: AstNode,
+}
+
+impl BasicDiagnostic for ItemDefinedAgain {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.redefinition..self.redefinition
+    }
+
+    fn message(&self) -> String {
+        format!("conflicting definitions of {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![self.original.with("originally defined here".to_string())]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RelationNotFound {
+    pub name: WithAst<String>,
+}
+
+impl BasicDiagnostic for RelationNotFound {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.name.ast..self.name.ast
+    }
+
+    fn message(&self) -> String {
+        format!("undefined relation {}", self.name)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NoChildren {
+    pub item: WithAst<String>,
+    pub kind: &'static str,
+}
+
+impl BasicDiagnostic for NoChildren {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.item.ast..self.item.ast
+    }
+
+    fn message(&self) -> String {
+        format!("{} {} does not have child items", self.kind, self.item)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExpectedRelation {
+    pub ast: AstNode,
+    pub got: &'static str,
+}
+
+impl BasicDiagnostic for ExpectedRelation {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.ast..self.ast
+    }
+
+    fn message(&self) -> String {
+        format!("expected relation, got {}", self.got)
     }
 
     fn kind(&self) -> DiagnosticKind {
