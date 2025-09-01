@@ -6,7 +6,7 @@ license.workspace = true
 
 [dependencies]
 chumsky.workspace = true
-egglog = "0.5"
+egglog = { version = "0.5", default-features = false }
 indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
