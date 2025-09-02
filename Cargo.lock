@@ -597,7 +597,7 @@ dependencies = [
  "fnv",
  "paste",
  "serde",
- "timely 0.23.0",
+ "timely",
 ]
 
 [[package]]
@@ -2168,7 +2168,7 @@ dependencies = [
  "rustsat-batsat",
  "saturn-v-ir",
  "serde",
- "timely 0.21.5",
+ "timely",
  "tokio",
  "tracing",
 ]
@@ -2243,7 +2243,7 @@ dependencies = [
  "saturn-v-eval",
  "saturn-v-ir",
  "serde",
- "timely 0.21.5",
+ "timely",
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
@@ -2617,25 +2617,6 @@ dependencies = [
 
 [[package]]
 name = "timely"
-version = "0.21.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24044953f29fb1b228ef6ced8abb41c5403c3c5661ca91d5286858dc1ceeaa39"
-dependencies = [
- "bincode",
- "byteorder",
- "columnar",
- "columnation",
- "getopts",
- "serde",
- "smallvec",
- "timely_bytes 0.21.5",
- "timely_communication 0.21.5",
- "timely_container 0.21.5",
- "timely_logging 0.21.5",
-]
-
-[[package]]
-name = "timely"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fdce402066c9cfc6edeb9c3fb41c7312651cd6ea0ec0eeac76f7bdc4709f7ed"
@@ -2648,38 +2629,17 @@ dependencies = [
  "itertools",
  "serde",
  "smallvec",
- "timely_bytes 0.23.0",
- "timely_communication 0.23.0",
- "timely_container 0.23.0",
- "timely_logging 0.23.0",
+ "timely_bytes",
+ "timely_communication",
+ "timely_container",
+ "timely_logging",
 ]
-
-[[package]]
-name = "timely_bytes"
-version = "0.21.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "290ce5527acdb648d10f460f160245555c9d5d3977cb63d4aea2f676e432e188"
 
 [[package]]
 name = "timely_bytes"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aefcbcebd8ca3380bbf1aac7045607e239a67abe5375ccddc4c053ad3beae3a6"
-
-[[package]]
-name = "timely_communication"
-version = "0.21.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90ab22daa4ee1c67304dad45a184100207c70f18441db8e1b59b337718744952"
-dependencies = [
- "byteorder",
- "columnar",
- "getopts",
- "serde",
- "timely_bytes 0.21.5",
- "timely_container 0.21.5",
- "timely_logging 0.21.5",
-]
 
 [[package]]
 name = "timely_communication"
@@ -2691,16 +2651,10 @@ dependencies = [
  "columnar",
  "getopts",
  "serde",
- "timely_bytes 0.23.0",
- "timely_container 0.23.0",
- "timely_logging 0.23.0",
+ "timely_bytes",
+ "timely_container",
+ "timely_logging",
 ]
-
-[[package]]
-name = "timely_container"
-version = "0.21.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b63e60598564980ed3252d80bd0e16c7e6868d788124dacb7ce57662734e6a86"
 
 [[package]]
 name = "timely_container"
@@ -2710,20 +2664,11 @@ checksum = "abdd437a10c8c0e9734c492ce870dce7977872f7d9293425008b781f3a9e8fdf"
 
 [[package]]
 name = "timely_logging"
-version = "0.21.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "270d7819fa599702b8273292d88e058cec611091c9c75eb3b86a64914861b3ea"
-dependencies = [
- "timely_container 0.21.5",
-]
-
-[[package]]
-name = "timely_logging"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dae72fae48e1bde88f29f48e2bd847e28694319682aa1f08e4fc6c861374c1ba"
 dependencies = [
- "timely_container 0.23.0",
+ "timely_container",
 ]
 
 [[package]]
