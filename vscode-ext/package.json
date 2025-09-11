@@ -16,6 +16,13 @@
         ],
         "configuration": "./language-configuration.json"
       }
+    ],
+    "grammars": [
+      {
+        "language": "kerolox",
+        "scopeName": "source.kerolox",
+        "path": "./syntaxes/kerolox.tmGrammar.json"
+      }
     ]
   },
   "engines": {
