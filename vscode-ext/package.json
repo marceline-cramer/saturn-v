@@ -1,0 +1,43 @@
+{
+  "name": "kerolox",
+  "displayName": "Kerolox Language Support",
+  "publisher": "you",
+  "version": "0.1.0",
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "kerolox",
+        "extensions": [
+          ".rp1"
+        ],
+        "aliases": [
+          "Kerolox"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kerolox",
+        "scopeName": "source.kerolox",
+        "path": "./syntaxes/kerolox.tmGrammar.json"
+      }
+    ]
+  },
+  "engines": {
+    "vscode": "^1.98.0"
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/vscode": "^1.90.0",
+    "@types/node": "^22"
+  }
+}
