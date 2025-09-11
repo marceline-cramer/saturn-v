@@ -194,7 +194,15 @@ pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>
 
     // if relation has transitive non-monotonic dependency on itself, throw error
     if nm_deps.contains(&rel) {
-        todo!();
+        NonMonotonicCycle {
+            at: rel.name(db).clone(),
+        }
+        .accumulate(db);
+
+        // default to stratum of zero
+        // indirect deps may cause recursion indirectly
+        // therefore, we cannot safely guess a better stratum
+        return 0;
     }
 
     // otherwise, stratum is maximum of each transitive NM dep plus one
@@ -397,5 +405,32 @@ impl BasicDiagnostic for UnboundVariable {
 
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![self.body.with("the rule body in question".to_string())]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NonMonotonicCycle {
+    pub at: WithAst<String>,
+}
+
+impl BasicDiagnostic for NonMonotonicCycle {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("{} forms a non-monotonic cycle", self.at)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![]
     }
 }
