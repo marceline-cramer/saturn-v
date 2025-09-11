@@ -29,3 +29,16 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         flags: --all
+  check-vscode:
+    name: "Check VSCode extension"
+    runs-on: "ubuntu-latest"
+    defaults:
+      run:
+        working-directory: ./vscode-ext
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - run: npm install
+    - run: npm run compile      
