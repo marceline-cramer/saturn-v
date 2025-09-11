@@ -25,7 +25,7 @@ use crate::{
     infer::{
         infer_resolved_relation_type, typed_constraint, typed_rule, TypedConstraint, TypedRule,
     },
-    lookup::{relation_indirect_deps, relation_is_conditional, relation_rules},
+    lookup::{relation_indirect_deps, relation_is_conditional, relation_rules, relation_stratum},
     parse::{file_constraints, Pattern, RelationDefinition},
     resolve::{file_interns, resolve_relation_type},
     toplevel::{AstNode, File, NamespaceItem, Workspace},
@@ -126,6 +126,7 @@ pub fn init_relation<'db>(
         facts: Vec::new(),
         rules: Vec::new(),
         io: rel.io(db),
+        stratum: relation_stratum(db, rel),
         kind,
         ty,
     })
