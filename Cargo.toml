@@ -1,5 +1,16 @@
 [workspace]
-members = [ "check", "client", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "server", "tree-sitter-kerolox" ]
+members = [
+    "check",
+    "client",
+    "eval",
+    "frontend",
+    "fuzz",
+    "ir",
+    "lower",
+    "lsp",
+    "server",
+    "tree-sitter-kerolox",
+]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
