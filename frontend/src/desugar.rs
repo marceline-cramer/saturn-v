@@ -25,6 +25,7 @@ use salsa::{Database, Update};
 use saturn_v_ir::{self as ir, QueryTerm};
 
 use crate::{
+    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
     infer::{TypeKey, TypeTable, TypedRuleBody},
     parse::{BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind},
     resolve::file_relation,
@@ -260,7 +261,7 @@ impl<'db> Desugarer<'db> {
                 _ => {
                     let idx = self.lowered_vars.len() as u32;
                     self.lowered_vars.push(ty);
-                    self.bind_relation(idx, body);
+                    self.bind_relation(db, idx, body);
                     ir::QueryTerm::Variable(idx)
                 }
             });
@@ -279,7 +280,9 @@ impl<'db> Desugarer<'db> {
     }
 
     /// Helper function to bind a fresh relation variable to an expression.
-    fn bind_relation(&mut self, var: u32, expr: WithAst<ir::Expr>) {
+    fn bind_relation(&mut self, db: &dyn Database, var: u32, expr: WithAst<ir::Expr>) {
+        WarnExpressionsInQueries { ast: expr.ast }.accumulate(db);
+
         self.clauses.push(expr.map(|expr| ir::Expr::BinaryOp {
             op: ir::BinaryOpKind::Eq,
             lhs: Arc::new(ir::Expr::Variable(var)),
@@ -380,3 +383,26 @@ impl<'db> Desugarer<'db> {
 
 /// A flattened, desugared expression, representing each element in a tuple.
 pub type DesugaredExpr = Vec<WithAst<ir::Expr>>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WarnExpressionsInQueries {
+    ast: AstNode,
+}
+
+impl BasicDiagnostic for WarnExpressionsInQueries {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.ast..self.ast
+    }
+
+    fn message(&self) -> String {
+        "Kerolox does not support assigning variables in query expressions".to_string()
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Warning
+    }
+
+    fn is_fatal(&self) -> bool {
+        false
+    }
+}
