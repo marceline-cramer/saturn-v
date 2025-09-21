@@ -28,7 +28,7 @@ use crate::{
     infer::{TypeKey, TypeTable, TypedRuleBody},
     parse::{BinaryOpKind, Expr, ExprKind, Pattern, RelationDefinition, UnaryOpKind},
     resolve::file_relation,
-    toplevel::File,
+    toplevel::{AstNode, File},
     types::{PrimitiveType, WithAst},
 };
 
@@ -72,7 +72,7 @@ pub struct Desugarer<'db> {
     relations: IndexSet<RelationDefinition<'db>>,
 
     /// Clauses that have been added to this desugarer.
-    clauses: Vec<ir::Expr>,
+    clauses: DesugaredExpr,
 }
 
 impl<'db> Desugarer<'db> {
@@ -101,7 +101,7 @@ impl<'db> Desugarer<'db> {
                 .iter()
                 .for_each(|el| self.desugar_pattern(db, el.as_ref(), query, needed)),
             Pattern::Variable(name) => {
-                let vars = self.allocate_variable(db, name.clone());
+                let vars = self.allocate_variable(db, name);
                 needed.extend(vars.iter().copied());
                 query.extend(vars.into_iter().map(QueryTerm::Variable));
             }
@@ -116,6 +116,7 @@ impl<'db> Desugarer<'db> {
             .clauses
             .clone()
             .into_iter()
+            .map(|expr| expr.inner)
             .reduce(|lhs, rhs| ir::Expr::BinaryOp {
                 op: ir::BinaryOpKind::And,
                 lhs: Arc::new(lhs),
@@ -155,7 +156,7 @@ impl<'db> Desugarer<'db> {
     }
 
     /// Desugars an expression, returning its flattened list of sub-expressions.
-    pub fn desugar_expr(&mut self, db: &'db dyn Database, expr: Expr<'db>) -> Vec<ir::Expr> {
+    pub fn desugar_expr(&mut self, db: &'db dyn Database, expr: Expr<'db>) -> DesugaredExpr {
         use ExprKind::*;
         match expr.kind(db) {
             // tuples simply concatenate their desugared elements
@@ -164,14 +165,14 @@ impl<'db> Desugarer<'db> {
                 .flat_map(|el| self.desugar_expr(db, *el))
                 .collect(),
             // wrap value literals directly in an expression
-            Value(val) => vec![ir::Expr::Value(val.clone())],
+            Value(val) => vec![expr.ast(db).with(ir::Expr::Value(val.clone()))],
             // pass variables to the dedicated method
             // wow, it's a method, huh? am I doing OOP again? mind-boggling.
-            Variable(name) => self.desugar_variable(db, name),
+            Variable(name) => self.desugar_variable(db, expr.ast(db).with(name)),
             // desugar atoms in a dedicated method
             Atom { head, body } => {
                 let body = self.desugar_expr(db, body);
-                self.desugar_atom(db, head, body)
+                vec![expr.ast(db).with(self.desugar_atom(db, head, body))]
             }
             // desugar unary operators in a dedicated method
             UnaryOp { op, term } => {
@@ -182,7 +183,7 @@ impl<'db> Desugarer<'db> {
             BinaryOp { op, lhs, rhs } => {
                 let lhs = self.desugar_expr(db, lhs);
                 let rhs = self.desugar_expr(db, rhs);
-                self.desugar_binary_op(db, op.inner, lhs, rhs)
+                self.desugar_binary_op(db, expr.ast(db), op.inner, lhs, rhs)
             }
         }
     }
@@ -190,19 +191,24 @@ impl<'db> Desugarer<'db> {
     /// Flattens a high-level, typed variable into lowered variables.
     ///
     /// Panics if the variable name is not in the type table.
-    pub fn desugar_variable(&mut self, db: &'db dyn Database, name: String) -> DesugaredExpr {
-        self.allocate_variable(db, name)
+    pub fn desugar_variable(
+        &mut self,
+        db: &'db dyn Database,
+        name: WithAst<String>,
+    ) -> DesugaredExpr {
+        self.allocate_variable(db, name.as_str())
             .into_iter()
             .map(ir::Expr::Variable)
+            .map(|var| name.with(var))
             .collect()
     }
 
     /// Flattens a high-level, typed variable into a list of indices of lowered varaibles.
     ///
     /// Panics if the variable name is not in the type table.
-    pub fn allocate_variable(&mut self, _db: &'db dyn Database, name: String) -> Vec<u32> {
+    pub fn allocate_variable(&mut self, _db: &'db dyn Database, name: &str) -> Vec<u32> {
         // create the type key
-        let key = TypeKey::Variable(name.clone());
+        let key = TypeKey::Variable(name.to_string());
 
         // initialize this variable's lowered storage if it hasn't already been
         let (start, len) = self.typed_vars.entry(key.clone()).or_insert_with(|| {
@@ -229,7 +235,7 @@ impl<'db> Desugarer<'db> {
         db: &'db dyn Database,
         head: WithAst<String>,
         body: DesugaredExpr,
-    ) -> DesugaredExpr {
+    ) -> ir::Expr {
         // lookup the flattened type of the relation itself
         let ty = self
             .table
@@ -245,16 +251,16 @@ impl<'db> Desugarer<'db> {
         let mut query = Vec::with_capacity(body.len());
         for (body, ty) in body.into_iter().zip(ty) {
             use ir::Expr::*;
-            query.push(match body {
+            query.push(match body.as_ref().clone() {
                 // if the body's term is a variable, use it directly
                 Variable(idx) => ir::QueryTerm::Variable(idx),
                 // if the body's term is a value, use it directly
                 Value(val) => ir::QueryTerm::Value(val),
                 // for all other expressions, create a fresh binding variable
-                expr => {
+                _ => {
                     let idx = self.lowered_vars.len() as u32;
                     self.lowered_vars.push(ty);
-                    self.bind_relation(idx, expr);
+                    self.bind_relation(idx, body);
                     ir::QueryTerm::Variable(idx)
                 }
             });
@@ -266,25 +272,26 @@ impl<'db> Desugarer<'db> {
         );
 
         // create the final relation evaluation
-        vec![ir::Expr::Load {
+        ir::Expr::Load {
             relation: relation as u32,
             query,
-        }]
+        }
     }
 
     /// Helper function to bind a fresh relation variable to an expression.
-    fn bind_relation(&mut self, var: u32, expr: ir::Expr) {
-        self.clauses.push(ir::Expr::BinaryOp {
+    fn bind_relation(&mut self, var: u32, expr: WithAst<ir::Expr>) {
+        self.clauses.push(expr.map(|expr| ir::Expr::BinaryOp {
             op: ir::BinaryOpKind::Eq,
             lhs: Arc::new(ir::Expr::Variable(var)),
             rhs: Arc::new(expr),
-        })
+        }))
     }
 
     /// Desugars a binary operation.
     pub fn desugar_binary_op(
         &mut self,
         db: &'db dyn Database,
+        ast: AstNode,
         op: BinaryOpKind,
         lhs: DesugaredExpr,
         rhs: DesugaredExpr,
@@ -301,7 +308,7 @@ impl<'db> Desugarer<'db> {
             (Ge, (lhs, rhs)) => (IR::Le, (rhs, lhs)),
             // the does-not-equal operator is the negation of equality
             (Ne, (lhs, rhs)) => {
-                let inner = self.desugar_binary_op(db, BinaryOpKind::Eq, lhs, rhs);
+                let inner = self.desugar_binary_op(db, ast, BinaryOpKind::Eq, lhs, rhs);
                 return self.desugar_unary_op(db, UnaryOpKind::Not, inner);
             }
             // subtraction is implementing using addition, negating the rhs
@@ -327,8 +334,8 @@ impl<'db> Desugarer<'db> {
             .zip(rhs)
             .map(|(lhs, rhs)| ir::Expr::BinaryOp {
                 op,
-                lhs: Arc::new(lhs),
-                rhs: Arc::new(rhs),
+                lhs: Arc::new(lhs.inner),
+                rhs: Arc::new(rhs.inner),
             });
 
         // in the special case that this is a logical operation, collapse all
@@ -342,10 +349,11 @@ impl<'db> Desugarer<'db> {
                         lhs: Arc::new(lhs),
                         rhs: Arc::new(rhs),
                     })
+                    .map(|term| ast.with(term))
                     .unwrap()]
             }
             // otherwise, return terms as they are
-            _ => terms.collect(),
+            _ => terms.map(|term| ast.with(term)).collect(),
         }
     }
 
@@ -360,13 +368,15 @@ impl<'db> Desugarer<'db> {
         // this should only ever work on single flattened expressions
         // but... in the case it shouldn't later, it's not this code's problem
         term.into_iter()
-            .map(|term| ir::Expr::UnaryOp {
-                op: op.into(),
-                term: Arc::new(term),
+            .map(|term| {
+                term.map(|term| ir::Expr::UnaryOp {
+                    op: op.into(),
+                    term: Arc::new(term),
+                })
             })
             .collect()
     }
 }
 
 /// A flattened, desugared expression, representing each element in a tuple.
-pub type DesugaredExpr = Vec<ir::Expr>;
+pub type DesugaredExpr = Vec<WithAst<ir::Expr>>;

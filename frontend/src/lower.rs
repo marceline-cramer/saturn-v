@@ -150,7 +150,7 @@ pub fn lower_constraint<'db>(
         .constraint(db)
         .head(db)
         .iter()
-        .flat_map(|binding| desugarer.allocate_variable(db, binding.to_string()))
+        .flat_map(|binding| desugarer.allocate_variable(db, binding.as_str()))
         .collect();
 
     // all head variables are needed
