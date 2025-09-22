@@ -371,6 +371,14 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
                 // return the node and its map
                 (node, joined)
             }
+            Antijoin {
+                relation,
+                terms,
+                rest,
+            } => {
+                // add the rest of the instructions
+                let (mut rest, rest_map) = self.load_instruction(rel, loaded, instr);
+            }
         }
     }
 }
@@ -409,6 +417,7 @@ pub struct WipNode {
     pub input: NodeInput,
     pub push: Vec<Expr>,
     pub filter: Vec<Expr>,
+    pub stratum: Option<usize>,
 }
 
 impl WipNode {
@@ -417,6 +426,7 @@ impl WipNode {
             input,
             push: vec![],
             filter: vec![],
+            stratum: None,
         }
     }
 }

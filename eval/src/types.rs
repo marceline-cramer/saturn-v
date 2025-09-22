@@ -88,95 +88,6 @@ pub type Values = Vec<Value>;
 pub type FixedValues = Arc<[Value]>;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum OldNode {
-    /// Joins two nodes together.
-    Join {
-        /// The left-hand node to join. Leftover terms come first.
-        lhs: Key<Node>,
-
-        /// The right-hand node to join. Leftover terms come after left-hand terms.
-        rhs: Key<Node>,
-
-        /// The number of terms starting from the front of each node to join.
-        num: usize,
-    },
-
-    /// Merges two nodes together.
-    Merge {
-        /// The left-hand node to merge.
-        lhs: Key<Node>,
-
-        /// The right-hand node to merge.
-        rhs: Key<Node>,
-    },
-
-    /// Projects (rearranges) a node's terms.
-    ///
-    /// Can also drop variables.
-    Project {
-        /// The node to project.
-        src: Key<Node>,
-
-        /// A list of indices for which terms of the original node this projection loads.
-        map: IndexList,
-    },
-
-    /// Evaluates a test expression on the input tuples and keeps the ones that pass.
-    Filter {
-        /// The node to pull input tuples from.
-        src: Key<Node>,
-
-        /// The expression to execute.
-        expr: Expr,
-    },
-
-    /// Evaluates an expression to push a new element to input tuples.
-    Push {
-        /// The node to pull input tuples from.
-        src: Key<Node>,
-
-        /// The expression to execute.
-        expr: Expr,
-    },
-
-    /// Loads node contents from a relation.
-    LoadRelation {
-        /// The key of the relation to load.
-        relation: Key<Relation>,
-
-        /// A query to constrain the loading by.
-        query: Query,
-    },
-
-    /// Stores a node's contents into a relation.
-    StoreRelation {
-        /// The node to load terms from.
-        src: Key<Node>,
-
-        /// The relation to store into.
-        dst: Key<Relation>,
-
-        /// The map from destination variables or values to relation elements.
-        head: StoreHead,
-    },
-
-    /// Stores a node's contents as a constraint.
-    Constraint {
-        /// The node to load terms from.
-        src: Key<Node>,
-
-        /// The indices of the variables that the head is made up of.
-        head: IndexList,
-
-        /// The constraint's weight.
-        weight: ConstraintWeight,
-
-        /// The kind of constraint.
-        kind: ConstraintKind,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Node {
     /// The [NodeInput] that produces input tuples to this node.
     pub input: NodeInput,
@@ -199,6 +110,13 @@ impl Node {
         match self.output {
             Some(NodeOutput::Constraint { weight, kind, .. }) => Some((weight, kind)),
             _ => None,
+        }
+    }
+
+    pub fn stratum(&self) -> u16 {
+        match self.input {
+            NodeInput::Antijoin { stratum, .. } => stratum,
+            _ => 0,
         }
     }
 }
@@ -230,6 +148,23 @@ pub enum NodeInput {
 
         /// The right-hand node to merge.
         rhs: NodeSource,
+    },
+
+    /// Loads tuples from a node source but antijoins from a total query.
+    Antijoin {
+        /// The node source to load from.
+        src: NodeSource,
+
+        /// The negation stratum blocking this antijoin operation.
+        ///
+        /// Antijoin cannot proceed until this negation stratum is reached.
+        stratum: u16,
+
+        /// The key of the relation to antijoin.
+        relation: Key<Relation>,
+
+        /// A fully-populated query to select tuples from the source relation.
+        query: Query,
     },
 }
 
