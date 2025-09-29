@@ -42,6 +42,7 @@ use tokio_stream::wrappers::BroadcastStream;
 
 pub use axum;
 
+pub mod db;
 #[cfg(test)]
 pub mod tests;
 

@@ -296,6 +296,10 @@ impl RelationInfo {
     }
 }
 
+/// A monotonically increasing identifier for input transaction results.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+pub struct SequenceId(pub u64);
+
 /// A trait for Rust types that have corresponding Saturn V types.
 pub trait Typed {
     /// Retrieves the Saturn V type for this type.
@@ -480,6 +484,9 @@ pub enum ServerError {
         expected: StructuredType,
         got: StructuredType,
     },
+
+    #[error("the server had an internal database error")]
+    DatabaseError,
 
     #[error("the server side event stream has lagged")]
     Lagged,
