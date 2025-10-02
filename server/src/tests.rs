@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses>.
 
-use std::{collections::HashMap, sync::atomic::AtomicU32};
+use std::sync::atomic::AtomicU32;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
@@ -58,46 +58,37 @@ async fn passthru_client() -> Result<Client> {
 
 /// Creates a basic program that feeds an input directly to an output.
 fn passthru_program() -> Program {
-    let mut relations = HashMap::new();
+    let mut program = Program::default();
 
-    relations.insert(
-        "Input".to_string(),
-        ir::Relation {
-            store: "Input".to_string(),
-            ty: ir::StructuredType::Primitive(ir::Type::String),
-            kind: ir::RelationKind::Basic,
-            io: ir::RelationIO::Input,
-            facts: vec![],
-            rules: vec![],
-        },
-    );
+    program.insert_relation(ir::Relation {
+        store: "Input".to_string(),
+        ty: ir::StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::Input,
+        facts: vec![],
+        rules: vec![],
+    });
 
-    relations.insert(
-        "Output".to_string(),
-        ir::Relation {
-            store: "Output".to_string(),
-            ty: ir::StructuredType::Primitive(ir::Type::String),
-            kind: ir::RelationKind::Basic,
-            io: ir::RelationIO::Output,
-            facts: vec![],
-            rules: vec![ir::Rule {
-                head: vec![ir::QueryTerm::Variable(0)],
-                body: ir::RuleBody {
-                    vars: vec![ir::Type::String],
-                    loaded: vec!["Input".to_string()],
-                    instructions: ir::Instruction::FromQuery {
-                        relation: 0,
-                        terms: vec![ir::QueryTerm::Variable(0)],
-                    },
+    program.insert_relation(ir::Relation {
+        store: "Output".to_string(),
+        ty: ir::StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::Output,
+        facts: vec![],
+        rules: vec![ir::Rule {
+            head: vec![ir::QueryTerm::Variable(0)],
+            body: ir::RuleBody {
+                vars: vec![ir::Type::String],
+                loaded: vec!["Input".to_string()],
+                instructions: ir::Instruction::FromQuery {
+                    relation: 0,
+                    terms: vec![ir::QueryTerm::Variable(0)],
                 },
-            }],
-        },
-    );
+            },
+        }],
+    });
 
-    saturn_v_ir::Program {
-        relations,
-        constraints: vec![],
-    }
+    program
 }
 
 #[tokio::test]
@@ -120,20 +111,16 @@ async fn test_update_program() -> Result<()> {
 
 #[tokio::test]
 async fn test_invalid_program() -> Result<()> {
-    let program = Program {
-        constraints: vec![],
-        relations: vec![ir::Relation {
-            store: "Invalid".to_string(),
-            ty: StructuredType::Primitive(ir::Type::String),
-            kind: ir::RelationKind::Basic,
-            io: ir::RelationIO::None,
-            facts: vec![vec![ir::Value::Integer(0)]],
-            rules: vec![],
-        }]
-        .into_iter()
-        .map(|rel| (rel.store.clone(), rel))
-        .collect(),
-    };
+    let mut program = Program::default();
+
+    program.insert_relation(ir::Relation {
+        store: "Invalid".to_string(),
+        ty: StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::None,
+        facts: vec![vec![ir::Value::Integer(0)]],
+        rules: vec![],
+    });
 
     let client = local_client().await?;
     let result = client.set_program(&program).await;

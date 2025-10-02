@@ -15,9 +15,8 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Display,
-    hash::Hash,
 };
 
 use indexmap::IndexSet;
@@ -34,12 +33,12 @@ pub type VariableMap = IndexSet<u32>;
 
 #[derive(Clone, Debug)]
 pub struct Loader<R> {
-    pub(crate) relations: HashMap<R, Relation>,
-    pub(crate) facts: HashSet<Fact>,
-    pub(crate) nodes: HashSet<Node>,
+    pub(crate) relations: BTreeMap<R, Relation>,
+    pub(crate) facts: BTreeSet<Fact>,
+    pub(crate) nodes: BTreeSet<Node>,
 }
 
-impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
+impl<R: Clone + Display + Ord + 'static> Loader<R> {
     /// Loads a program.
     pub fn load_program(program: &Program<R>) -> Self {
         // assert that the program is valid
@@ -90,7 +89,7 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
     }
 
     /// Gets an immutable reference to this loader's relations.
-    pub fn get_relations(&self) -> &HashMap<R, Relation> {
+    pub fn get_relations(&self) -> &BTreeMap<R, Relation> {
         &self.relations
     }
 
@@ -122,8 +121,8 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
 
         Self {
             relations,
-            facts: HashSet::new(),
-            nodes: HashSet::new(),
+            facts: BTreeSet::new(),
+            nodes: BTreeSet::new(),
         }
     }
 
