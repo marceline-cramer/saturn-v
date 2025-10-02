@@ -488,6 +488,9 @@ pub enum ServerError {
     #[error("the server had an internal database error")]
     DatabaseError,
 
+    #[error("the transaction had a conflict and was rolled back")]
+    Conflict,
+
     #[error("the server side event stream has lagged")]
     Lagged,
 }

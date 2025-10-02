@@ -2,15 +2,18 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     hash::{DefaultHasher, Hash, Hasher},
+    path::Path,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
 };
 
-use fjall::{TransactionalPartition, UserValue, WriteTransaction};
+use anyhow::Context;
+use fjall::*;
 use saturn_v_client::*;
-use serde::{Serialize, de::DeserializeOwned};
+use saturn_v_ir::RelationIO;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 /// A transaction object for updating and querying the Saturn V server.
 pub trait Transaction {
@@ -39,26 +42,128 @@ pub trait Transaction {
     fn commit(self) -> ServerResult<SequenceId>;
 }
 
-pub struct FjallTransaction<'a> {
-    tx: WriteTransaction<'a>,
-    key_buf: Vec<u8>,
-    partition: TransactionalPartition,
-    inputs: HashMap<String, u16>,
+/// Maintains atomic transactions on Saturn V state and inputs.
+///
+/// Also facilitates consistent dataflow state and generates [SequenceId].
+pub struct Database {
+    keyspace: TransactionalKeyspace,
+    partition: TransactionalPartitionHandle,
     sequence: Arc<AtomicU64>,
 }
 
-impl<'a> Transaction for FjallTransaction<'a> {
+impl Database {
+    /// Creates/opens a database at the given path.
+    ///
+    /// Returns [`anyhow`] errors because initialization should not present database errors to clients.
+    pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Self::new_inner(Config::new(path))
+    }
+
+    /// Creates a temporary database.
+    pub fn temporary() -> anyhow::Result<Self> {
+        let path = tempfile::TempDir::with_prefix("saturn-v-db_")
+            .context("failed to create temporary directory")?
+            .keep();
+
+        Self::new_inner(Config::new(path).temporary(true))
+    }
+
+    fn new_inner(config: Config) -> anyhow::Result<Self> {
+        // open a keyspace using the provided config
+        let keyspace = config
+            .open_transactional()
+            .context("failed to open keyspace")?;
+
+        // create a partition for all transactions with default config
+        let partition = keyspace
+            .open_partition("main", Default::default())
+            .context("failed to open partition")?;
+
+        // sequence starts at 0 (per-runtime)
+        let sequence = Arc::new(AtomicU64::new(0));
+
+        // successful creation
+        Ok(Self {
+            keyspace,
+            partition,
+            sequence,
+        })
+    }
+
+    /// Attempts to begin a transaction using this database.
+    pub fn transaction(&self) -> ServerResult<FjallTransaction> {
+        // begin a serializable transaction
+        let tx = self
+            .keyspace
+            .write_tx()
+            .map_err(|_| ServerError::DatabaseError)?;
+
+        // create transaction structure without input map
+        let mut tx = FjallTransaction {
+            tx,
+            key_buf: Vec::with_capacity(1024),
+            partition: self.partition.clone(),
+            inputs: Default::default(),
+            sequence: self.sequence.clone(),
+        };
+
+        // populate input map
+        tx.inputs = tx.get(&Key::InputMap)?.unwrap_or_default();
+
+        // done!
+        Ok(tx)
+    }
+}
+
+pub struct FjallTransaction {
+    tx: WriteTransaction,
+    key_buf: Vec<u8>,
+    partition: TransactionalPartitionHandle,
+    sequence: Arc<AtomicU64>,
+
+    /// Cache [InputMap] to avoid ser/de and DB overhead.
+    inputs: InputMap,
+}
+
+impl Transaction for FjallTransaction {
     fn get_program(&mut self) -> ServerResult<Program> {
         self.get(&Key::Program)
             .and_then(|program| program.ok_or(ServerError::NoProgramLoaded))
     }
 
     fn set_program(&mut self, program: Program) -> ServerResult<()> {
-        // TODO: this needs to completely restructure everything in the database
-        // TODO: update input indices to match the new program
-        // TODO: sanitize program contents for database keys
-        // TODO: sanitize 16-bit input indices
-        self.insert(&Key::Program, &program)
+        // wipe old inputs if they exist
+        // TODO: reuse inputs when possible
+        if let Some(old_map) = self.get::<InputMap>(&Key::InputMap)? {
+            for name in old_map.relations.keys() {
+                self.clear(name)?;
+            }
+        }
+
+        // allocate new input relation indices
+        let relations = program
+            .relations
+            .values()
+            .filter(|rel| rel.io == RelationIO::Input)
+            .map(|rel| rel.store.clone())
+            .enumerate()
+            .map(|(idx, name)| (name, u16::try_from(idx).expect("input index overflow")))
+            .collect();
+
+        // create new input map
+        let inputs = InputMap { relations };
+
+        // insert input map into DB
+        self.insert(&Key::InputMap, &inputs)?;
+
+        // cache input map
+        self.inputs = inputs;
+
+        // set the program itself
+        self.insert(&Key::Program, &program)?;
+
+        // success!
+        Ok(())
     }
 
     fn clear(&mut self, input: &str) -> ServerResult<()> {
@@ -119,7 +224,11 @@ impl<'a> Transaction for FjallTransaction<'a> {
 
     fn commit(self) -> ServerResult<SequenceId> {
         // perform actual commit
-        self.tx.commit().map_err(|_| ServerError::DatabaseError)?;
+        // first error is IO, second error is SSI conflict
+        self.tx
+            .commit()
+            .map_err(|_| ServerError::DatabaseError)?
+            .map_err(|_| ServerError::Conflict)?;
 
         // get sequence ID
         let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
@@ -131,7 +240,7 @@ impl<'a> Transaction for FjallTransaction<'a> {
     }
 }
 
-impl<'a> FjallTransaction<'a> {
+impl FjallTransaction {
     pub fn get_raw(&mut self, key: &Key) -> ServerResult<Option<UserValue>> {
         // construct path from key and borrow inner buffer
         let path = key.as_path(&mut self.key_buf);
@@ -218,6 +327,7 @@ impl<'a> FjallTransaction<'a> {
     /// Gets an input's index by name.
     pub fn get_input_index(&self, input: &str) -> ServerResult<u16> {
         self.inputs
+            .relations
             .get(input)
             .copied()
             .ok_or(ServerError::NoSuchInput(input.to_string()))
@@ -227,10 +337,17 @@ impl<'a> FjallTransaction<'a> {
 /// A bucket (as in hash set) of values in a single database entry.
 pub type Bucket = Vec<Value>;
 
+/// Mappings between program relations and input indices.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct InputMap {
+    pub relations: HashMap<String, u16>,
+}
+
 /// Helper enum for constructing paths in the database.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Program,
+    InputMap,
     Input { input: u16 },
     Bucket { input: u16, key: u16 },
 }
@@ -252,6 +369,7 @@ impl Key {
     pub fn as_path(self, buf: &mut Vec<u8>) -> Cow<'_, [u8]> {
         match self {
             Key::Program => b"p".into(),
+            Key::InputMap => b"m".into(),
             Key::Input { input } => {
                 buf.clear();
                 buf.push(b'i'); // input contents prefix
@@ -264,5 +382,16 @@ impl Key {
                 Cow::Borrowed(buf.as_slice())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_tx() {
+        let db = Database::temporary().unwrap();
+        let _tx = db.transaction().unwrap();
     }
 }
