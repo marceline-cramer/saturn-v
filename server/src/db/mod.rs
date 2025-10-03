@@ -111,10 +111,7 @@ impl<D: CommitDataflow> Database<D> {
     /// Attempts to begin a transaction using this database.
     pub fn transaction(&self) -> ServerResult<FjallTransaction<D>> {
         // begin a serializable transaction
-        let tx = self
-            .keyspace
-            .write_tx()
-            .map_err(|_| ServerError::DatabaseError)?;
+        let tx = self.keyspace.write_tx().map_err(db_error)?;
 
         // create transaction structure without input map
         let mut tx = FjallTransaction {
@@ -236,11 +233,10 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         // delete the whole prefix
         for item in items {
             // handle database error and extract key-value
-            let (key, val) = item.map_err(|_| ServerError::DatabaseError)?;
+            let (key, val) = item.map_err(db_error)?;
 
             // deserialize bucket
-            let bucket: Bucket =
-                serde_json::from_slice(&val).map_err(|_| ServerError::DatabaseError)?;
+            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
 
             // remove each entry in the bucket from dataflow
             for item in bucket {
@@ -325,7 +321,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         // first error is IO, second error is SSI conflict
         self.tx
             .commit()
-            .map_err(|_| ServerError::DatabaseError)?
+            .map_err(db_error)?
             .map_err(|_| ServerError::Conflict)?;
 
         // send dataflow inputs
@@ -346,14 +342,12 @@ impl<D: CommitDataflow> FjallTransaction<D> {
         let path = key.as_path(&mut self.key_buf);
 
         // perform the actual get operation
-        self.tx
-            .get(&self.partition, path)
-            .map_err(|_| ServerError::DatabaseError)
+        self.tx.get(&self.partition, path).map_err(db_error)
     }
 
     pub fn get<T: DeserializeOwned>(&mut self, key: &Key) -> ServerResult<Option<T>> {
         self.get_raw(key)?
-            .map(|value| serde_json::from_slice(&value).map_err(|_| ServerError::DatabaseError))
+            .map(|value| serde_json::from_slice(&value).map_err(db_error))
             .transpose()
     }
 
@@ -366,7 +360,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
     }
 
     pub fn insert<T: Serialize>(&mut self, key: &Key, value: &T) -> ServerResult<()> {
-        let data = serde_json::to_vec(value).map_err(|_| ServerError::DatabaseError)?;
+        let data = serde_json::to_vec(value).map_err(db_error)?;
         self.insert_raw(key, data.as_slice());
         Ok(())
     }
@@ -382,7 +376,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
         // perform the actual fetch-update operation
         self.tx
             .fetch_update(&self.partition, path.as_ref(), f)
-            .map_err(|_| ServerError::DatabaseError)
+            .map_err(db_error)
     }
 
     pub fn fetch_update<T: DeserializeOwned + Serialize>(
@@ -391,14 +385,14 @@ impl<D: CommitDataflow> FjallTransaction<D> {
         mut f: impl FnMut(Option<&T>) -> Option<T>,
     ) -> ServerResult<()> {
         // wrap raw fetch-update operation into fallible ser/de operations
-        let mut err = false;
+        let mut err = None;
         self.fetch_update_raw(key, |data| {
             // deserialize data if present
             let input = match data.map(|data| serde_json::from_slice(data)) {
                 None => None,
                 Some(Ok(value)) => Some(value),
-                Some(Err(_)) => {
-                    err = true;
+                Some(Err(e)) => {
+                    err = Some(e);
                     return data.map(ToOwned::to_owned);
                 }
             };
@@ -410,8 +404,8 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             match output.map(|output| serde_json::to_vec(&output)) {
                 None => None,
                 Some(Ok(output)) => Some(output.into()),
-                Some(Err(_)) => {
-                    err = true;
+                Some(Err(e)) => {
+                    err = Some(e);
                     data.map(ToOwned::to_owned)
                 }
             }
@@ -419,8 +413,8 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 
         // if there were any errors during serialization, return an error
         match err {
-            false => Err(ServerError::DatabaseError),
-            true => Ok(()),
+            Some(err) => Err(db_error(err)),
+            None => Ok(()),
         }
     }
 
@@ -561,6 +555,12 @@ impl Key {
 /// A trait for ACID dataflow inputs.
 pub trait CommitDataflow: Clone {
     fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId;
+}
+
+/// Helper function to log database errors while returning opaque [ServerError].
+pub fn db_error<E: std::error::Error>(err: E) -> ServerError {
+    tracing::error!("Database error: {}", err);
+    ServerError::DatabaseError
 }
 
 /// A mock implementation of CommitDataflow for testing purposes.
