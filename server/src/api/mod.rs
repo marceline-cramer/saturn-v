@@ -39,7 +39,7 @@ use saturn_v_ir::{self as ir};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::db::{CommitDataflow, Database, InputRelation, Transaction};
+use crate::db::{CommitDataflow, Database, FjallTransaction, InputRelation, Transaction};
 
 #[cfg(test)]
 pub mod tests;
@@ -59,9 +59,7 @@ async fn get_program(server: ExtractState) -> ServerResponse<Program> {
     server
         .lock()
         .await
-        .database
-        .transaction()
-        .and_then(|mut tx| tx.get_program())
+        .make_transaction(|tx| tx.get_program())
         .into()
 }
 
@@ -69,9 +67,7 @@ async fn post_program(server: ExtractState, Json(program): Json<Program>) -> Ser
     server
         .lock()
         .await
-        .database
-        .transaction()
-        .and_then(|mut tx| tx.set_program(program))
+        .make_transaction(|tx| tx.set_program(program))
         .into()
 }
 
@@ -79,9 +75,7 @@ async fn inputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> 
     server
         .lock()
         .await
-        .database
-        .transaction()
-        .and_then(|tx| tx.get_input_map())
+        .make_transaction(|tx| tx.get_input_map())
         .map(|map| map.relations.values().map(InputRelation::to_info).collect())
         .into()
 }
@@ -91,14 +85,11 @@ async fn input_update(
     input: Path<String>,
     Json(updates): Json<Vec<TupleUpdate>>,
 ) -> ServerResponse<()> {
-    Json(
-        server
-            .lock()
-            .await
-            .database
-            .transaction()
-            .and_then(|mut tx| tx.update(input.as_str(), &updates)),
-    )
+    server
+        .lock()
+        .await
+        .make_transaction(|tx| tx.update(input.as_str(), &updates))
+        .into()
 }
 
 async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> {
@@ -203,7 +194,9 @@ pub struct DataflowEntrypointInner {
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
 
-pub fn start_server() -> State {
+pub fn start_server(
+    make_database: impl FnOnce(DataflowEntrypoint) -> Database<DataflowEntrypoint>,
+) -> State {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
 
@@ -222,9 +215,7 @@ pub fn start_server() -> State {
     let (inputs, solver, output_rx) = routers.split();
 
     let dataflow = DataflowEntrypoint::new(inputs);
-
-    let database = Database::new(dataflow, "saturn-v-db").expect("failed to open database");
-
+    let database = make_database(dataflow);
     let server = Arc::new(Mutex::new(Server {
         database,
         outputs: HashMap::new(),
@@ -245,6 +236,16 @@ pub struct Server {
 }
 
 impl Server {
+    pub fn make_transaction<T>(
+        &self,
+        inner: impl FnOnce(&mut FjallTransaction<DataflowEntrypoint>) -> ServerResult<T>,
+    ) -> ServerResult<T> {
+        let mut tx = self.database.transaction()?;
+        let result = inner(&mut tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     pub async fn handle_dataflow(
         server: State,
         mut solver: Solver,
