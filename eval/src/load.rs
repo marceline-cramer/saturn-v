@@ -26,7 +26,7 @@ use tracing::debug;
 use crate::{
     types::{Fact, Node, NodeInput, NodeOutput, NodeSource, Relation},
     utils::Key,
-    DataflowInputs,
+    DataflowInputs, InputEventKind,
 };
 
 pub type VariableMap = IndexSet<u32>;
@@ -36,6 +36,16 @@ pub struct Loader<R> {
     pub(crate) relations: BTreeMap<R, Relation>,
     pub(crate) facts: BTreeSet<Fact>,
     pub(crate) nodes: BTreeSet<Node>,
+}
+
+impl<R> Default for Loader<R> {
+    fn default() -> Self {
+        Self {
+            relations: Default::default(),
+            facts: Default::default(),
+            nodes: Default::default(),
+        }
+    }
 }
 
 impl<R: Clone + Display + Ord + 'static> Loader<R> {
@@ -63,6 +73,16 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
         loader
     }
 
+    /// Extracts the [InputEventKind] values for this loader's contents.
+    pub fn get_events(&self) -> impl Iterator<Item = InputEventKind> + '_ {
+        // iterate over all contents and chain into full input event iterator
+        use InputEventKind::*;
+        let relations = self.relations.values().cloned().map(Relation);
+        let facts = self.facts.iter().cloned().map(Fact);
+        let nodes = self.nodes.iter().cloned().map(Node);
+        relations.chain(facts).chain(nodes)
+    }
+
     /// Inserts the contents of this loader into dataflow inputs.
     pub fn add_to_dataflow(self, inputs: &mut DataflowInputs) {
         // display statistics
@@ -73,19 +93,14 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
             "loading dataflow",
         );
 
-        for relation in self.relations.into_values() {
-            inputs.relations.insert(relation);
+        // send all inputs to input sink
+        // TODO: this method does not support coordinating timesteps
+        for event in self.get_events() {
+            inputs.events.insert(event);
         }
 
-        for fact in self.facts {
-            inputs.facts.insert(fact);
-        }
-
-        for node in self.nodes {
-            inputs.nodes.insert(node);
-        }
-
-        inputs.nodes.flush();
+        // advance input timestep
+        inputs.events.flush();
     }
 
     /// Gets an immutable reference to this loader's relations.

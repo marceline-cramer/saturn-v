@@ -58,9 +58,8 @@ pub async fn run(loader: Loader<String>) {
 
     loader.add_to_dataflow(&mut inputs);
 
-    inputs.relations.forget();
-    inputs.facts.forget();
-    inputs.nodes.forget();
+    // TODO: why is forgetting necessary?
+    inputs.events.forget();
 
     assert_eq!(solver.step().await, Some(true), "failed to run solver");
 
@@ -126,9 +125,7 @@ pub fn format_type(ty: &StructuredType) -> String {
 
 #[derive(Clone, Default)]
 pub struct DataflowRouters {
-    pub relations_in: InputRouter<Relation>,
-    pub facts_in: InputRouter<Fact>,
-    pub nodes_in: InputRouter<Node>,
+    pub events_in: InputRouter<InputEventKind>,
     pub conditional_out: OutputRouter<(Key<Fact>, ConditionalLink)>,
     pub gates_out: OutputRouter<Gate>,
     pub constraints_out: OutputRouter<ConstraintGroup>,
@@ -138,9 +135,7 @@ pub struct DataflowRouters {
 impl DataflowRouters {
     pub fn split(self) -> (DataflowInputs, Solver, Receiver<Update<Fact>>) {
         let inputs = DataflowInputs {
-            relations: self.relations_in.into_source(),
-            facts: self.facts_in.into_source(),
-            nodes: self.nodes_in.into_source(),
+            events: self.events_in.into_source(),
         };
 
         let (output_tx, output_rx) = flume::unbounded();
@@ -158,15 +153,59 @@ impl DataflowRouters {
 }
 
 pub struct DataflowInputs {
-    pub relations: InputSource<Relation>,
-    pub facts: InputSource<Fact>,
-    pub nodes: InputSource<Node>,
+    pub events: InputSource<InputEventKind>,
 }
 
-impl DataflowInputs {
-    pub fn clear(&mut self) {
-        self.relations.clear();
-        self.facts.clear();
-        self.nodes.clear();
+/// A single input event that modifies the contents of the dataflow.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InputEvent {
+    Insert(InputEventKind),
+    Remove(InputEventKind),
+}
+
+impl InputEvent {
+    pub fn insert(self) -> Option<InputEventKind> {
+        match self {
+            InputEvent::Insert(kind) => Some(kind),
+            _ => None,
+        }
+    }
+
+    pub fn remove(self) -> Option<InputEventKind> {
+        match self {
+            InputEvent::Remove(kind) => Some(kind),
+            _ => None,
+        }
+    }
+}
+
+/// Underlying event contents for dataflow inputs that can be inserted and removed.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InputEventKind {
+    Relation(Relation),
+    Fact(Fact),
+    Node(Node),
+}
+
+impl InputEventKind {
+    pub fn relation(self) -> Option<Relation> {
+        match self {
+            InputEventKind::Relation(rel) => Some(rel),
+            _ => None,
+        }
+    }
+
+    pub fn fact(self) -> Option<Fact> {
+        match self {
+            InputEventKind::Fact(fact) => Some(fact),
+            _ => None,
+        }
+    }
+
+    pub fn node(self) -> Option<Node> {
+        match self {
+            InputEventKind::Node(node) => Some(node),
+            _ => None,
+        }
     }
 }
