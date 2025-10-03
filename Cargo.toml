@@ -25,6 +25,7 @@ flume = "0.11"
 futures-util = "0.3"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
+parking_lot = "0.12"
 pretty = "0.12"
 ropey = "1.6"
 salsa = "0.20"

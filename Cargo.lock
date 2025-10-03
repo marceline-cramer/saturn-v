@@ -2376,6 +2376,7 @@ dependencies = [
  "flume",
  "futures-util",
  "ordered-float 4.6.0",
+ "parking_lot",
  "saturn-v-client",
  "saturn-v-eval",
  "saturn-v-ir",

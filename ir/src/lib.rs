@@ -252,6 +252,15 @@ impl StructuredType {
             Primitive(ty) => vec![*ty],
         }
     }
+
+    /// Calculates the number of primitive values in this type.
+    pub fn size(&self) -> usize {
+        use StructuredType::*;
+        match self {
+            Tuple(els) => els.iter().map(Self::size).sum(),
+            Primitive(_) => 1,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
