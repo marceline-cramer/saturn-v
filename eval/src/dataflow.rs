@@ -37,7 +37,7 @@ use crate::{
         Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
     },
     utils::*,
-    DataflowRouters,
+    DataflowRouters, InputEventKind,
 };
 
 pub fn backend(
@@ -45,14 +45,18 @@ pub fn backend(
     routers: &DataflowRouters,
 ) -> (impl PumpInput, impl PumpOutput) {
     worker.dataflow(|scope| {
-        // enter inputs into context
-        let mut relations_in = routers.relations_in.add_sink();
-        let mut facts_in = routers.facts_in.add_sink();
-        let mut nodes_in = routers.nodes_in.add_sink();
+        // enter input events into scope
+        let mut events_in_sink = routers.events_in.add_sink();
+        let events_in = events_in_sink.to_collection(scope);
 
-        let relations = relations_in.to_collection(scope).map(Key::pair);
-        let facts = facts_in.to_collection(scope).map(Fact::relation_pair);
-        let nodes = nodes_in.to_collection(scope).map(Key::pair);
+        // enter all event kinds into context
+        let relations = events_in.flat_map(InputEventKind::relation).map(Key::pair);
+
+        let facts = events_in
+            .flat_map(InputEventKind::fact)
+            .map(Fact::relation_pair);
+
+        let nodes = events_in.flat_map(InputEventKind::node).map(Key::pair);
 
         // generate the semantics
         let (gates, implies, outputs, constraints) = scope.iterative::<u32, _, _>(|scope| {
@@ -218,7 +222,7 @@ pub fn backend(
 
         // return inputs and outputs
         (
-            relations_in.and(facts_in).and(nodes_in),
+            events_in_sink,
             routers
                 .gates_out
                 .add_source(&gates)

@@ -27,7 +27,7 @@ pub trait Sexp: Sized {
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
 }
 
-impl Sexp for HashSet<u32> {
+impl Sexp for BTreeSet<u32> {
     fn to_doc(&self) -> Doc {
         let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
         doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
@@ -71,7 +71,7 @@ impl Sexp for Instruction {
             let noop = parse_tag("Noop").to(Noop);
 
             // sink
-            let sink = parse_list("Sink", HashSet::parser().then(instr.clone()))
+            let sink = parse_list("Sink", BTreeSet::parser().then(instr.clone()))
                 .map(|(vars, rest)| Sink { vars, rest });
 
             // filter

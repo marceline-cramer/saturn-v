@@ -15,7 +15,7 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Display,
     hash::Hash,
     sync::Arc,
@@ -32,27 +32,24 @@ use arbitrary::Arbitrary;
 pub mod sexp;
 pub mod validate;
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
-#[cfg_attr(
-    feature = "fuzz",
-    arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")
-)]
-pub struct Program<R: Eq + Hash> {
-    pub relations: HashMap<R, Relation<R>>,
-    pub constraints: Vec<Constraint<R>>,
+#[cfg_attr(feature = "fuzz", arbitrary(bound = "R: Arbitrary<'arbitrary> + Ord"))]
+pub struct Program<R: Ord> {
+    pub relations: BTreeMap<R, Relation<R>>,
+    pub constraints: BTreeSet<Constraint<R>>,
 }
 
-impl<R: Eq + Hash> Default for Program<R> {
+impl<R: Ord> Default for Program<R> {
     fn default() -> Self {
         Self {
-            relations: HashMap::new(),
-            constraints: Vec::new(),
+            relations: BTreeMap::new(),
+            constraints: BTreeSet::new(),
         }
     }
 }
 
-impl<R: Clone + Hash + Eq> Program<R> {
+impl<R: Clone + Ord> Program<R> {
     /// Easy shorthand to add a relation to this program.
     pub fn insert_relation(&mut self, relation: Relation<R>) {
         self.relations.insert(relation.store.clone(), relation);
@@ -64,7 +61,7 @@ impl<R: Clone + Hash + Eq> Program<R> {
         self.constraints.extend(other.constraints);
 
         // relations need to be tree-merged
-        use std::collections::hash_map::Entry;
+        use std::collections::btree_map::Entry;
         for (key, relation) in other.relations {
             match self.relations.entry(key) {
                 Entry::Occupied(mut entry) => {
@@ -86,7 +83,7 @@ impl<R: Clone + Hash + Eq> Program<R> {
     }
 
     /// Translates all of the relation values in this program into another type.
-    pub fn map_relations<O: Hash + Eq>(self, mut cb: impl FnMut(R) -> O) -> Program<O> {
+    pub fn map_relations<O: Ord>(self, mut cb: impl FnMut(R) -> O) -> Program<O> {
         // map relations
         let relations = self
             .relations
@@ -136,12 +133,9 @@ impl<R: Clone + Hash + Eq> Program<R> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
-#[cfg_attr(
-    feature = "fuzz",
-    arbitrary(bound = "R: Arbitrary<'arbitrary> + Eq + Hash")
-)]
+#[cfg_attr(feature = "fuzz", arbitrary(bound = "R: Arbitrary<'arbitrary> + Ord"))]
 pub struct Constraint<R> {
     /// What weight this constraint has.
     pub weight: ConstraintWeight,
@@ -189,7 +183,7 @@ pub enum CardinalityConstraintKind {
     Only,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Relation<R> {
     /// The relation's type.
@@ -258,6 +252,15 @@ impl StructuredType {
             Primitive(ty) => vec![*ty],
         }
     }
+
+    /// Calculates the number of primitive values in this type.
+    pub fn size(&self) -> usize {
+        use StructuredType::*;
+        match self {
+            Tuple(els) => els.iter().map(Self::size).sum(),
+            Primitive(_) => 1,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -273,7 +276,7 @@ pub enum RelationKind {
     Decision,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Rule<R> {
     /// Maps from the variables in the filter to query terms to store in the
@@ -284,7 +287,7 @@ pub struct Rule<R> {
     pub body: RuleBody<R>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct RuleBody<R> {
     /// The type of each variable.
@@ -299,7 +302,7 @@ pub struct RuleBody<R> {
 
 impl<R> RuleBody<R> {
     /// Translates all of the relation values in this rule into another type.
-    pub fn map_relations<O: Hash + Eq>(self, cb: impl FnMut(R) -> O) -> RuleBody<O> {
+    pub fn map_relations<O: Ord>(self, cb: impl FnMut(R) -> O) -> RuleBody<O> {
         RuleBody {
             vars: self.vars,
             instructions: self.instructions,
@@ -310,9 +313,11 @@ impl<R> RuleBody<R> {
 
 /// A recursive, branching instruction representation that evaluates to some
 /// set of assigned variables.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, EnumDiscriminants)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize, EnumDiscriminants,
+)]
 #[strum_discriminants(name(InstructionKind))]
-#[strum_discriminants(derive(Hash, Deserialize, Serialize))]
+#[strum_discriminants(derive(Hash, PartialOrd, Ord, Deserialize, Serialize))]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Instruction {
     /// An instruction that does nothing and creates no variables.
@@ -322,7 +327,10 @@ pub enum Instruction {
 
     /// Declares a variable sink: a set of variables that have not been emitted
     /// by the rest of the instructions.
-    Sink { vars: HashSet<u32>, rest: Box<Self> },
+    Sink {
+        vars: BTreeSet<u32>,
+        rest: Box<Self>,
+    },
 
     /// Filters tuples depending on the result of a test expression.
     Filter {

@@ -15,7 +15,7 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
@@ -67,7 +67,7 @@ pub struct Desugarer<'db> {
 
     /// Maps each type key in the table to the first index of their lowered,
     /// flattened variables and the number of variables.
-    typed_vars: HashMap<TypeKey<'db>, (u32, usize)>,
+    typed_vars: BTreeMap<TypeKey<'db>, (u32, usize)>,
 
     /// An index set of all loaded relations.
     relations: IndexSet<RelationDefinition<'db>>,
@@ -83,7 +83,7 @@ impl<'db> Desugarer<'db> {
             file,
             table,
             lowered_vars: Vec::new(),
-            typed_vars: HashMap::new(),
+            typed_vars: BTreeMap::new(),
             relations: IndexSet::new(),
             clauses: Vec::new(),
         }
@@ -95,7 +95,7 @@ impl<'db> Desugarer<'db> {
         db: &'db dyn Database,
         pattern: &Pattern,
         query: &mut Vec<QueryTerm>,
-        needed: &mut HashSet<u32>,
+        needed: &mut BTreeSet<u32>,
     ) {
         match pattern {
             Pattern::Tuple(els) => els
@@ -111,7 +111,10 @@ impl<'db> Desugarer<'db> {
     }
 
     /// Creates an IR rule body out of given clauses and this desugarer's relation bindings.
-    pub fn to_rule_body(&self, needed_vars: HashSet<u32>) -> ir::RuleBody<RelationDefinition<'db>> {
+    pub fn to_rule_body(
+        &self,
+        needed_vars: BTreeSet<u32>,
+    ) -> ir::RuleBody<RelationDefinition<'db>> {
         // reduce clauses into a single conjunctive filter expression
         let test = self
             .clauses
