@@ -93,7 +93,7 @@ async fn input_update(
     server
         .lock()
         .await
-        .make_transaction(|tx| tx.update(input.as_str(), &updates))
+        .make_transaction(|tx| tx.update_input(input.as_str(), &updates))
         .into()
 }
 

@@ -109,3 +109,120 @@ fn create_tx() {
     let dataflow = MockDataflow::default();
     let _tx = db.transaction(dataflow).unwrap();
 }
+
+#[test]
+fn test_get_program_no_program_loaded() {
+    let db = Database::temporary().unwrap();
+    let dataflow = MockDataflow::default();
+    let mut tx = db.transaction(dataflow).unwrap();
+    let result = tx.get_program();
+    assert_eq!(result.unwrap_err(), ServerError::NoProgramLoaded);
+}
+
+#[test]
+fn test_set_program_invalid_program() {
+    let db = Database::temporary().unwrap();
+    let dataflow = MockDataflow::default();
+    let mut tx = db.transaction(dataflow).unwrap();
+
+    let mut program = Program::default();
+    program.insert_relation(ir::Relation {
+        store: "Invalid".to_string(),
+        ty: StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::None,
+        facts: vec![vec![ir::Value::Integer(0)]],
+        rules: vec![],
+    });
+
+    let result = tx.set_program(program.clone());
+    let expected_error = ServerError::InvalidProgram(program.validate().err().unwrap());
+    assert_eq!(result.unwrap_err(), expected_error);
+}
+
+#[test]
+fn test_set_and_get_program_success() {
+    let db = Database::temporary().unwrap();
+    let dataflow = MockDataflow::default();
+    let mut tx = db.transaction(dataflow).unwrap();
+
+    let mut program = Program::default();
+    program.insert_relation(ir::Relation {
+        store: "TestInput".to_string(),
+        ty: StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::Input,
+        facts: vec![],
+        rules: vec![],
+    });
+
+    // set the program
+    tx.set_program(program.clone()).unwrap();
+
+    // get the program and verify it matches
+    assert_eq!(program, tx.get_program().unwrap());
+}
+
+#[test]
+fn test_get_input_contains_values() {
+    let db = Database::temporary().unwrap();
+    let dataflow = MockDataflow::default();
+    let mut tx = db.transaction(dataflow).unwrap();
+
+    // Create a program with an input relation
+    let mut program = Program::default();
+    program.insert_relation(ir::Relation {
+        store: "TestInput".to_string(),
+        ty: StructuredType::Primitive(ir::Type::String),
+        kind: ir::RelationKind::Basic,
+        io: ir::RelationIO::Input,
+        facts: vec![],
+        rules: vec![],
+    });
+
+    tx.set_program(program).unwrap();
+
+    // Insert some values into the input
+    let updates = vec![
+        TupleUpdate {
+            state: true,
+            value: Value::String("hello".to_string()),
+        },
+        TupleUpdate {
+            state: true,
+            value: Value::String("world".to_string()),
+        },
+    ];
+    tx.update_input("TestInput", &updates).unwrap();
+
+    // Test checking for values
+    let values_to_check = vec![
+        Value::String("hello".to_string()),
+        Value::String("missing".to_string()),
+        Value::String("world".to_string()),
+    ];
+
+    let results = tx.get_input_values("TestInput", &values_to_check).unwrap();
+
+    assert_eq!(results, vec![true, false, true]);
+}
+
+#[test]
+fn test_no_such_input_error() {
+    let db = Database::temporary().unwrap();
+    let dataflow = MockDataflow::default();
+    let mut tx = db.transaction(dataflow).unwrap();
+
+    // create a program with no input relations
+    let program = Program::default();
+    tx.set_program(program).unwrap();
+
+    // try to access a non-existent input
+    let values = vec![Value::String("test".to_string())];
+    let result = tx.get_input_values("NonExistentInput", &values);
+
+    assert_eq!(
+        result.unwrap_err(),
+        ServerError::NoSuchInput("NonExistentInput".to_string())
+    );
+}

@@ -45,15 +45,15 @@ pub trait Transaction {
     fn set_program(&mut self, program: Program) -> ServerResult<()>;
 
     /// Clears the contents of a specific input.
-    fn clear(&mut self, input: &str) -> ServerResult<()>;
+    fn clear_input(&mut self, input: &str) -> ServerResult<()>;
 
     /// Updates the contents of a specific input. See [TupleUpdate].
-    fn update(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()>;
+    fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()>;
 
     /// Checks if an input contains certain values.
     ///
     /// The resulting list collates with input values.
-    fn get(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>>;
+    fn get_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>>;
 
     /// Drops this transaction and attempts to commit the changes.
     ///
@@ -175,7 +175,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         // wipe old input relations
         // TODO: reuse inputs when possible
         for name in self.program_map.input_relations.clone().into_keys() {
-            self.clear(&name)?;
+            self.clear_input(&name)?;
         }
 
         // create new program map
@@ -240,7 +240,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(())
     }
 
-    fn clear(&mut self, input: &str) -> ServerResult<()> {
+    fn clear_input(&mut self, input: &str) -> ServerResult<()> {
         // construct prefix from key
         let input = self.get_input(input)?;
         let key = Key::Input { input: input.index };
@@ -272,7 +272,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(())
     }
 
-    fn update(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()> {
+    fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()> {
         let input = self.get_input(input)?;
 
         for TupleUpdate { state, value } in updates.to_vec() {
@@ -320,7 +320,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(())
     }
 
-    fn get(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>> {
+    fn get_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>> {
         // TODO: validate value types
         let input_idx = self.get_input(input)?.index;
         let mut results = Vec::with_capacity(values.len());
