@@ -335,7 +335,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(results)
     }
 
-    fn commit(self) -> ServerResult<SequenceId> {
+    fn commit(mut self) -> ServerResult<SequenceId> {
         // perform actual commit
         // first error is IO, second error is SSI conflict
         self.tx
@@ -604,7 +604,13 @@ impl Key {
 /// A trait for ACID dataflow inputs. If dropped, changes must be rolled back.
 pub trait CommitDataflow {
     /// Commits this dataflow update, returning a [SequenceId] to retrieve outputs.
-    fn commit(self, events: Vec<InputEvent>) -> SequenceId;
+    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId;
+}
+
+impl<T: CommitDataflow> CommitDataflow for &mut T {
+    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId {
+        (**self).commit(events)
+    }
 }
 
 /// Helper function to log database errors while returning opaque [ServerError].

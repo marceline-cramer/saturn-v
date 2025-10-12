@@ -27,7 +27,7 @@ pub struct MockDataflow {
 }
 
 impl CommitDataflow for MockDataflow {
-    fn commit(mut self, events: Vec<InputEvent>) -> SequenceId {
+    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId {
         self.sequence += 1;
         self.events.push_front(events);
         SequenceId(self.sequence)

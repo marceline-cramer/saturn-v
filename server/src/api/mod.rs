@@ -160,7 +160,7 @@ pub struct DataflowEntrypoint {
 }
 
 impl CommitDataflow for DataflowEntrypoint {
-    fn commit(self, events: Vec<InputEvent>) -> SequenceId {
+    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId {
         // acquire lock
         let mut inner = self.inner.lock();
 
