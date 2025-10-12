@@ -30,7 +30,8 @@ async fn local_client() -> Result<Client> {
     static PORT: AtomicU32 = AtomicU32::new(3000);
 
     let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let state = start_server(|dataflow| Database::temporary(dataflow).unwrap());
+    let database = Database::temporary().unwrap();
+    let state = start_server(database);
     let router = route(state).into_make_service();
     let host = format!("localhost:{port}");
     let listener = tokio::net::TcpListener::bind(&host).await?;

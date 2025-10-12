@@ -62,37 +62,34 @@ pub trait Transaction {
     /// Returns the sequence ID of the committed transaction.
     fn commit(self) -> ServerResult<SequenceId>;
 
-    /// Gets the current input map.
-    fn get_input_map(&self) -> ServerResult<InputMap>;
+    /// Gets the current program map.
+    fn get_program_map(&self) -> ServerResult<ProgramMap>;
 }
 
 /// Maintains atomic transactions on Saturn V state and inputs.
-///
-/// Also facilitates consistent dataflow state and generates [SequenceId].
-pub struct Database<D> {
+pub struct Database {
     keyspace: TransactionalKeyspace,
     partition: TransactionalPartitionHandle,
-    dataflow: D,
 }
 
-impl<D: CommitDataflow> Database<D> {
+impl Database {
     /// Creates/opens a database at the given path.
     ///
     /// Returns [`anyhow`] errors because initialization should not present database errors to clients.
-    pub fn new(dataflow: D, path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        Self::new_inner(dataflow, Config::new(path))
+    pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Self::new_inner(Config::new(path))
     }
 
     /// Creates a temporary database.
-    pub fn temporary(dataflow: D) -> anyhow::Result<Self> {
+    pub fn temporary() -> anyhow::Result<Self> {
         let path = tempfile::TempDir::with_prefix("saturn-v-db_")
             .context("failed to create temporary directory")?
             .keep();
 
-        Self::new_inner(dataflow, Config::new(path).temporary(true))
+        Self::new_inner(Config::new(path).temporary(true))
     }
 
-    fn new_inner(dataflow: D, config: Config) -> anyhow::Result<Self> {
+    fn new_inner(config: Config) -> anyhow::Result<Self> {
         // open a keyspace using the provided config
         let keyspace = config
             .open_transactional()
@@ -107,27 +104,26 @@ impl<D: CommitDataflow> Database<D> {
         Ok(Self {
             keyspace,
             partition,
-            dataflow,
         })
     }
 
     /// Attempts to begin a transaction using this database.
-    pub fn transaction(&self) -> ServerResult<FjallTransaction<D>> {
+    pub fn transaction<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<FjallTransaction<D>> {
         // begin a serializable transaction
         let tx = self.keyspace.write_tx().map_err(db_error)?;
 
         // create transaction structure without input map
         let mut tx = FjallTransaction {
             tx,
+            dataflow,
             key_buf: Vec::with_capacity(1024),
             partition: self.partition.clone(),
-            inputs: Default::default(),
+            program_map: Default::default(),
             events: Vec::with_capacity(128),
-            dataflow: self.dataflow.clone(),
         };
 
-        // populate input map
-        tx.inputs = tx.get(&Key::InputMap)?.unwrap_or_default();
+        // populate program map
+        tx.program_map = tx.get(&Key::ProgramMap)?.unwrap_or_default();
 
         // done!
         Ok(tx)
@@ -139,8 +135,8 @@ pub struct FjallTransaction<D> {
     key_buf: Vec<u8>,
     partition: TransactionalPartitionHandle,
 
-    /// Cache [InputMap] to avoid ser/de and DB overhead.
-    inputs: InputMap,
+    /// Cache [ProgramMap] to avoid ser/de and DB overhead.
+    program_map: ProgramMap,
 
     /// List of dataflow input events to commit.
     events: Vec<InputEvent>,
@@ -176,24 +172,44 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         self.events
             .extend(loader.get_events().map(InputEvent::Insert));
 
-        // wipe old inputs
+        // wipe old input relations
         // TODO: reuse inputs when possible
-        for name in self.inputs.relations.clone().into_keys() {
+        for name in self.program_map.input_relations.clone().into_keys() {
             self.clear(&name)?;
         }
 
-        // allocate new input relations
-        let mut inputs = InputMap::default();
+        // create new program map
+        let mut new_program = ProgramMap::default();
+
+        // allocate relations
         for (name, rel) in loader.get_relations().iter() {
-            // skip non-inputs
-            if rel.io != RelationIO::Input {
-                continue;
+            // handle relations on a case-by-case
+            match rel.io {
+                // rest of loop is dedicated to input adding
+                RelationIO::Input => {}
+                // skip handling internal relations
+                RelationIO::None => {}
+                // add output relation to map
+                RelationIO::Output => {
+                    // create output info
+                    let info = OutputRelation {
+                        name: name.clone(),
+                        id: name.clone(),
+                        ty: rel.ty.clone(),
+                        key: DataflowKey::new(rel),
+                    };
+
+                    // insert output relation
+                    new_program.output_relations.insert(name.clone(), info);
+
+                    // skip input relation handling
+                    continue;
+                }
             }
 
-            // allocate index
-            let index = self
-                .inputs
-                .relations
+            // allocate input index
+            let index = new_program
+                .input_relations
                 .len()
                 .try_into()
                 .expect("input index overflow");
@@ -208,14 +224,14 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
             };
 
             // insert into our inputs
-            inputs.relations.insert(name.clone(), info);
+            new_program.input_relations.insert(name.clone(), info);
         }
 
-        // insert input map into DB
-        self.insert(&Key::InputMap, &inputs)?;
+        // insert program map into DB
+        self.insert(&Key::ProgramMap, &new_program)?;
 
-        // cache input map
-        self.inputs = inputs;
+        // cache program map
+        self.program_map = new_program;
 
         // set the program itself
         self.insert(&Key::Program, &program)?;
@@ -319,7 +335,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(results)
     }
 
-    fn commit(mut self) -> ServerResult<SequenceId> {
+    fn commit(self) -> ServerResult<SequenceId> {
         // perform actual commit
         // first error is IO, second error is SSI conflict
         self.tx
@@ -334,8 +350,8 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(sequence)
     }
 
-    fn get_input_map(&self) -> ServerResult<InputMap> {
-        Ok(self.inputs.clone())
+    fn get_program_map(&self) -> ServerResult<ProgramMap> {
+        Ok(self.program_map.clone())
     }
 }
 
@@ -423,8 +439,8 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 
     /// Gets an input relation's info by name.
     pub fn get_input(&self, input: &str) -> ServerResult<InputRelation> {
-        self.inputs
-            .relations
+        self.program_map
+            .input_relations
             .get(input)
             .cloned()
             .ok_or(ServerError::NoSuchInput(input.to_string()))
@@ -434,10 +450,14 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 /// A bucket (as in hash set) of values in a single database entry.
 pub type Bucket = Vec<Value>;
 
-/// Mappings between program relations and input indices.
+/// Mappings between program information and database state.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct InputMap {
-    pub relations: BTreeMap<String, InputRelation>,
+pub struct ProgramMap {
+    /// Maps input relation IDs to their information within the database.
+    pub input_relations: BTreeMap<String, InputRelation>,
+
+    /// Maps output relation IDs to their information within the database.
+    pub output_relations: BTreeMap<String, OutputRelation>,
 }
 
 /// Persistent information about an input relation.
@@ -513,11 +533,37 @@ impl InputRelation {
     }
 }
 
+/// Persistent information about an output relation.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct OutputRelation {
+    /// The name of this input.
+    pub name: String,
+
+    /// The API ID of this input.
+    pub id: String,
+
+    /// The type of this input.
+    pub ty: StructuredType,
+
+    /// This relation's key within the dataflow.
+    pub key: DataflowKey<Relation>,
+}
+
+impl OutputRelation {
+    pub fn to_info(&self) -> RelationInfo {
+        RelationInfo {
+            name: self.name.clone(),
+            id: self.id.clone(),
+            ty: self.ty.clone(),
+        }
+    }
+}
+
 /// Helper enum for constructing paths in the database.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Program,
-    InputMap,
+    ProgramMap,
     Input { input: u16 },
     Bucket { input: u16, key: u16 },
 }
@@ -539,7 +585,7 @@ impl Key {
     pub fn as_path(self, buf: &mut Vec<u8>) -> Cow<'_, [u8]> {
         match self {
             Key::Program => b"p".into(),
-            Key::InputMap => b"m".into(),
+            Key::ProgramMap => b"m".into(),
             Key::Input { input } => {
                 buf.clear();
                 buf.push(b'i'); // input contents prefix
@@ -555,9 +601,10 @@ impl Key {
     }
 }
 
-/// A trait for ACID dataflow inputs.
-pub trait CommitDataflow: Clone {
-    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId;
+/// A trait for ACID dataflow inputs. If dropped, changes must be rolled back.
+pub trait CommitDataflow {
+    /// Commits this dataflow update, returning a [SequenceId] to retrieve outputs.
+    fn commit(self, events: Vec<InputEvent>) -> SequenceId;
 }
 
 /// Helper function to log database errors while returning opaque [ServerError].

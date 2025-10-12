@@ -39,7 +39,7 @@ use saturn_v_ir::{self as ir};
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::db::{CommitDataflow, Database, FjallTransaction, InputRelation, Transaction};
+use crate::db::*;
 
 #[cfg(test)]
 pub mod tests;
@@ -75,8 +75,13 @@ async fn inputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> 
     server
         .lock()
         .await
-        .make_transaction(|tx| tx.get_input_map())
-        .map(|map| map.relations.values().map(InputRelation::to_info).collect())
+        .make_transaction(|tx| tx.get_program_map())
+        .map(|map| {
+            map.input_relations
+                .values()
+                .map(InputRelation::to_info)
+                .collect()
+        })
         .into()
 }
 
@@ -96,7 +101,8 @@ async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>>
     Ok(server
         .lock()
         .await
-        .outputs
+        .program_map
+        .output_relations
         .iter()
         .map(|(name, output)| RelationInfo {
             name: name.clone(),
@@ -149,12 +155,14 @@ async fn subscribe_to_output(
 
 /// Shared lock around [DataflowEntrypointInner].
 #[derive(Clone)]
-pub struct DataflowEntrypoint(Arc<SyncMutex<DataflowEntrypointInner>>);
+pub struct DataflowEntrypoint {
+    inner: Arc<SyncMutex<DataflowEntrypointInner>>,
+}
 
 impl CommitDataflow for DataflowEntrypoint {
-    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId {
+    fn commit(self, events: Vec<InputEvent>) -> SequenceId {
         // acquire lock
-        let mut inner = self.0.lock();
+        let mut inner = self.inner.lock();
 
         // allocate sequence
         let sequence = inner.sequence;
@@ -179,10 +187,12 @@ impl CommitDataflow for DataflowEntrypoint {
 
 impl DataflowEntrypoint {
     pub fn new(inputs: DataflowInputs) -> Self {
-        Self(Arc::new(SyncMutex::new(DataflowEntrypointInner {
-            inputs,
-            sequence: 0,
-        })))
+        Self {
+            inner: Arc::new(SyncMutex::new(DataflowEntrypointInner {
+                inputs,
+                sequence: 0,
+            })),
+        }
     }
 }
 
@@ -194,9 +204,7 @@ pub struct DataflowEntrypointInner {
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
 
-pub fn start_server(
-    make_database: impl FnOnce(DataflowEntrypoint) -> Database<DataflowEntrypoint>,
-) -> State {
+pub fn start_server(database: Database) -> State {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
 
@@ -214,10 +222,10 @@ pub fn start_server(
 
     let (inputs, solver, output_rx) = routers.split();
 
-    let dataflow = DataflowEntrypoint::new(inputs);
-    let database = make_database(dataflow);
     let server = Arc::new(Mutex::new(Server {
         database,
+        dataflow: DataflowEntrypoint::new(inputs),
+        program_map: Default::default(),
         outputs: HashMap::new(),
     }));
 
@@ -231,19 +239,49 @@ pub type ExtractState = axum::extract::State<State>;
 pub type State = Arc<Mutex<Server>>;
 
 pub struct Server {
-    database: Database<DataflowEntrypoint>,
+    database: Database,
+    dataflow: DataflowEntrypoint,
+    program_map: ProgramMap,
     outputs: HashMap<String, Output>,
 }
 
 impl Server {
     pub fn make_transaction<T>(
-        &self,
+        &mut self,
         inner: impl FnOnce(&mut FjallTransaction<DataflowEntrypoint>) -> ServerResult<T>,
     ) -> ServerResult<T> {
-        let mut tx = self.database.transaction()?;
+        let dataflow = self.dataflow.clone();
+        let mut tx = self.database.transaction(dataflow)?;
         let result = inner(&mut tx)?;
+        let program_map = tx.get_program_map()?;
         tx.commit()?;
+        self.program_map = program_map;
+        self.update_outputs();
         Ok(result)
+    }
+
+    pub fn update_outputs(&mut self) {
+        // clear current outputs
+        // TODO: reuse outputs that share IDs
+        self.outputs.clear();
+
+        // populate outputs
+        for (name, output) in self.program_map.output_relations.iter() {
+            // create output subscription channel
+            let (watcher, watcher_rx) = broadcast::channel(1024);
+
+            // create new output
+            let output = Output {
+                state: Default::default(),
+                ty: output.ty.clone(),
+                rel: output.key,
+                watcher,
+                watcher_rx,
+            };
+
+            // add output to server
+            self.outputs.insert(name.clone(), output);
+        }
     }
 
     pub async fn handle_dataflow(
