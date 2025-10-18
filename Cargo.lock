@@ -2237,6 +2237,7 @@ dependencies = [
 name = "saturn-v"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "ariadne",
  "clap",
  "salsa",

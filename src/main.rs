@@ -16,6 +16,7 @@
 
 use std::{collections::HashMap, error::Error, net::SocketAddr, path::PathBuf};
 
+use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use salsa::Setter;
 use saturn_v_client::Client;
@@ -63,6 +64,10 @@ pub enum Command {
         /// A TCP address to bind to
         #[clap(short, long)]
         host: Vec<SocketAddr>,
+
+        /// The path to the database to use
+        #[clap(long)]
+        db: PathBuf,
     },
 
     /// Commands that interact with a Saturn V server.
@@ -100,7 +105,7 @@ where
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
@@ -122,50 +127,54 @@ async fn main() {
             let stdout = tokio::io::stdout();
             let (service, socket) = LspService::new(LspBackend::new);
             Server::new(stdin, stdout, socket).serve(service).await;
+            Ok(())
         }
         Command::Check { path } => {
-            let Some(program) = build_file(&path) else {
-                return;
-            };
-
+            let program = build_file(&path).context("failed to build program")?;
             eprintln!("{program:#?}");
-
-            if let Err(err) = program.validate() {
-                eprintln!("{err}");
-            }
+            program.validate().context("program failed validation")?;
+            Ok(())
         }
         Command::Run { path, .. } => {
-            let Some(program) = build_file(&path) else {
-                return;
-            };
-
+            let program = build_file(&path).context("failed to build program")?;
             let loader = saturn_v_eval::load::Loader::load_program(&program);
             saturn_v_eval::run(loader).await;
+            Ok(())
         }
-        Command::Server { host } => {
-            use saturn_v_server::*;
-            let state = start_server();
+        Command::Server { host, db } => {
+            use saturn_v_server::{api::*, db::Database};
+
+            let db = Database::new(&db).context("failed to open database")?;
+
+            let state = start_server(db);
             let router = route(state);
-            let listener = TcpListener::bind(host.as_slice()).await.unwrap();
-            axum::serve(listener, router).await.unwrap();
+
+            let listener = TcpListener::bind(host.as_slice())
+                .await
+                .context("failed to bind to TCP socket")?;
+
+            axum::serve(listener, router)
+                .await
+                .context("failed to start server")
         }
         Command::Client { server, cmd } => {
             let client = Client::new(server);
 
             match cmd {
                 ClientCommands::Push { path } => {
-                    let Some(program) = build_file(&path) else {
-                        return;
-                    };
+                    let program = build_file(&path).context("failed to build program")?;
 
-                    client.set_program(&program).await.unwrap();
+                    client
+                        .set_program(&program)
+                        .await
+                        .context("failed to set program")
                 }
             }
         }
     }
 }
 
-pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
+pub fn build_file(path: &PathBuf) -> anyhow::Result<saturn_v_ir::Program<String>> {
     let mut db = saturn_v_frontend::toplevel::Db::new();
     let src = std::fs::read_to_string(path).unwrap();
     let absolute_path = path.canonicalize().unwrap();
@@ -198,8 +207,7 @@ pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
     eprintln!("finished with {fatal_errors} errors");
 
     if fatal_errors > 0 {
-        eprintln!("check failed");
-        return None;
+        bail!("check failed");
     }
 
     // TODO: relation names should be mangled in programs with more than one file
@@ -207,10 +215,9 @@ pub fn build_file(path: &PathBuf) -> Option<saturn_v_ir::Program<String>> {
         .map_relations(|def| def.name(&db).inner.to_string());
 
     if let Err(err) = program.validate() {
-        eprintln!("failed to lower program: {err}");
-        return None;
+        bail!("failed to lower program: {err}");
     }
 
     // return built program
-    Some(program)
+    Ok(program)
 }

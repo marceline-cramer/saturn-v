@@ -41,6 +41,8 @@ use tokio_stream::wrappers::BroadcastStream;
 
 use crate::db::*;
 
+pub use axum;
+
 #[cfg(test)]
 pub mod tests;
 

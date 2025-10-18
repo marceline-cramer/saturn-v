@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use super::*;
 
@@ -634,6 +634,8 @@ pub struct Error<R> {
     pub context: Vec<ErrorContext<R>>,
     pub kind: Box<ErrorKind<R>>,
 }
+
+impl<R: Debug + Display> std::error::Error for Error<R> {}
 
 impl<R> From<ErrorKind<R>> for Error<R> {
     fn from(kind: ErrorKind<R>) -> Self {

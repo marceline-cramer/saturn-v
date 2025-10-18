@@ -60,6 +60,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow.workspace = true
 ariadne.workspace = true
 clap = { version = "4", features = ["derive"] }
 salsa.workspace = true
