@@ -50,10 +50,13 @@ pub trait Transaction {
     /// Updates the contents of a specific input. See [TupleUpdate].
     fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()>;
 
+    /// Retrieves the set of values in an input relation.
+    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<Value>>;
+
     /// Checks if an input contains certain values.
     ///
     /// The resulting list collates with input values.
-    fn get_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>>;
+    fn check_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>>;
 
     /// Drops this transaction and attempts to commit the changes.
     ///
@@ -105,6 +108,22 @@ impl Database {
             keyspace,
             partition,
         })
+    }
+
+    /// Loads the current state of the database into the dataflow.
+    ///
+    /// Intended to be ran once to initialize the dataflow on startup.
+    ///
+    /// Returns the [SequenceId] corresponding to this initial update.
+    pub fn load_dataflow<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<SequenceId> {
+        // create transaction to retrieve database data
+        let mut tx = self.transaction(dataflow)?;
+
+        // defer loading logic to transaction
+        tx.load_dataflow()?;
+
+        // return commit result
+        tx.commit()
     }
 
     /// Attempts to begin a transaction using this database.
@@ -322,7 +341,33 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(())
     }
 
-    fn get_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>> {
+    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<Value>> {
+        // construct prefix from key
+        let input = self.get_input(input)?;
+        let key = Key::Input { input: input.index };
+        let prefix = key.as_path(&mut self.key_buf);
+
+        // fetch all items (cannot reborrow for remove)
+        let items: Vec<_> = self.tx.prefix(&self.partition, prefix).collect();
+
+        // gather values from all buckets
+        let mut values = Vec::new();
+        for item in items {
+            // handle database error and extract key-value
+            let (_key, val) = item.map_err(db_error)?;
+
+            // deserialize bucket
+            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
+
+            // add bucket contents
+            values.extend(bucket);
+        }
+
+        // success!
+        Ok(values)
+    }
+
+    fn check_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>> {
         // TODO: validate value types
         let input_idx = self.get_input(input)?.index;
         let mut results = Vec::with_capacity(values.len());
@@ -446,6 +491,28 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             .get(input)
             .cloned()
             .ok_or(ServerError::NoSuchInput(input.to_string()))
+    }
+
+    /// Loads the current state of the database into the dataflow.
+    pub(crate) fn load_dataflow(&mut self) -> ServerResult<()> {
+        // load dataflow state from the loader
+        if let Some(loader) = self.get::<Loader<String>>(&Key::Loader)? {
+            let events = loader.get_events().map(InputEvent::Insert);
+            self.events.extend(events);
+        }
+
+        // load each input relation
+        for (name, input) in self.program_map.input_relations.clone() {
+            // load each value in the input relation
+            for val in self.get_input_values(&name)? {
+                let fact = input.make_fact(val)?;
+                let ev = InputEvent::Remove(InputEventKind::Fact(fact));
+                self.events.push(ev);
+            }
+        }
+
+        // done
+        Ok(())
     }
 }
 

@@ -20,6 +20,7 @@ use std::{
     sync::Arc,
 };
 
+use anyhow::Context;
 use axum::{
     Json, Router,
     extract::Path,
@@ -206,7 +207,7 @@ pub struct DataflowEntrypointInner {
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
 
-pub fn start_server(database: Database) -> State {
+pub fn start_server(database: Database) -> anyhow::Result<State> {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
 
@@ -224,16 +225,22 @@ pub fn start_server(database: Database) -> State {
 
     let (inputs, solver, output_rx) = routers.split();
 
+    let dataflow = DataflowEntrypoint::new(inputs);
+
+    database
+        .load_dataflow(dataflow.clone())
+        .context("failed to load database into dataflow")?;
+
     let server = Arc::new(Mutex::new(Server {
         database,
-        dataflow: DataflowEntrypoint::new(inputs),
+        dataflow,
         program_map: Default::default(),
         outputs: HashMap::new(),
     }));
 
     tokio::spawn(Server::handle_dataflow(server.clone(), solver, output_rx));
 
-    server
+    Ok(server)
 }
 
 pub type ExtractState = axum::extract::State<State>;

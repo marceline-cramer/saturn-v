@@ -146,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
 
             let db = Database::new(&db).context("failed to open database")?;
 
-            let state = start_server(db);
+            let state = start_server(db).context("failed to start server")?;
             let router = route(state);
 
             let listener = TcpListener::bind(host.as_slice())
@@ -155,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
 
             axum::serve(listener, router)
                 .await
-                .context("failed to start server")
+                .context("failed to run server")
         }
         Command::Client { server, cmd } => {
             let client = Client::new(server);

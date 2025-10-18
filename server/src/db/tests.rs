@@ -202,7 +202,9 @@ fn test_get_input_contains_values() {
         Value::String("world".to_string()),
     ];
 
-    let results = tx.get_input_values("TestInput", &values_to_check).unwrap();
+    let results = tx
+        .check_input_values("TestInput", &values_to_check)
+        .unwrap();
 
     assert_eq!(results, vec![true, false, true]);
 }
@@ -219,7 +221,7 @@ fn test_no_such_input_error() {
 
     // try to access a non-existent input
     let values = vec![Value::String("test".to_string())];
-    let result = tx.get_input_values("NonExistentInput", &values);
+    let result = tx.check_input_values("NonExistentInput", &values);
 
     assert_eq!(
         result.unwrap_err(),
