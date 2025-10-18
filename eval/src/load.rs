@@ -21,6 +21,7 @@ use std::{
 
 use indexmap::IndexSet;
 use saturn_v_ir::{self as ir, Expr, Instruction, Program, QueryTerm, Rule};
+use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
@@ -31,14 +32,14 @@ use crate::{
 
 pub type VariableMap = IndexSet<u32>;
 
-#[derive(Clone, Debug)]
-pub struct Loader<R> {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Loader<R: Ord> {
     pub(crate) relations: BTreeMap<R, Relation>,
     pub(crate) facts: BTreeSet<Fact>,
     pub(crate) nodes: BTreeSet<Node>,
 }
 
-impl<R> Default for Loader<R> {
+impl<R: Ord> Default for Loader<R> {
     fn default() -> Self {
         Self {
             relations: Default::default(),

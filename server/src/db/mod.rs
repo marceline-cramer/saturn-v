@@ -157,8 +157,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
 
         // retrieve old program as a loader (empty if none is set)
         let old_loader = self
-            .get::<Program>(&Key::Program)?
-            .map(|program| Loader::load_program(&program))
+            .get::<Loader<String>>(&Key::Loader)?
             .unwrap_or_default();
 
         // remove old program from dataflow
@@ -229,6 +228,9 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
 
         // insert program map into DB
         self.insert(&Key::ProgramMap, &new_program)?;
+
+        // add loader to DB
+        self.insert(&Key::Loader, &loader)?;
 
         // cache program map
         self.program_map = new_program;
@@ -563,6 +565,7 @@ impl OutputRelation {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Key {
     Program,
+    Loader,
     ProgramMap,
     Input { input: u16 },
     Bucket { input: u16, key: u16 },
@@ -586,6 +589,7 @@ impl Key {
         match self {
             Key::Program => b"p".into(),
             Key::ProgramMap => b"m".into(),
+            Key::Loader => b"l".into(),
             Key::Input { input } => {
                 buf.clear();
                 buf.push(b'i'); // input contents prefix
