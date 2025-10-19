@@ -33,7 +33,7 @@ async fn test_pick_one() {
         rules: vec![],
     });
 
-    program.constraints.push(Constraint {
+    program.constraints.insert(Constraint {
         head: vec![],
         weight: ConstraintWeight::Hard,
         kind: ConstraintKind::Cardinality {
@@ -127,7 +127,7 @@ async fn test_pick_pairs() {
         }],
     });
 
-    program.constraints.push(Constraint {
+    program.constraints.insert(Constraint {
         head: vec![0],
         weight: ConstraintWeight::Hard,
         kind: saturn_v_ir::ConstraintKind::Cardinality {

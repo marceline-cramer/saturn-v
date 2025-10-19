@@ -14,15 +14,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use super::*;
 
-impl<R: Clone + Eq + Hash> Program<R> {
+impl<R: Clone + Ord> Program<R> {
     /// Validates this program.
     pub fn validate(&self) -> Result<(), R> {
         // build a table of all relation types
-        let mut relation_tys = HashMap::new();
+        let mut relation_tys = BTreeMap::new();
         for (new, r) in self.relations.values().enumerate() {
             if let Some((old, _ty)) = relation_tys.insert(r.store.clone(), (new, r.ty.clone())) {
                 return Err(ErrorKind::DuplicateRelationUserdata {
@@ -35,7 +35,7 @@ impl<R: Clone + Eq + Hash> Program<R> {
         }
 
         // strip out indices from relations now that we've validated duplicates
-        let relation_tys: HashMap<_, _> = relation_tys
+        let relation_tys: BTreeMap<_, _> = relation_tys
             .into_iter()
             .map(|(r, (_idx, ty))| (r, ty))
             .collect();
@@ -53,7 +53,7 @@ impl<R: Clone + Eq + Hash> Program<R> {
         }
 
         // create a map of each relation to a decision relation dependency, if any
-        let decision_dependencies: HashMap<&R, Option<&R>> = self
+        let decision_dependencies: BTreeMap<&R, Option<&R>> = self
             .indirect_dependencies()
             .into_iter()
             .map(|(dependent, dependencies)| {
@@ -93,9 +93,9 @@ impl<R: Clone + Eq + Hash> Program<R> {
     }
 
     /// Create a map of each relation's indirect dependencies.
-    pub fn indirect_dependencies(&self) -> HashMap<&R, HashSet<&R>> {
+    pub fn indirect_dependencies(&self) -> BTreeMap<&R, BTreeSet<&R>> {
         // initialize an empty indirect dep map
-        let mut indirect: HashMap<_, HashSet<_>> = HashMap::new();
+        let mut indirect: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
         // create the initial stack of new deps out of direct deps
         let mut stack: Vec<_> = self
@@ -127,14 +127,14 @@ impl<R: Clone + Eq + Hash> Program<R> {
     }
 }
 
-impl<R: Clone + Hash + Eq> Constraint<R> {
+impl<R: Clone + Ord> Constraint<R> {
     /// Validates this constraint.
-    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<(), R> {
+    pub fn validate(&self, relations: &BTreeMap<R, StructuredType>) -> Result<(), R> {
         // first, validate the rule body
         let assigned = self.body.validate(relations)?;
 
         // next, find which variables are needed and track the head type
-        let mut needed = HashSet::new();
+        let mut needed = BTreeSet::new();
         for idx in self.head.iter().copied() {
             // check that the variable exists
             self.body
@@ -147,7 +147,7 @@ impl<R: Clone + Hash + Eq> Constraint<R> {
         }
 
         // if there are any unassigned but needed variables, return an error
-        let unassigned: HashSet<_> = needed.difference(&assigned).copied().collect();
+        let unassigned: BTreeSet<_> = needed.difference(&assigned).copied().collect();
         if !unassigned.is_empty() {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
         }
@@ -157,9 +157,9 @@ impl<R: Clone + Hash + Eq> Constraint<R> {
     }
 }
 
-impl<R: Clone + Eq + Hash> Relation<R> {
+impl<R: Clone + Ord> Relation<R> {
     /// Validates this relation.
-    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<(), R> {
+    pub fn validate(&self, relations: &BTreeMap<R, StructuredType>) -> Result<(), R> {
         // fetch what type we expect each element of this relation to be
         let expected_ty = self.ty.flatten();
 
@@ -198,7 +198,7 @@ impl<R: Clone + Eq + Hash> Relation<R> {
     }
 
     /// Get the set of direct dependencies this relation possesses.
-    pub fn direct_dependencies(&self) -> HashSet<&R> {
+    pub fn direct_dependencies(&self) -> BTreeSet<&R> {
         self.rules
             .iter()
             .flat_map(|rule| rule.body.loaded.iter())
@@ -206,15 +206,15 @@ impl<R: Clone + Eq + Hash> Relation<R> {
     }
 }
 
-impl<R: Clone + Eq + Hash> Rule<R> {
+impl<R: Clone + Ord> Rule<R> {
     /// Validates this rule and returns the type of the head.
-    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<Vec<Type>, R> {
+    pub fn validate(&self, relations: &BTreeMap<R, StructuredType>) -> Result<Vec<Type>, R> {
         // first, validate the rule body
         let assigned = self.body.validate(relations)?;
 
         // next, find which variables are needed and track the head type
         let mut ty = Vec::new();
-        let mut needed = HashSet::new();
+        let mut needed = BTreeSet::new();
         for (idx, term) in self.head.iter().enumerate() {
             match term {
                 // simply push value types to the running rule type
@@ -240,7 +240,7 @@ impl<R: Clone + Eq + Hash> Rule<R> {
         }
 
         // if there are any unassigned but needed variables, return an error
-        let unassigned: HashSet<_> = needed.difference(&assigned).copied().collect();
+        let unassigned: BTreeSet<_> = needed.difference(&assigned).copied().collect();
         if !unassigned.is_empty() {
             return Err(ErrorKind::UnassignedVariables(unassigned).into());
         }
@@ -250,17 +250,17 @@ impl<R: Clone + Eq + Hash> Rule<R> {
     }
 }
 
-impl<R: Clone + Eq + Hash> RuleBody<R> {
+impl<R: Clone + Ord> RuleBody<R> {
     /// Validates this rule body, returning the set of assigned variables.
-    pub fn validate(&self, relations: &HashMap<R, StructuredType>) -> Result<HashSet<u32>, R> {
+    pub fn validate(&self, relations: &BTreeMap<R, StructuredType>) -> Result<BTreeSet<u32>, R> {
         // first, confirm that all necessary variables are assigned
         let relations = validate_load_relations(relations, &self.loaded)?;
         let assigned = self.instructions.validate(&relations, &self.vars)?;
 
         // if there are any unused relations, return an error
         let used = self.instructions.relation_deps();
-        let declared: HashSet<u32> = (0..(self.loaded.len() as u32)).collect();
-        let unused: HashSet<_> = used.difference(&declared).copied().collect();
+        let declared: BTreeSet<u32> = (0..(self.loaded.len() as u32)).collect();
+        let unused: BTreeSet<_> = used.difference(&declared).copied().collect();
         if !unused.is_empty() {
             return Err(ErrorKind::UnusedRelations(unused).into());
         }
@@ -276,7 +276,7 @@ impl Instruction {
         &self,
         relations: &[Vec<Type>],
         variables: &[Type],
-    ) -> Result<HashSet<u32>, R> {
+    ) -> Result<BTreeSet<u32>, R> {
         let vars = self
             .validate_inner(relations, variables)
             .with_context(ErrorContext::Instruction(self.into()))?;
@@ -289,7 +289,7 @@ impl Instruction {
         &self,
         relations: &[Vec<Type>],
         variables: &[Type],
-    ) -> Result<HashSet<u32>, R> {
+    ) -> Result<BTreeSet<u32>, R> {
         use Instruction::*;
         match self {
             Noop => Err(ErrorKind::Noop.into()),
@@ -304,7 +304,7 @@ impl Instruction {
 
                 // check for unassigned variables used by the test
                 let used = test.variable_deps();
-                let unassigned: HashSet<_> = used.difference(&vars).copied().collect();
+                let unassigned: BTreeSet<_> = used.difference(&vars).copied().collect();
                 if !unassigned.is_empty() {
                     return Err(ErrorKind::UnassignedVariables(unassigned).into());
                 }
@@ -342,7 +342,7 @@ impl Instruction {
 
                 // check for unassigned variables used by the expression
                 let used = expr.variable_deps();
-                let unassigned: HashSet<_> = used.difference(&vars).copied().collect();
+                let unassigned: BTreeSet<_> = used.difference(&vars).copied().collect();
                 if !unassigned.is_empty() {
                     return Err(ErrorKind::UnassignedVariables(unassigned).into());
                 }
@@ -376,8 +376,8 @@ impl Instruction {
                     Ok(lhs)
                 } else {
                     // otherwise report an error
-                    let lhs_only: HashSet<_> = lhs.difference(&rhs).copied().collect();
-                    let rhs_only: HashSet<_> = rhs.difference(&lhs).copied().collect();
+                    let lhs_only: BTreeSet<_> = lhs.difference(&rhs).copied().collect();
+                    let rhs_only: BTreeSet<_> = rhs.difference(&lhs).copied().collect();
                     Err(ErrorKind::MergeVariableMismatch { lhs_only, rhs_only }.into())
                 }
             }
@@ -398,12 +398,12 @@ impl Instruction {
     }
 
     /// Retrieves the set of relations used by this instruction.
-    pub fn relation_deps(&self) -> HashSet<u32> {
+    pub fn relation_deps(&self) -> BTreeSet<u32> {
         use Instruction::*;
         match self {
-            Noop => HashSet::new(),
+            Noop => BTreeSet::new(),
             Sink { rest, .. } => rest.relation_deps(),
-            FromQuery { relation, .. } => HashSet::from_iter([*relation]),
+            FromQuery { relation, .. } => BTreeSet::from_iter([*relation]),
             Filter { test, rest } => {
                 let mut relations = rest.relation_deps();
                 relations.extend(test.relation_deps());
@@ -476,11 +476,11 @@ impl Expr {
     }
 
     /// Retrieves the set of variables accessed by this expression.
-    pub fn variable_deps(&self) -> HashSet<u32> {
+    pub fn variable_deps(&self) -> BTreeSet<u32> {
         use Expr::*;
         match self {
-            Variable(idx) => HashSet::from_iter([*idx]),
-            Value(_) => HashSet::new(),
+            Variable(idx) => BTreeSet::from_iter([*idx]),
+            Value(_) => BTreeSet::new(),
             Load { query, .. } => query
                 .iter()
                 .flat_map(|term| match term {
@@ -498,24 +498,24 @@ impl Expr {
     }
 
     /// Retrieves the set of relations accessed by this expression.
-    pub fn relation_deps(&self) -> HashSet<u32> {
+    pub fn relation_deps(&self) -> BTreeSet<u32> {
         use Expr::*;
         match self {
-            Load { relation, .. } => HashSet::from_iter([*relation]),
+            Load { relation, .. } => BTreeSet::from_iter([*relation]),
             UnaryOp { term, .. } => term.relation_deps(),
             BinaryOp { lhs, rhs, .. } => {
                 let mut vars = lhs.relation_deps();
                 vars.extend(rhs.relation_deps());
                 vars
             }
-            _ => HashSet::new(),
+            _ => BTreeSet::new(),
         }
     }
 }
 
 /// Retrieves the types of loaded relations by userdata.
-pub fn validate_load_relations<R: Clone + Eq + Hash>(
-    types: &HashMap<R, StructuredType>,
+pub fn validate_load_relations<R: Clone + Ord>(
+    types: &BTreeMap<R, StructuredType>,
     relations: &[R],
 ) -> Result<Vec<Vec<Type>>, R> {
     let mut out = Vec::new();
@@ -550,7 +550,7 @@ pub fn validate_query<R>(
     variables: &[Type],
     relation: u32,
     terms: &[QueryTerm],
-) -> Result<HashSet<u32>, R> {
+) -> Result<BTreeSet<u32>, R> {
     // retrieve the type of the relation
     let relation_ty = relations
         .get(relation as usize)
@@ -569,7 +569,7 @@ pub fn validate_query<R>(
     }
 
     // collect list of assigned variables
-    let mut vars = HashSet::new();
+    let mut vars = BTreeSet::new();
     for ((idx, term), expected) in terms.iter().enumerate().zip(relation_ty) {
         // get the type of the term
         let got = match term {
@@ -634,6 +634,8 @@ pub struct Error<R> {
     pub context: Vec<ErrorContext<R>>,
     pub kind: Box<ErrorKind<R>>,
 }
+
+impl<R: Debug + Display> std::error::Error for Error<R> {}
 
 impl<R> From<ErrorKind<R>> for Error<R> {
     fn from(kind: ErrorKind<R>) -> Self {
@@ -733,15 +735,15 @@ pub enum ErrorKind<R> {
     VariableAssignedTwice(u32),
 
     #[error("unassigned variables: {0:?}")]
-    UnassignedVariables(HashSet<u32>),
+    UnassignedVariables(BTreeSet<u32>),
 
     #[error("unused relations: {0:?}")]
-    UnusedRelations(HashSet<u32>),
+    UnusedRelations(BTreeSet<u32>),
 
     #[error("merge branches have mismatching variables. lhs: {lhs_only:?} rhs: {rhs_only:?}")]
     MergeVariableMismatch {
-        lhs_only: HashSet<u32>,
-        rhs_only: HashSet<u32>,
+        lhs_only: BTreeSet<u32>,
+        rhs_only: BTreeSet<u32>,
     },
 
     #[error("variable #{0} is used twice in the same query")]

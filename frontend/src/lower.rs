@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 use salsa::Database;
 use saturn_v_ir::{self as ir, ConstraintWeight};
@@ -54,7 +54,7 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
         .collect();
 
     // begin lowering all relations touched by the program
-    let mut relations: HashMap<_, ir::Relation<_>> = file_relations
+    let mut relations: BTreeMap<_, ir::Relation<_>> = file_relations
         .clone()
         .into_iter()
         .flat_map(|rel| relation_indirect_deps(db, rel))
@@ -80,7 +80,7 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
     }
 
     // add the lowered constraints
-    let mut constraints = Vec::new();
+    let mut constraints = BTreeSet::new();
     for constraint in file_constraints(db, file) {
         // type the constraint
         let typed = typed_constraint(db, constraint);
@@ -88,8 +88,8 @@ pub fn lower_file<'db>(db: &'db dyn Database, file: File) -> ir::Program<Relatio
         // lower it
         let lowered = lower_constraint(db, typed);
 
-        // add it to the list of constraints
-        constraints.push(lowered);
+        // add it to the set of constraints
+        constraints.insert(lowered);
     }
 
     // return the completed program
@@ -209,7 +209,7 @@ pub fn lower_rule<'db>(db: &'db dyn Database, rule: TypedRule<'db>) -> BodiesOrF
 
             // create a desugared head out of the rule's head pattern
             let mut head = Vec::new();
-            let mut needed_variables = HashSet::new();
+            let mut needed_variables = BTreeSet::new();
             desugarer.desugar_pattern(
                 db,
                 rule.inner(db).head(db),

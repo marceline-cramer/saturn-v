@@ -15,31 +15,41 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Display,
-    hash::Hash,
 };
 
 use indexmap::IndexSet;
 use saturn_v_ir::{self as ir, Expr, Instruction, Program, QueryTerm, Rule};
+use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::{
     types::{Fact, Node, NodeInput, NodeOutput, NodeSource, Relation},
     utils::Key,
-    DataflowInputs,
+    DataflowInputs, InputEventKind,
 };
 
 pub type VariableMap = IndexSet<u32>;
 
-#[derive(Clone, Debug)]
-pub struct Loader<R> {
-    pub(crate) relations: HashMap<R, Relation>,
-    pub(crate) facts: HashSet<Fact>,
-    pub(crate) nodes: HashSet<Node>,
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Loader<R: Ord> {
+    pub(crate) relations: BTreeMap<R, Relation>,
+    pub(crate) facts: BTreeSet<Fact>,
+    pub(crate) nodes: BTreeSet<Node>,
 }
 
-impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
+impl<R: Ord> Default for Loader<R> {
+    fn default() -> Self {
+        Self {
+            relations: Default::default(),
+            facts: Default::default(),
+            nodes: Default::default(),
+        }
+    }
+}
+
+impl<R: Clone + Display + Ord + 'static> Loader<R> {
     /// Loads a program.
     pub fn load_program(program: &Program<R>) -> Self {
         // assert that the program is valid
@@ -64,6 +74,16 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
         loader
     }
 
+    /// Extracts the [InputEventKind] values for this loader's contents.
+    pub fn get_events(&self) -> impl Iterator<Item = InputEventKind> + '_ {
+        // iterate over all contents and chain into full input event iterator
+        use InputEventKind::*;
+        let relations = self.relations.values().cloned().map(Relation);
+        let facts = self.facts.iter().cloned().map(Fact);
+        let nodes = self.nodes.iter().cloned().map(Node);
+        relations.chain(facts).chain(nodes)
+    }
+
     /// Inserts the contents of this loader into dataflow inputs.
     pub fn add_to_dataflow(self, inputs: &mut DataflowInputs) {
         // display statistics
@@ -74,23 +94,18 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
             "loading dataflow",
         );
 
-        for relation in self.relations.into_values() {
-            inputs.relations.insert(relation);
+        // send all inputs to input sink
+        // TODO: this method does not support coordinating timesteps
+        for event in self.get_events() {
+            inputs.events.insert(event);
         }
 
-        for fact in self.facts {
-            inputs.facts.insert(fact);
-        }
-
-        for node in self.nodes {
-            inputs.nodes.insert(node);
-        }
-
-        inputs.nodes.flush();
+        // advance input timestep
+        inputs.events.flush();
     }
 
     /// Gets an immutable reference to this loader's relations.
-    pub fn get_relations(&self) -> &HashMap<R, Relation> {
+    pub fn get_relations(&self) -> &BTreeMap<R, Relation> {
         &self.relations
     }
 
@@ -122,8 +137,8 @@ impl<R: Clone + Display + Hash + Eq + 'static> Loader<R> {
 
         Self {
             relations,
-            facts: HashSet::new(),
-            nodes: HashSet::new(),
+            facts: BTreeSet::new(),
+            nodes: BTreeSet::new(),
         }
     }
 
