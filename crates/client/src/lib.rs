@@ -21,17 +21,13 @@
 use std::{fmt::Debug, ops::Deref};
 
 use futures_util::{Stream, StreamExt};
-use ordered_float::OrderedFloat;
 use reqwest::{Method, RequestBuilder, Url};
 use reqwest_eventsource::{Event, RequestBuilderExt};
-use saturn_v_ir::{self as ir};
+use saturn_v_protocol::*;
 use serde::{Deserialize, Serialize};
 
 pub use ir::StructuredType;
 use thiserror::Error;
-
-/// Type alias for IR programs that can be loaded on the server.
-pub type Program = saturn_v_ir::Program<String>;
 
 /// A client to a Saturn V server.
 #[derive(Clone, Debug)]
@@ -229,7 +225,7 @@ impl Output {
 
         Ok(self
             .client
-            .get_json::<Vec<Value>>(&format!("/output/{}", self.id))
+            .get_json::<Vec<StructuredValue>>(&format!("/output/{}", self.id))
             .await?
             .into_iter()
             .map(|val| T::from_value(val))
@@ -264,181 +260,6 @@ impl Output {
     }
 }
 
-/// The metadata for a relation (input or output).
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct RelationInfo {
-    /// A user-readable name for the relation.
-    pub name: String,
-
-    /// A identifier for this relation unique to the currently loaded program.
-    pub id: String,
-
-    /// The type of this relation.
-    pub ty: StructuredType,
-}
-
-impl RelationInfo {
-    /// Helper method to test if a type matches this relation.
-    pub fn check_ty<T: Typed>(&self) -> Result<()> {
-        if self.matches_ty::<T>() {
-            Ok(())
-        } else {
-            Err(Error::Server(ServerError::TypeMismatch {
-                expected: self.ty.clone(),
-                got: T::ty(),
-            }))
-        }
-    }
-
-    /// Checks if a typed Saturn V value matches this relation's type.
-    pub fn matches_ty<T: Typed>(&self) -> bool {
-        T::ty() == self.ty
-    }
-}
-
-/// A monotonically increasing identifier for input transaction results.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct SequenceId(pub u64);
-
-/// A trait for Rust types that have corresponding Saturn V types.
-pub trait Typed {
-    /// Retrieves the Saturn V type for this type.
-    fn ty() -> StructuredType;
-}
-
-/// Converts a Rust type into a Saturn V type.
-pub trait AsValue: Typed {
-    /// Converts this Rust value to a [Value].
-    fn as_value(&self) -> Value;
-}
-
-/// Converts a Saturn V type into a Rust type.
-pub trait FromValue: Typed {
-    /// Converts to this Rust value from a [Value].
-    fn from_value(val: Value) -> Self;
-}
-
-/// An individual tuple update within a relation.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct TupleUpdate {
-    /// The new state of the tuple. `true` for present, `false` for absent.
-    pub state: bool,
-
-    /// The tuple being updated.
-    pub value: Value,
-}
-
-/// A Saturn V-compatible value type.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum Value {
-    /// A nested list of other values.
-    Tuple(Vec<Value>),
-
-    /// A string value.
-    String(String),
-
-    /// A Boolean value.
-    Boolean(bool),
-
-    /// An integer value.
-    Integer(i64),
-
-    /// A real-numbered value, approximated as a float.
-    Real(OrderedFloat<f64>),
-
-    /// A symbol.
-    Symbol(String),
-}
-
-impl Value {
-    /// Returns the type of this value.
-    pub fn ty(&self) -> StructuredType {
-        use StructuredType::*;
-        use ir::Type::*;
-        match self {
-            Value::Tuple(els) => Tuple(els.iter().map(|val| val.ty()).collect()),
-            Value::String(_) => Primitive(String),
-            Value::Boolean(_) => Primitive(Boolean),
-            Value::Integer(_) => Primitive(Integer),
-            Value::Real(_) => Primitive(Real),
-            Value::Symbol(_) => Primitive(Symbol),
-        }
-    }
-}
-
-macro_rules! impl_typed_primitive {
-    ($ty:ty, $name:ident) => {
-        impl Typed for $ty {
-            fn ty() -> StructuredType {
-                StructuredType::Primitive(ir::Type::$name)
-            }
-        }
-
-        impl AsValue for $ty {
-            fn as_value(&self) -> Value {
-                Value::$name(self.clone().into())
-            }
-        }
-
-        impl FromValue for $ty {
-            fn from_value(val: Value) -> Self {
-                match val {
-                    Value::$name(inner) => inner.into(),
-                    _ => unreachable!(),
-                }
-            }
-        }
-    };
-}
-
-impl_typed_primitive!(String, String);
-impl_typed_primitive!(bool, Boolean);
-impl_typed_primitive!(i64, Integer);
-impl_typed_primitive!(f64, Real);
-impl_typed_primitive!(OrderedFloat<f64>, Real);
-
-macro_rules! impl_typed_tuple {
-    ($($el:ident),+) => {
-        impl<$($el: Typed),+> Typed for ($($el),+) {
-            fn ty() -> StructuredType {
-                StructuredType::Tuple(vec![$($el::ty()),+])
-            }
-        }
-
-        impl<$($el: AsValue),+> AsValue for ($($el),+) {
-            #[allow(non_snake_case)]
-            fn as_value(&self) -> Value {
-                let ($($el),+) = self;
-                Value::Tuple(vec![$($el.as_value()),+])
-            }
-        }
-
-        impl<$($el: FromValue),+> FromValue for ($($el),+) {
-            #[allow(non_snake_case)]
-            fn from_value(val: Value) -> Self {
-                let els = match val {
-                    Value::Tuple(els) => els,
-                    _ => unreachable!(),
-                };
-
-                let mut els = els.into_iter();
-                $(let $el = els.next().unwrap();)+
-                ($($el::from_value($el)),+)
-            }
-        }
-    };
-}
-
-macro_rules! typed_tuple {
-    ($base:ident) => {};
-    ($head:ident, $($tail:ident),+) => {
-        impl_typed_tuple!($head, $($tail),+);
-        typed_tuple!($($tail),+);
-    };
-}
-
-typed_tuple!(A, B, C, D, E, F, G, H);
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Error, Debug)]
@@ -461,36 +282,4 @@ impl Error {
             other => Err(other),
         }
     }
-}
-
-pub type ServerResult<T> = std::result::Result<T, ServerError>;
-
-#[derive(Clone, Debug, PartialEq, Eq, Error, Deserialize, Serialize)]
-pub enum ServerError {
-    #[error("program did not pass validation. error: {0}")]
-    InvalidProgram(ir::validate::Error<String>),
-
-    #[error("no program is loaded")]
-    NoProgramLoaded,
-
-    #[error("input with ID {0:?} does not exist")]
-    NoSuchInput(String),
-
-    #[error("output with ID {0:?} does not exist")]
-    NoSuchOutput(String),
-
-    #[error("type mismatch: expected {expected}, got {got}")]
-    TypeMismatch {
-        expected: StructuredType,
-        got: StructuredType,
-    },
-
-    #[error("the server had an internal database error")]
-    DatabaseError,
-
-    #[error("the transaction had a conflict and was rolled back")]
-    Conflict,
-
-    #[error("the server side event stream has lagged")]
-    Lagged,
 }

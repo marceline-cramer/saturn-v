@@ -165,6 +165,7 @@ fn test_set_and_get_program_success() {
 
 #[test]
 fn test_get_input_contains_values() {
+    use StructuredValue::String;
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
     let mut tx = db.transaction(dataflow).unwrap();
@@ -186,20 +187,20 @@ fn test_get_input_contains_values() {
     let updates = vec![
         TupleUpdate {
             state: true,
-            value: Value::String("hello".to_string()),
+            value: String("hello".to_string()),
         },
         TupleUpdate {
             state: true,
-            value: Value::String("world".to_string()),
+            value: String("world".to_string()),
         },
     ];
     tx.update_input("TestInput", &updates).unwrap();
 
     // Test checking for values
     let values_to_check = vec![
-        Value::String("hello".to_string()),
-        Value::String("missing".to_string()),
-        Value::String("world".to_string()),
+        String("hello".to_string()),
+        String("missing".to_string()),
+        String("world".to_string()),
     ];
 
     let results = tx
@@ -220,7 +221,7 @@ fn test_no_such_input_error() {
     tx.set_program(program).unwrap();
 
     // try to access a non-existent input
-    let values = vec![Value::String("test".to_string())];
+    let values = vec![StructuredValue::String("test".to_string())];
     let result = tx.check_input_values("NonExistentInput", &values);
 
     assert_eq!(

@@ -1,0 +1,11 @@
+[package]
+name = "saturn-v-protocol"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+ordered-float.workspace = true
+saturn-v-ir.workspace = true
+serde.workspace = true
+thiserror.workspace = true

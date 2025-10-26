@@ -19,7 +19,7 @@ use std::sync::atomic::AtomicU32;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use saturn_v_client::*;
-use saturn_v_ir::{self as ir, Type};
+use saturn_v_protocol::{ir::Type, *};
 
 use super::*;
 

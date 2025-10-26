@@ -29,14 +29,13 @@ use axum::{
 };
 use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
 use parking_lot::Mutex as SyncMutex;
-use saturn_v_client::*;
 use saturn_v_eval::{
     DataflowInputs, InputEvent,
     solve::Solver,
     types::{Fact, Relation},
     utils::{Key, Update},
 };
-use saturn_v_ir::{self as ir};
+use saturn_v_protocol::*;
 use tokio::sync::{Mutex, broadcast};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -119,7 +118,7 @@ async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>>
 async fn get_output(
     server: ExtractState,
     Path(output): Path<String>,
-) -> ServerResponse<Option<HashSet<Value>>> {
+) -> ServerResponse<Option<HashSet<StructuredValue>>> {
     Ok(server
         .lock()
         .await
@@ -346,15 +345,16 @@ impl Server {
 pub fn structure_values<'a>(
     ty: &StructuredType,
     values: &mut impl Iterator<Item = &'a ir::Value>,
-) -> Value {
+) -> StructuredValue {
     match ty {
-        StructuredType::Tuple(els) => Value::Tuple(
+        StructuredType::Tuple(els) => StructuredValue::Tuple(
             els.iter()
                 .map(move |ty| structure_values(ty, values))
                 .collect(),
         ),
         StructuredType::Primitive(ty) => {
-            use {Value::*, ir::Type};
+            use StructuredValue::*;
+            use ir::Type;
             let val = values.next().unwrap();
             match (val, ty) {
                 (ir::Value::Boolean(val), Type::Boolean) => Boolean(*val),
@@ -369,7 +369,7 @@ pub fn structure_values<'a>(
 }
 
 pub struct Output {
-    state: HashSet<Value>,
+    state: HashSet<StructuredValue>,
     ty: StructuredType,
     rel: Key<Relation>,
     watcher: broadcast::Sender<TupleUpdate>,

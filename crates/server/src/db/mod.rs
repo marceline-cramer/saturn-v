@@ -23,14 +23,13 @@ use std::{
 
 use anyhow::Context;
 use fjall::*;
-use saturn_v_client::*;
 use saturn_v_eval::{
     InputEvent, InputEventKind,
     load::Loader,
     types::{Fact, Relation},
     utils::Key as DataflowKey,
 };
-use saturn_v_ir::{self as ir, RelationIO};
+use saturn_v_protocol::{ir::RelationIO, *};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 #[cfg(test)]
@@ -51,12 +50,16 @@ pub trait Transaction {
     fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()>;
 
     /// Retrieves the set of values in an input relation.
-    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<Value>>;
+    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<StructuredValue>>;
 
     /// Checks if an input contains certain values.
     ///
     /// The resulting list collates with input values.
-    fn check_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>>;
+    fn check_input_values(
+        &mut self,
+        input: &str,
+        values: &[StructuredValue],
+    ) -> ServerResult<Vec<bool>>;
 
     /// Drops this transaction and attempts to commit the changes.
     ///
@@ -296,7 +299,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
     fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()> {
         let input = self.get_input(input)?;
 
-        for TupleUpdate { state, value } in updates.to_vec() {
+        for TupleUpdate { state, value } in updates.iter().cloned() {
             // construct fact for dataflow input and type-check value
             let fact = input.make_fact(value.clone())?;
 
@@ -341,7 +344,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(())
     }
 
-    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<Value>> {
+    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<StructuredValue>> {
         // construct prefix from key
         let input = self.get_input(input)?;
         let key = Key::Input { input: input.index };
@@ -367,7 +370,11 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(values)
     }
 
-    fn check_input_values(&mut self, input: &str, values: &[Value]) -> ServerResult<Vec<bool>> {
+    fn check_input_values(
+        &mut self,
+        input: &str,
+        values: &[StructuredValue],
+    ) -> ServerResult<Vec<bool>> {
         // TODO: validate value types
         let input_idx = self.get_input(input)?.index;
         let mut results = Vec::with_capacity(values.len());
@@ -517,7 +524,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 }
 
 /// A bucket (as in hash set) of values in a single database entry.
-pub type Bucket = Vec<Value>;
+pub type Bucket = Vec<StructuredValue>;
 
 /// Mappings between program information and database state.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -557,8 +564,8 @@ impl InputRelation {
         }
     }
 
-    /// Creates a dataflow [Fact] from a structured [Value] with error checking.
-    pub fn make_fact(&self, value: Value) -> ServerResult<Fact> {
+    /// Creates a dataflow [Fact] from a structured [StructuredValue] with error checking.
+    pub fn make_fact(&self, value: StructuredValue) -> ServerResult<Fact> {
         // TODO: this allocates once for Vec and once for Arc; could be made faster (definitely hot path)
         let mut out = Vec::with_capacity(self.ty.size());
         Self::make_fact_inner(&mut out, &self.ty, value)?;
@@ -568,26 +575,25 @@ impl InputRelation {
         })
     }
 
-    /// Inner helper method to recursively flatten [Value].
+    /// Inner helper method to recursively flatten [StructuredValue].
     fn make_fact_inner(
         out: &mut Vec<ir::Value>,
         ty: &StructuredType,
-        value: Value,
+        value: StructuredValue,
     ) -> ServerResult<()> {
         use StructuredType::*;
-        use ir::Type::*;
+        use ir::{Type::*, Value};
         let ir_val = match (ty, value) {
-            (Primitive(String), Value::String(val)) => ir::Value::String(val),
-            (Primitive(Boolean), Value::Boolean(val)) => ir::Value::Boolean(val),
-            (Primitive(Integer), Value::Integer(val)) => ir::Value::Integer(val),
-            (Primitive(Real), Value::Real(val)) => ir::Value::Real(val),
-            (Primitive(Symbol), Value::Symbol(val)) => ir::Value::Symbol(val),
-            (Tuple(tys), Value::Tuple(els)) => {
+            (Primitive(String), StructuredValue::String(val)) => Value::String(val),
+            (Primitive(Boolean), StructuredValue::Boolean(val)) => Value::Boolean(val),
+            (Primitive(Integer), StructuredValue::Integer(val)) => Value::Integer(val),
+            (Primitive(Real), StructuredValue::Real(val)) => Value::Real(val),
+            (Primitive(Symbol), StructuredValue::Symbol(val)) => Value::Symbol(val),
+            (Tuple(tys), StructuredValue::Tuple(els)) => {
                 return tys
                     .iter()
                     .zip(els)
-                    .map(|(ty, el)| Self::make_fact_inner(out, ty, el))
-                    .collect();
+                    .try_for_each(|(ty, el)| Self::make_fact_inner(out, ty, el));
             }
             (expected, val) => {
                 return Err(ServerError::TypeMismatch {
@@ -640,7 +646,7 @@ pub enum Key {
 
 impl Key {
     /// Creates a bucket key for the given input and value.
-    pub fn bucket(input: u16, value: &Value) -> Self {
+    pub fn bucket(input: u16, value: &StructuredValue) -> Self {
         let mut hasher = DefaultHasher::new();
         value.hash(&mut hasher);
         Key::Bucket {

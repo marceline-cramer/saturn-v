@@ -2207,10 +2207,9 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "futures-util",
- "ordered-float 4.6.0",
  "reqwest",
  "reqwest-eventsource",
- "saturn-v-ir",
+ "saturn-v-protocol",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
@@ -2293,6 +2292,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "saturn-v-protocol"
+version = "0.1.0"
+dependencies = [
+ "ordered-float 4.6.0",
+ "saturn-v-ir",
+ "serde",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "saturn-v-server"
 version = "0.1.0"
 dependencies = [
@@ -2306,7 +2315,7 @@ dependencies = [
  "parking_lot",
  "saturn-v-client",
  "saturn-v-eval",
- "saturn-v-ir",
+ "saturn-v-protocol",
  "serde",
  "serde_json",
  "tempfile",
