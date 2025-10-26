@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+//! Defines the network protocol for interacting with the Saturn V server.
+
 #![warn(missing_docs)]
 
 use ordered_float::OrderedFloat;
@@ -21,9 +23,13 @@ pub use saturn_v_ir::{self as ir, StructuredType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// A type alias for results that only have [ServerError] for errors.
 pub type ServerResult<T> = std::result::Result<T, ServerError>;
 
+/// An error originating from the server, usually stemming from incorrect use
+/// of the API.
 #[derive(Clone, Debug, PartialEq, Eq, Error, Deserialize, Serialize)]
+#[allow(missing_docs)]
 pub enum ServerError {
     #[error("program did not pass validation. error: {0}")]
     InvalidProgram(ir::validate::Error<String>),

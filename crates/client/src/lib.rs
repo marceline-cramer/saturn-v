@@ -260,9 +260,13 @@ impl Output {
     }
 }
 
+/// A type alias for client results with only [Error] as the error.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// An error that has occurred through misuse of the API ([ServerError]) or through some
+/// unexpected client-side error.
 #[derive(Error, Debug)]
+#[allow(missing_docs)]
 pub enum Error {
     #[error(transparent)]
     Server(#[from] ServerError),
