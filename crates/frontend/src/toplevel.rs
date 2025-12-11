@@ -28,7 +28,7 @@ use url::Url;
 pub use salsa::DatabaseImpl as Db;
 
 use crate::{
-    diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
+    diagnostic::{AccumulateDiagnostic, SimpleError},
     parse::{RelationDefinition, TypeAlias},
     types::WithAst,
 };
@@ -227,34 +227,20 @@ pub fn file_syntax_errors(db: &dyn Database, file: File) {
 #[salsa::tracked]
 pub fn syntax_errors(db: &dyn Database, ast: AstNode) {
     if ast.symbol(db) == "ERROR" {
-        SyntaxError { ast }.accumulate(db);
+        // include the tree-sitter symbol and nearby text in the diagnostic message
+        let sym = ast.symbol(db);
+        let contents = ast.with_contents(db).inner;
+        let msg = if contents.trim().is_empty() {
+            format!("syntax error: {}", sym)
+        } else {
+            format!("syntax error: {} near `{}`", sym, contents.trim())
+        };
+
+        SimpleError::new(ast, msg).accumulate(db);
     } else {
         ast.children(db)
             .iter()
             .for_each(|child| syntax_errors(db, *child));
-    }
-}
-
-#[derive(Debug, Hash)]
-pub struct SyntaxError {
-    pub ast: AstNode,
-}
-
-impl BasicDiagnostic for SyntaxError {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.ast..self.ast
-    }
-
-    fn message(&self) -> String {
-        "syntax error".to_string()
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Error
-    }
-
-    fn is_fatal(&self) -> bool {
-        true
     }
 }
 
