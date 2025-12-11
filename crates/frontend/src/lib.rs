@@ -52,7 +52,18 @@ pub fn check_all_diagnostics(db: &dyn Database, ws: Workspace) -> Vec<&DynDiagno
 pub fn check_all(db: &dyn Database, ws: Workspace) {
     for (_url, file) in ws.files(db).iter() {
         toplevel::file_syntax_errors(db, *file);
-        resolve::file_interns(db, *file);
+        let interns = resolve::file_interns(db, *file);
+
+        // compute relation stratums to surface non-monotonic diagnostics
+        for (_name, item) in interns {
+            match item.inner {
+                NamespaceItem::Relation(rel) => {
+                    // compute stratum which will walk body relations and emit warnings
+                    lookup::relation_stratum(db, rel);
+                }
+                _ => {}
+            }
+        }
 
         for (_name, rules) in parse::file_rules(db, *file) {
             for rule in rules {
