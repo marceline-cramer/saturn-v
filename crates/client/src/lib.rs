@@ -224,12 +224,18 @@ impl Output {
         self.check_ty::<T>()?;
 
         Ok(self
-            .client
-            .get_json::<Vec<StructuredValue>>(&format!("/output/{}", self.id))
+            .get_all_raw()
             .await?
             .into_iter()
             .map(|val| T::from_value(val))
             .collect())
+    }
+
+    /// Gets the unstructured set of values currently in this output.
+    pub async fn get_all_raw(&self) -> Result<Vec<StructuredValue>> {
+        self.client
+            .get_json::<Vec<StructuredValue>>(&format!("/output/{}", self.id))
+            .await
     }
 
     /// Subscribes to live updates on values in this output.
