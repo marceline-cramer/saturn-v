@@ -42,6 +42,21 @@ jobs:
         node-version: 20
     - run: npm install
     - run: npm run compile      
+  python-tests:
+    name: "Python API tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: pip install maturin pytest pytest-asyncio
+      - run: cd crates/python && maturin develop --release
+      - run: pytest crates/python/tests
+
   examples:
     name: "Run examples"
     runs-on: ubuntu-latest
