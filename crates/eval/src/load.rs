@@ -386,6 +386,9 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 // return the node and its map
                 (node, joined)
             }
+            Antijoin { .. } => {
+                unimplemented!("stratified negation");
+            }
         }
     }
 }
@@ -424,6 +427,7 @@ pub struct WipNode {
     pub input: NodeInput,
     pub push: Vec<Expr>,
     pub filter: Vec<Expr>,
+    pub stratum: Option<usize>,
 }
 
 impl WipNode {
@@ -432,6 +436,7 @@ impl WipNode {
             input,
             push: vec![],
             filter: vec![],
+            stratum: None,
         }
     }
 }

@@ -180,7 +180,8 @@
 	(FromQuery i64 Query)
 	(Let i64 Expr Instr)
 	(Merge Instr Instr)
-	(Join Instr Instr))
+	(Join Instr Instr)
+	(Antijoin i64 Query Instr))
 
 ; Properties of joins
 (rewrite (Join a b) (Join b a))
@@ -235,6 +236,15 @@
 	 (= remaining (set-diff needed provided)))
 	((union i (Sink remaining rest)))
 	:name "provide variables to sink")
+
+; Negated loads can be converted into antijoin instructions
+(rule
+	((= i (Filter (UnaryOp (Not) (Load r q)) rest))
+	 (= needed (query-vars q))
+     (= available (instr-vars rest))
+	 (= 0 (set-length (set-diff needed available))))
+	((union i (Antijoin r q rest)))
+	:name "antijoin instruction")
 
 ; An assertion of equality can assign and provide if all variables are available
 (rule

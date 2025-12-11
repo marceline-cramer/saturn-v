@@ -186,6 +186,62 @@ pub fn relation_is_conditional<'db>(db: &'db dyn Database, rel: RelationDefiniti
         .any(|dep| dep.is_decision(db))
 }
 
+/// Finds the negation stratum of a relation.
+#[salsa::tracked]
+pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> usize {
+    // find all transitive non-monotonic dependencies
+    let nm_deps = relation_indirect_nm_deps(db, rel);
+
+    // if relation has transitive non-monotonic dependency on itself, throw error
+    if nm_deps.contains(&rel) {
+        NonMonotonicCycle {
+            at: rel.name(db).clone(),
+        }
+        .accumulate(db);
+
+        // default to stratum of zero
+        // indirect deps may cause recursion indirectly
+        // therefore, we cannot safely guess a better stratum
+        return 0;
+    }
+
+    // otherwise, stratum is maximum of each transitive NM dep plus one
+    // avoids recursions until acyclicity has been confirmed
+    // base case: if there are no non-monotonic dependencies, stratum is 0
+    nm_deps
+        .iter()
+        .map(|rel| relation_stratum(db, *rel) + 1)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Enumerates every indirect non-monotonic relation ddependency of a relation.
+#[salsa::tracked]
+pub fn relation_indirect_nm_deps<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> BTreeSet<RelationDefinition<'db>> {
+    relation_indirect_deps(db, rel)
+        .into_iter()
+        .flat_map(|rel| relation_direct_nm_deps(db, rel))
+        .collect()
+}
+
+/// Enumerates every direct non-monotonic relation dependency of a relation.
+#[salsa::tracked]
+pub fn relation_direct_nm_deps<'db>(
+    db: &'db dyn Database,
+    rel: RelationDefinition<'db>,
+) -> BTreeSet<RelationDefinition<'db>> {
+    relation_rules(db, rel)
+        .into_iter()
+        .flat_map(|rule| rule.bodies(db).clone())
+        .flat_map(|body| rule_body_relations(db, body))
+        .filter(|(_rel, is_nm)| *is_nm)
+        .map(|(rel, _is_nm)| rel)
+        .collect()
+}
+
 /// Enumerates every indirect relation definition of a relation.
 #[salsa::tracked]
 pub fn relation_indirect_deps<'db>(
@@ -216,7 +272,7 @@ pub fn relation_indirect_deps<'db>(
     deps
 }
 
-/// Enumerates every direct relation definition of a relation.
+/// Enumerates every direct relation dependency of a relation.
 #[salsa::tracked]
 pub fn relation_direct_deps<'db>(
     db: &'db dyn Database,
@@ -225,7 +281,7 @@ pub fn relation_direct_deps<'db>(
     relation_rules(db, rel)
         .into_iter()
         .flat_map(|rule| rule.bodies(db).clone())
-        .flat_map(|body| rule_body_relations(db, body))
+        .flat_map(|body| rule_body_relations(db, body).into_keys())
         .collect()
 }
 
@@ -265,24 +321,61 @@ pub fn relation_to_rules<'db>(
 }
 
 /// Retrieves the set of relations used by a rule body.
+///
+/// The Boolean in each relation marks whether the relation is non-monotonic or not.
 #[salsa::tracked]
 pub fn rule_body_relations<'db>(
     db: &'db dyn Database,
     body: AbstractRuleBody<'db>,
-) -> BTreeSet<RelationDefinition<'db>> {
+) -> BTreeMap<RelationDefinition<'db>, bool> {
     // iterate over each expression
-    let mut relations = BTreeSet::new();
-    let mut stack = body.clauses(db).clone();
-    while let Some(expr) = stack.pop() {
+    let mut relations = BTreeMap::new();
+
+    // initialize stack with no non-monotonicity
+    let mut stack: Vec<_> = body
+        .clauses(db)
+        .iter()
+        .map(|clause| (*clause, false))
+        .collect();
+
+    // iterate stack, tracking depth-first non-monotonicity
+    while let Some((expr, is_nm)) = stack.pop() {
         use ExprKind::*;
         match expr.kind(db) {
-            Tuple(els) => stack.extend(els),
-            BinaryOp { lhs, rhs, .. } => stack.extend([lhs, rhs]),
-            UnaryOp { term, .. } => stack.push(term),
+            Tuple(els) => stack.extend(els.iter().map(|el| (*el, is_nm))),
+            BinaryOp { lhs, rhs, op } => {
+                // adjust non-monotonocity depending on the operator
+                use BinaryOpKind::*;
+                let is_nm = match op.inner {
+                    And | Or => is_nm,
+                    _ => true,
+                };
+
+                // recursively search operands
+                stack.extend([(lhs, is_nm), (rhs, is_nm)])
+            }
+            // search unary ops with non-monotonicity
+            UnaryOp { term, .. } => stack.push((term, true)),
             Atom { head, body } => {
-                let file = head.ast.file(db);
-                relations.extend(file_relation(db, file, head));
-                stack.push(body);
+                // recursively search body
+                // use non-monotonicity because false atoms allow continuation
+                stack.push((body, true));
+
+                // if this atom is non-monotonic, emit a warning diagnostic
+                if is_nm {
+                    NonMonotonicQuery { at: head.clone() }.accumulate(db);
+                }
+
+                // look up relation definition, ignoring invalid references
+                let Some(rel) = file_relation(db, head.ast.file(db), head) else {
+                    continue;
+                };
+
+                // add relation map, logical OR-ing non-monotonicity
+                relations
+                    .entry(rel)
+                    .and_modify(|old| *old = *old || is_nm)
+                    .or_insert(is_nm);
             }
             _ => {}
         }
@@ -317,5 +410,55 @@ impl BasicDiagnostic for UnboundVariable {
 
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![self.body.with("the rule body in question".to_string())]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NonMonotonicCycle {
+    pub at: WithAst<String>,
+}
+
+impl BasicDiagnostic for NonMonotonicCycle {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("{} forms a non-monotonic cycle", self.at)
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Error
+    }
+
+    fn is_fatal(&self) -> bool {
+        true
+    }
+
+    fn notes(&self) -> Vec<WithAst<String>> {
+        vec![]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NonMonotonicQuery {
+    pub at: WithAst<String>,
+}
+
+impl BasicDiagnostic for NonMonotonicQuery {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("non-monotonic queries are not fully supported")
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Warning
+    }
+
+    fn is_fatal(&self) -> bool {
+        false
     }
 }
