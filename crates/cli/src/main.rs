@@ -62,7 +62,7 @@ pub enum Command {
     /// Runs a server.
     Server {
         /// A TCP address to bind to
-        #[clap(short, long)]
+        #[clap(long)]
         host: Vec<SocketAddr>,
 
         /// The path to the database to use
