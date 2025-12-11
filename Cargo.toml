@@ -1,5 +1,9 @@
 [workspace]
-members = [ "check", "client", "eval", "frontend", "fuzz", "ir", "lower", "lsp", "server", "tree-sitter-kerolox" ]
+resolver = "3"
+members = [
+    "crates/*",
+    "tree-sitter-kerolox",
+]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -14,6 +18,7 @@ flume = "0.11"
 futures-util = "0.3"
 indexmap = "2.8"
 ordered-float = { version = "4", features = ["serde"] }
+parking_lot = "0.12"
 pretty = "0.12"
 ropey = "1.6"
 salsa = "0.20"
@@ -32,35 +37,13 @@ tower-lsp = "0.20"
 url = "2.5"
 
 # internal workspace members
-saturn-v-check.path = "check"
-saturn-v-client.path = "client"
-saturn-v-eval.path = "eval"
-saturn-v-frontend.path = "frontend"
-saturn-v-ir.path = "ir"
-saturn-v-lower.path = "lower"
-saturn-v-lsp.path = "lsp"
-saturn-v-server.path = "server"
+saturn-v-check.path = "crates/check"
+saturn-v-client.path = "crates/client"
+saturn-v-eval.path = "crates/eval"
+saturn-v-frontend.path = "crates/frontend"
+saturn-v-ir.path = "crates/ir"
+saturn-v-lower.path = "crates/lower"
+saturn-v-lsp.path = "crates/lsp"
+saturn-v-protocol.path = "crates/protocol"
+saturn-v-server.path = "crates/server"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
-
-[package]
-name = "saturn-v"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-ariadne.workspace = true
-clap = { version = "4", features = ["derive"] }
-salsa.workspace = true
-saturn-v-client.workspace = true
-saturn-v-eval.workspace = true
-saturn-v-frontend.workspace = true
-saturn-v-ir.workspace = true
-saturn-v-lower.workspace = true
-saturn-v-lsp.workspace = true
-saturn-v-server.workspace = true
-tokio = { workspace = true, features = ["io-std", "macros", "rt-multi-thread"] }
-tower-lsp.workspace = true
-tracing-subscriber.workspace = true
-tree-sitter.workspace = true
-tree-sitter-kerolox.workspace = true
-url.workspace = true

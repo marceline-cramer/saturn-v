@@ -1,0 +1,223 @@
+// Copyright (C) 2025 Marceline Cramer
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Saturn V is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Saturn V is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+// more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
+
+use std::{collections::HashMap, error::Error, net::SocketAddr, path::PathBuf};
+
+use anyhow::{bail, Context};
+use clap::{Parser, Subcommand};
+use salsa::Setter;
+use saturn_v_client::Client;
+use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
+use saturn_v_lsp::{Editor, LspBackend};
+use tokio::net::TcpListener;
+use tower_lsp::{LspService, Server};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tree_sitter::Language;
+use url::Url;
+
+#[derive(Parser)]
+pub struct Args {
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run the Kerolox language server over stdio.
+    Lsp,
+
+    /// Checks a Kerolox source file.
+    Check {
+        /// The path to the source file.
+        path: PathBuf,
+    },
+
+    /// Runs a Kerolox source file.
+    Run {
+        /// A path to a directory to load inputs from by default.
+        #[clap(long)]
+        input_path: Option<PathBuf>,
+
+        /// An explicit map of input relation names to data files (format: name=path).
+        #[clap(short, long, value_parser = parse_key_val::<String, PathBuf>)]
+        input: Vec<(String, PathBuf)>,
+
+        /// The path to the source file.
+        path: PathBuf,
+    },
+
+    /// Runs a server.
+    Server {
+        /// A TCP address to bind to
+        #[clap(short, long)]
+        host: Vec<SocketAddr>,
+
+        /// The path to the database to use
+        #[clap(long)]
+        db: PathBuf,
+    },
+
+    /// Commands that interact with a Saturn V server.
+    Client {
+        /// The base URL of the Saturn V server
+        #[clap(short, long)]
+        server: Url,
+
+        #[command(subcommand)]
+        cmd: ClientCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ClientCommands {
+    /// Compiles a program and pushes it to the server.
+    Push {
+        /// The path to the source file.
+        path: PathBuf,
+    },
+}
+
+/// Parse a single key-value pair of arguments.
+fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr,
+    T::Err: Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
+    let fmt_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stderr);
+
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_env_var("SATURN_V_LOG")
+        .with_default_directive("saturn_v=debug".parse().unwrap())
+        .from_env()
+        .expect("failed to parse logging directives");
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .init();
+
+    match args.command {
+        Command::Lsp => {
+            let stdin = tokio::io::stdin();
+            let stdout = tokio::io::stdout();
+            let (service, socket) = LspService::new(LspBackend::new);
+            Server::new(stdin, stdout, socket).serve(service).await;
+            Ok(())
+        }
+        Command::Check { path } => {
+            let program = build_file(&path).context("failed to build program")?;
+            eprintln!("{program:#?}");
+            program.validate().context("program failed validation")?;
+            Ok(())
+        }
+        Command::Run { path, .. } => {
+            let program = build_file(&path).context("failed to build program")?;
+            let loader = saturn_v_eval::load::Loader::load_program(&program);
+            saturn_v_eval::run(loader).await;
+            Ok(())
+        }
+        Command::Server { host, db } => {
+            use saturn_v_server::{api::*, db::Database};
+
+            let db = Database::new(&db).context("failed to open database")?;
+
+            let state = start_server(db).context("failed to start server")?;
+            let router = route(state);
+
+            let listener = TcpListener::bind(host.as_slice())
+                .await
+                .context("failed to bind to TCP socket")?;
+
+            axum::serve(listener, router)
+                .await
+                .context("failed to run server")
+        }
+        Command::Client { server, cmd } => {
+            let client = Client::new(server);
+
+            match cmd {
+                ClientCommands::Push { path } => {
+                    let program = build_file(&path).context("failed to build program")?;
+
+                    client
+                        .set_program(&program)
+                        .await
+                        .context("failed to set program")
+                }
+            }
+        }
+    }
+}
+
+pub fn build_file(path: &PathBuf) -> anyhow::Result<saturn_v_ir::Program<String>> {
+    let mut db = saturn_v_frontend::toplevel::Db::new();
+    let src = std::fs::read_to_string(path).unwrap();
+    let absolute_path = path.canonicalize().unwrap();
+    let url = url::Url::from_file_path(absolute_path).unwrap();
+    let language = Language::new(tree_sitter_kerolox::LANGUAGE);
+
+    let mut file_urls = HashMap::new();
+    let stdlib = Default::default();
+    let workspace = Workspace::new(&db, file_urls.clone(), stdlib);
+
+    let ed = Editor::new(&mut db, workspace, url.clone(), &language, &src);
+    let file = ed.get_file();
+
+    file_urls.insert(url, file);
+    workspace.set_files(&mut db).to(file_urls);
+
+    let diagnostics = saturn_v_frontend::check_all_diagnostics(&db, workspace);
+    let mut cache = ReportCache::new(&db);
+    let mut fatal_errors = 0;
+    for d in diagnostics {
+        if d.is_fatal() {
+            fatal_errors += 1;
+        }
+
+        for report in d.to_ariadne(&db) {
+            report.eprint(&mut cache).unwrap();
+        }
+    }
+
+    eprintln!("finished with {fatal_errors} errors");
+
+    if fatal_errors > 0 {
+        bail!("check failed");
+    }
+
+    // TODO: relation names should be mangled in programs with more than one file
+    let program = saturn_v_frontend::lower::lower_workspace(&db, workspace)
+        .map_relations(|def| def.name(&db).inner.to_string());
+
+    if let Err(err) = program.validate() {
+        bail!("failed to lower program: {err}");
+    }
+
+    // return built program
+    Ok(program)
+}

@@ -1,0 +1,308 @@
+{
+  "name": "Kerolox",
+  "scopeName": "source.kerolox",
+  "fileTypes": ["rp1"],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#imports"
+    },
+    {
+      "include": "#definitions"
+    },
+    {
+      "include": "#rules"
+    },
+    {
+      "include": "#constraints"
+    },
+    {
+      "include": "#expressions"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.kerolox",
+          "match": ";.*$"
+        },
+        {
+          "name": "comment.documentation.kerolox",
+          "begin": "^(;.*\\n)+(?=\\s*(define|constrain|[A-Z][a-zA-Z0-9]*\\s))",
+          "end": "(?=\\s*(define|constrain|[A-Z][a-zA-Z0-9]*\\s))",
+          "patterns": [
+            {
+              "name": "comment.line.semicolon.kerolox",
+              "match": ";.*$"
+            }
+          ]
+        }
+      ]
+    },
+    "imports": {
+      "name": "meta.import.kerolox",
+      "begin": "\\b(import)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.import.kerolox"
+        }
+      },
+      "end": "\\.",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.terminator.kerolox"
+        }
+      },
+      "patterns": [
+        {
+          "name": "entity.name.namespace.kerolox",
+          "match": "\\b[A-Z][a-zA-Z0-9]*\\b"
+        },
+        {
+          "name": "punctuation.separator.kerolox",
+          "match": "\\."
+        },
+        {
+          "name": "punctuation.section.group.kerolox",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.separator.kerolox",
+          "match": ","
+        }
+      ]
+    },
+    "definitions": {
+      "name": "meta.definition.kerolox",
+      "begin": "\\b(define)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.define.kerolox"
+        }
+      },
+      "end": "\\.",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.terminator.kerolox"
+        }
+      },
+      "patterns": [
+        {
+          "name": "keyword.control.kerolox",
+          "match": "\\b(input|output|decision)\\b"
+        },
+        {
+          "name": "entity.name.function.kerolox",
+          "match": "\\b[A-Z][a-zA-Z0-9]*\\b"
+        },
+        {
+          "include": "#types"
+        }
+      ]
+    },
+    "rules": {
+      "name": "meta.rule.kerolox",
+      "begin": "\\b([A-Z][a-zA-Z0-9]*)\\s+(?=\\(|[a-z]|[A-Z]|True|False|[0-9])",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.type.kerolox"
+        }
+      },
+      "end": "\\.",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.terminator.kerolox"
+        }
+      },
+      "patterns": [
+        {
+          "name": "keyword.operator.rule.kerolox",
+          "match": ":-"
+        },
+        {
+          "include": "#expressions"
+        },
+        {
+          "include": "#patterns"
+        }
+      ]
+    },
+    "constraints": {
+      "name": "meta.constraint.kerolox",
+      "begin": "\\b(constrain)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.constrain.kerolox"
+        }
+      },
+      "end": "\\.",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.terminator.kerolox"
+        }
+      },
+      "patterns": [
+        {
+          "name": "keyword.control.kerolox",
+          "match": "\\b(soft)\\b"
+        },
+        {
+          "name": "keyword.operator.rule.kerolox",
+          "match": ":-"
+        },
+        {
+          "include": "#cardinality"
+        },
+        {
+          "include": "#expressions"
+        }
+      ]
+    },
+    "cardinality": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.kerolox",
+          "match": "(?<=[0-9]\\s*)(=|<=|>=)(?=\\s*[0-9])"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.kerolox",
+          "match": "\\b[A-Z][a-zA-Z0-9]*\\b"
+        },
+        {
+          "name": "punctuation.section.group.kerolox",
+          "match": "[()]"
+        }
+      ]
+    },
+    "patterns": {
+      "patterns": [
+        {
+          "include": "#values"
+        },
+        {
+          "include": "#variables"
+        },
+        {
+          "name": "punctuation.section.group.kerolox",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.separator.kerolox",
+          "match": ","
+        }
+      ]
+    },
+    "expressions": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#atoms"
+        },
+        {
+          "include": "#values"
+        },
+        {
+          "include": "#variables"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
+    "atoms": {
+      "name": "meta.atom.kerolox",
+      "begin": "\\b([A-Z][a-zA-Z0-9]*)\\s+(?=\\(|[a-z]|[A-Z]|True|False|[0-9]|-)",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function.kerolox"
+        }
+      },
+      "end": "(?=\\s*[,)]|$|:-|\\.)",
+      "patterns": [
+        {
+          "include": "#expressions"
+        }
+      ]
+    },
+    "values": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.true.kerolox",
+          "match": "\\bTrue\\b"
+        },
+        {
+          "name": "constant.language.boolean.false.kerolox",
+          "match": "\\bFalse\\b"
+        },
+        {
+          "name": "constant.other.symbol.kerolox",
+          "match": "\\b[A-Z][a-zA-Z0-9]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.kerolox",
+          "match": "\\b(0|-?[1-9][0-9]*)\\b"
+        }
+      ]
+    },
+    "variables": {
+      "name": "variable.other.kerolox",
+      "match": "\\b[a-z][a-zA-Z0-9_]*\\b"
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.logical.kerolox",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.comparison.kerolox",
+          "match": "==|!=|>=|<=|<|>"
+        },
+        {
+          "name": "keyword.operator.assignment.kerolox",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.kerolox",
+          "match": "\\+|-|\\*|/"
+        },
+        {
+          "name": "keyword.operator.range.kerolox",
+          "match": "\\.\\."
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.group.kerolox",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.separator.kerolox",
+          "match": ","
+        },
+        {
+          "name": "punctuation.terminator.kerolox",
+          "match": "\\."
+        },
+        {
+          "name": "keyword.operator.rule.kerolox",
+          "match": ":-"
+        }
+      ]
+    }
+  }
+}
