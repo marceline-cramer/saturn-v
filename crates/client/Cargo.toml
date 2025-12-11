@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 futures-util.workspace = true
-reqwest = { version = "0.12", features = ["json"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -14,6 +13,11 @@ saturn-v-protocol.workspace = true
 reqwest-eventsource = "0.6"
 cfg-if = "1.0.3"
 thiserror.workspace = true
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["json", "rustls-tls"]
 
 [features]
 # Enables access to invalid network requests for testing server implementations.
