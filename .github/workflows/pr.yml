@@ -53,9 +53,15 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - run: pip install maturin pytest pytest-asyncio
-      - run: cd crates/python && maturin develop --release
-      - run: pytest crates/python/tests
+      - run: |
+          python -m venv venv
+          . venv/bin/activate
+          pip install maturin pytest pytest-asyncio
+          cd crates/python
+          maturin develop --release
+          cd ../..
+          pytest crates/python/tests
+        shell: bash
 
   examples:
     name: "Run examples"
