@@ -401,39 +401,71 @@ impl Editor {
 
     /// Handle a text document content change event.
     fn on_content_change(&mut self, ev: &TextDocumentContentChangeEvent) -> ropey::Result<()> {
-        // fetch the range from the ev event
+        // if `range` is None, the client replaced the whole document
+        if ev.range.is_none() {
+            // replace the entire contents
+            self.contents = Rope::from_str(&ev.text);
+
+            // reparse from scratch
+            self.tree = self
+                .parser
+                .parse(&ev.text, None)
+                .expect("failed to reparse document");
+
+            return Ok(());
+        }
+
+        // fetch the range from the ev event (we already handled None above)
         let range = ev.range.as_ref().unwrap();
 
-        // typecast all of the range variables to usize
+        // LSP positions are UTF-16 code unit columns; convert them into rope char indices.
         let start_row = range.start.line as usize;
         let start_col = range.start.character as usize;
         let end_row = range.end.line as usize;
         let end_col = range.end.character as usize;
 
         // get the character indices of the beginning of each line
-        let start_line = self.contents.try_line_to_char(start_row)?;
-        let end_line = self.contents.try_line_to_char(end_row)?;
+        let start_line_char = self.contents.try_line_to_char(start_row)?;
+        let end_line_char = self.contents.try_line_to_char(end_row)?;
 
-        // calculate the character indices of the range
-        let start_char = start_line + start_col;
-        let end_char = end_line + end_col;
+        // determine end-of-line char indices (for clamping)
+        let next_line_after_start = match self.contents.try_line_to_char(start_row + 1) {
+            Ok(v) => v,
+            Err(_) => self.contents.len_chars(),
+        };
+        let next_line_after_end = match self.contents.try_line_to_char(end_row + 1) {
+            Ok(v) => v,
+            Err(_) => self.contents.len_chars(),
+        };
 
-        // convert the character indices to byte indices
-        // done before update to content
+        // compute absolute char indices for start/end by mapping UTF-16 columns
+        let start_char = self.col_to_char(start_line_char, next_line_after_start, start_col);
+        let end_char = self.col_to_char(end_line_char, next_line_after_end, end_col);
+
+        // convert the character indices to byte indices (before mutating the rope)
         let start_byte = self.contents.char_to_byte(start_char);
         let old_end_byte = self.contents.char_to_byte(end_char);
 
-        // mutate the contents
+        // perform the edit on the rope
         self.contents.try_remove(start_char..end_char)?;
         self.contents.insert(start_char, &ev.text);
 
-        // locate the new ending position
+        // compute the new end byte after insertion
         let new_end_byte = start_byte + ev.text.len();
-        let new_end_row = self.contents.try_byte_to_line(new_end_byte)?;
-        let new_end_char = self.contents.line_to_char(new_end_row);
-        let new_end_col = self.contents.try_byte_to_char(new_end_byte)? - new_end_char;
 
-        // edit the parse tree
+        // derive new_end_row and new_end_col (in char units) from the new_end_byte
+        let new_end_row = self.contents.try_byte_to_line(new_end_byte)?;
+        let new_end_row_start_char = self.contents.line_to_char(new_end_row);
+        let new_end_col = self
+            .contents
+            .try_byte_to_char(new_end_byte)?
+            .saturating_sub(new_end_row_start_char);
+
+        // compute column values (char columns) for start and old end to feed into InputEdit
+        let start_col_char = start_char - start_line_char;
+        let old_end_col_char = end_char - end_line_char;
+
+        // edit the parse tree with correct byte + char positions
         use tree_sitter::Point;
         self.tree.edit(&InputEdit {
             start_byte,
@@ -441,11 +473,11 @@ impl Editor {
             new_end_byte,
             start_position: Point {
                 row: start_row,
-                column: start_col,
+                column: start_col_char,
             },
             old_end_position: Point {
                 row: end_row,
-                column: end_col,
+                column: old_end_col_char,
             },
             new_end_position: Point {
                 row: new_end_row,
@@ -453,8 +485,33 @@ impl Editor {
             },
         });
 
-        // success!
         Ok(())
+    }
+
+    // Map an LSP UTF-16 column value into a Rope char index inside the given line.
+    // `line_start_char` and `line_end_char` are absolute char indices for the start of the
+    // line and the start of the next line (used to clamp the computation).
+    fn col_to_char(
+        &self,
+        line_start_char: usize,
+        line_end_char: usize,
+        mut utf16_col: usize,
+    ) -> usize {
+        let mut offset = 0usize;
+        while line_start_char + offset < line_end_char {
+            let ch = self.contents.char(line_start_char + offset);
+            let units = ch.len_utf16();
+            if utf16_col == 0 {
+                break;
+            }
+            if utf16_col < units {
+                // requested column falls inside this char; clamp to this char index
+                break;
+            }
+            utf16_col = utf16_col.saturating_sub(units);
+            offset += 1;
+        }
+        line_start_char + offset
     }
 
     /// Efficiently update inputs to the frontend with changes to the AST.
