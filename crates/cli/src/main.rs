@@ -71,11 +71,10 @@ pub enum Command {
     },
 
     /// Commands that interact with a Saturn V server.
+    ///
+    /// All commands use the `SATURN_V_SERVER` environment variable as the URL
+    /// to the server.
     Client {
-        /// The base URL of the Saturn V server
-        #[clap(short, long)]
-        server: Url,
-
         #[command(subcommand)]
         cmd: ClientCommands,
     },
@@ -87,6 +86,27 @@ pub enum ClientCommands {
     Push {
         /// The path to the source file.
         path: PathBuf,
+    },
+
+    /// Retrieves the currently loaded program.
+    GetProgram,
+
+    /// Lists inputs on the server.
+    ListInputs,
+
+    /// Lists outputs on the server.
+    ListOutputs,
+
+    /// Shows metadata for an output relation.
+    GetOutput {
+        /// The name of the output relation.
+        name: String,
+    },
+
+    /// Shows metadata for an input relation.
+    GetInput {
+        /// The name of the input relation.
+        name: String,
     },
 }
 
@@ -157,8 +177,11 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("failed to run server")
         }
-        Command::Client { server, cmd } => {
-            let client = Client::new(server);
+        Command::Client { cmd } => {
+            static DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
+            let server = std::env::var("SATURN_V_SERVER").unwrap_or(DEFAULT_SERVER.to_string());
+            let server_url = Url::parse(&server).context("failed to parse SATURN_V_SERVER")?;
+            let client = Client::new(server_url);
 
             match cmd {
                 ClientCommands::Push { path } => {
@@ -168,6 +191,47 @@ async fn main() -> anyhow::Result<()> {
                         .set_program(&program)
                         .await
                         .context("failed to set program")
+                }
+                ClientCommands::GetProgram => {
+                    let program = client
+                        .get_program()
+                        .await
+                        .context("failed to get program")?;
+                    println!("{program:#?}");
+                    Ok(())
+                }
+                ClientCommands::ListInputs => {
+                    let inputs = client.get_inputs().await.context("failed to list inputs")?;
+                    for input in inputs {
+                        println!("{} (id: {})", input.name, input.id);
+                    }
+                    Ok(())
+                }
+                ClientCommands::ListOutputs => {
+                    let outputs = client
+                        .get_outputs()
+                        .await
+                        .context("failed to list outputs")?;
+                    for output in outputs {
+                        println!("{} (id: {})", output.name, output.id);
+                    }
+                    Ok(())
+                }
+                ClientCommands::GetOutput { name } => {
+                    let output = client
+                        .get_output(&name)
+                        .await
+                        .context("failed to get output")?;
+                    println!("{output:#?}");
+                    Ok(())
+                }
+                ClientCommands::GetInput { name } => {
+                    let input = client
+                        .get_input(&name)
+                        .await
+                        .context("failed to get input")?;
+                    println!("{input:#?}");
+                    Ok(())
                 }
             }
         }
