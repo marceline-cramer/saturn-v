@@ -5,8 +5,8 @@ use pyo3::{
     prelude::*,
     types::PyString,
 };
-use saturn_v_client::Client;
-use saturn_v_protocol::{Program, RelationInfo};
+use saturn_v_client::{Client, Input, Output};
+use saturn_v_protocol::Program;
 
 #[pyclass]
 #[derive(Clone)]
@@ -50,38 +50,34 @@ impl PyClient {
         Ok(())
     }
 
-    pub async fn get_inputs(&self) -> PyResult<String> {
+    pub async fn get_inputs(&self) -> PyResult<Vec<PyInput>> {
         let inputs = self
             .inner
             .get_inputs()
             .await
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let infos: Vec<RelationInfo> = inputs.iter().map(|i| i.deref().clone()).collect();
-        serde_json::to_string(&infos).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        Ok(inputs.into_iter().map(|i| PyInput { inner: i }).collect())
     }
 
-    pub async fn get_input(&self, name: String) -> PyResult<String> {
-        let input = self
-            .inner
+    pub async fn get_input(&self, name: String) -> PyResult<PyInput> {
+        self.inner
             .get_input(&name)
             .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-
-        let info = input.deref().clone();
-
-        serde_json::to_string(&info).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            .map(|inner| PyInput { inner })
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    pub async fn get_outputs(&self) -> PyResult<String> {
+    pub async fn get_outputs(&self) -> PyResult<Vec<PyOutput>> {
         let outputs = self
             .inner
             .get_outputs()
             .await
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        let infos: Vec<RelationInfo> = outputs.iter().map(|o| o.deref().clone()).collect();
-
-        serde_json::to_string(&infos).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        Ok(outputs
+            .into_iter()
+            .map(|inner| PyOutput { inner })
+            .collect())
     }
 
     pub async fn get_output(&self, name: String) -> PyResult<String> {
@@ -97,8 +93,72 @@ impl PyClient {
     }
 }
 
+#[pyclass]
+#[derive(Clone)]
+pub struct PyInput {
+    inner: Input,
+}
+
+#[pymethods]
+impl PyInput {
+    #[getter]
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    #[getter]
+    pub fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+
+    pub async fn insert(&self, value: String) -> PyResult<()> {
+        self.inner
+            .insert(&value)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+
+    pub async fn remove(&self, value: String) -> PyResult<()> {
+        self.inner
+            .remove(&value)
+            .await
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct PyOutput {
+    inner: Output,
+}
+
+#[pymethods]
+impl PyOutput {
+    #[getter]
+    pub fn name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    #[getter]
+    pub fn id(&self) -> String {
+        self.inner.id.clone()
+    }
+
+    pub async fn get_all(&self) -> PyResult<Vec<Py<PyAny>>> {
+        let vals = self
+            .inner
+            .get_all_raw()
+            .await
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+
+        todo!()
+    }
+}
+
 #[pymodule]
 fn saturn_v_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyClient>()?;
+    m.add_class::<PyInput>()?;
+    m.add_class::<PyOutput>()?;
     Ok(())
 }
