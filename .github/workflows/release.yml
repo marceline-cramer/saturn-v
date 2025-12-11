@@ -10,28 +10,8 @@ env:
   PACKAGE_NAME: "saturn-v"
 
 jobs:
-  create_release:
-    name: Create draft release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.release.outputs.upload_url }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Create draft release
-        id: release
-        uses: actions/create-release@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          body: "Automated release from GitHub Actions"
-          draft: true
-
   build:
     name: Build and package
-    needs: create_release
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -157,10 +137,33 @@ jobs:
           echo "artifact_name=${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
           echo "artifact_type=${{ matrix.content_type }}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload artifact to release
-        uses: actions/upload-release-asset@v1
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: ${{ steps.package.outputs.artifact }}
-          asset_name: ${{ steps.package.outputs.artifact_name }}
-          asset_content_type: ${{ steps.package.outputs.artifact_type }}
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.artifact }}
+
+  publish_release:
+    name: Create draft release and upload assets
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create draft release and upload assets
+        id: ghrel
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: "Automated release from GitHub Actions"
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
