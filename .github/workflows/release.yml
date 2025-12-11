@@ -92,7 +92,7 @@ jobs:
             package_extension: zip
             source_suffix: .exe
             content_type: application/zip
-            install: ":"
+            install: choco install zip -y
             build_tool: cargo
 
     steps:
