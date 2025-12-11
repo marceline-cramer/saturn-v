@@ -386,13 +386,8 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 // return the node and its map
                 (node, joined)
             }
-            Antijoin {
-                relation,
-                terms,
-                rest,
-            } => {
-                // add the rest of the instructions
-                let (mut rest, rest_map) = self.load_instruction(rel, loaded, instr);
+            Antijoin { .. } => {
+                unimplemented!("stratified negation");
             }
         }
     }
