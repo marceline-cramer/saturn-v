@@ -14,7 +14,7 @@ jobs:
     name: Build and package
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - runner: ubuntu-latest
