@@ -42,3 +42,29 @@ jobs:
         node-version: 20
     - run: npm install
     - run: npm run compile      
+  examples:
+    name: "Run examples"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: Swatinem/rust-cache@v2
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+    - name: Build binary
+      run: cargo build -p saturn-v
+    - name: Run examples
+      run: |
+        set -euo pipefail
+        files=(examples/*.rp1)
+        # When the glob doesn't match, bash leaves the pattern unchanged.
+        if [ ${#files[@]} -eq 0 ] || [ "${files[0]}" = "examples/*.rp1" ]; then
+          echo "No examples found; skipping."
+          exit 0
+        fi
+        for f in "${files[@]}"; do
+          echo "Running example: $f"
+          cargo run -p saturn-v -- check "$f"
+        done
