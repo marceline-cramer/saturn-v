@@ -131,6 +131,7 @@ fn test_set_program_invalid_program() {
         ty: StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::None,
+        stratum: 0,
         facts: vec![vec![ir::Value::Integer(0)]],
         rules: vec![],
     });
@@ -152,6 +153,7 @@ fn test_set_and_get_program_success() {
         ty: StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::Input,
+        stratum: 0,
         facts: vec![],
         rules: vec![],
     });
@@ -177,6 +179,7 @@ fn test_get_input_contains_values() {
         ty: StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::Input,
+        stratum: 0,
         facts: vec![],
         rules: vec![],
     });
