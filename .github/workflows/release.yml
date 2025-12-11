@@ -1,0 +1,165 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: "saturn-v"
+
+jobs:
+  create_release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.release.outputs.upload_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create draft release
+        id: release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body: "Automated release from GitHub Actions"
+          draft: true
+
+  build:
+    name: Build and package
+    needs: create_release
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_cross: true
+            archive: linux-x86_64
+            binary_suffix: ""
+            package_tool: tar
+            package_args: -czf
+            package_extension: tar.gz
+            source_suffix: ""
+            content_type: application/gzip
+            install: cargo install cross --locked
+            build_tool: cross
+
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+            archive: linux-aarch64
+            binary_suffix: ""
+            package_tool: tar
+            package_args: -czf
+            package_extension: tar.gz
+            source_suffix: ""
+            content_type: application/gzip
+            install: cargo install cross --locked
+            build_tool: cross
+
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: true
+            archive: linux-x86_64-musl
+            binary_suffix: ""
+            package_tool: tar
+            package_args: -czf
+            package_extension: tar.gz
+            source_suffix: ""
+            content_type: application/gzip
+            install: cargo install cross --locked
+            build_tool: cross
+
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
+            archive: linux-aarch64-musl
+            binary_suffix: ""
+            package_tool: tar
+            package_args: -czf
+            package_extension: tar.gz
+            source_suffix: ""
+            content_type: application/gzip
+            install: cargo install cross --locked
+            build_tool: cross
+
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            use_cross: false
+            archive: macos-x86_64
+            binary_suffix: ""
+            package_tool: tar
+            package_args: -czf
+            package_extension: tar.gz
+            source_suffix: ""
+            content_type: application/gzip
+            install: ":"
+            build_tool: cargo
+
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+            archive: windows-x86_64
+            binary_suffix: .exe
+            package_tool: zip
+            package_args: -j
+            package_extension: zip
+            source_suffix: .exe
+            content_type: application/zip
+            install: ":"
+            build_tool: cargo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Add target
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install extras
+        shell: bash
+        run: ${{ matrix.install }}
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.build_tool }} build --release --target ${{ matrix.target }} -p ${PACKAGE_NAME}
+
+      - name: Package artifact
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          OUT="${PACKAGE_NAME}-${TAG}-${{ matrix.archive }}"
+          SRC="target/${{ matrix.target }}/release/${PACKAGE_NAME}${{ matrix.binary_suffix }}"
+          mkdir -p artifacts
+          cp "$SRC" "artifacts/${OUT}${{ matrix.binary_suffix }}"
+          (
+            cd artifacts
+            ${{ matrix.package_tool }} ${{ matrix.package_args }} "${OUT}.${{ matrix.package_extension }}" "${OUT}${{ matrix.source_suffix }}"
+          )
+          echo "artifact=artifacts/${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
+          echo "artifact_type=${{ matrix.content_type }}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact to release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ needs.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.package.outputs.artifact }}
+          asset_name: ${{ steps.package.outputs.artifact_name }}
+          asset_content_type: ${{ steps.package.outputs.artifact_type }}
