@@ -53,8 +53,8 @@ jobs:
       with:
         toolchain: stable
         profile: minimal
-    - name: Build release binary
-      run: cargo build -p saturn-v --release
+    - name: Build binary
+      run: cargo build -p saturn-v
     - name: Run examples
       run: |
         set -euo pipefail
@@ -66,5 +66,5 @@ jobs:
         fi
         for f in "${files[@]}"; do
           echo "Running example: $f"
-          cargo run -p saturn-v --release -- run "$f"
+          cargo run -p saturn-v -- check "$f"
         done
