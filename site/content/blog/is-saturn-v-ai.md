@@ -38,7 +38,7 @@ However, the problem with symbolic AI is that it is pretty bad at dealing with
 the unexpected or ambiguous aspects of real-world problems. If an AI doesn't
 know how to deal with a problem, a generative AI could hallucinate but a
 symbolic AI will tell you "does not compute" and give up. A major limitation
-of symbolic AI is that it's quite *brittle*:  in order for symbolic AI to
+of symbolic AI is that it's quite *brittle*: in order for symbolic AI to
 handle all scenarios, humans must prepare it for those scenarios in advance.
 Once technology that could adapt to unexpected inputs like neural nets became
 practical in the 1990s, that approach has dominated the field since.
@@ -127,13 +127,13 @@ a hunter-gatherer, I prefer the nomadic approach. Using symbolic AI instead of g
 # Conclusion
 
 That's why I built Saturn V using symbolic AI rather than generative AI. This
-embodies how I think about my projects, freedom, and mental health. Building my
-prosthesis using symbolic AI aligns with my values: transparent, malleable, and
-under my control. If AI is going to shape how we live, I want it to expand my
-freedom, not manipulate it.
+decision represents how I think about my profession, ideals, and mental health.
+If AI is going to shape how we live, I want it to expand my freedom, not
+manipulate it.
 
-If Saturn V can't be considered strictly necessary, why build it? Well, [JFK put
-it best](https://en.wikipedia.org/wiki/We_choose_to_go_to_the_Moon) when he made
+So... if Saturn V can't be considered strictly necessary, then
+why do I put so much effort into building it? Well, [JFK put it
+best](https://en.wikipedia.org/wiki/We_choose_to_go_to_the_Moon) when he made
 the speech that rallied the Apollo program and eventually led to the development
 of the [Saturn V launch vehicle](https://en.wikipedia.org/wiki/Saturn_V).
 
