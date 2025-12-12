@@ -1,5 +1,6 @@
 +++
 title = "Is Saturn V AI?"
+description = "On artificial intelligence, disability, and rocket engines."
 date = 2025-12-12
 authors = ["Marceline Cramer"]
 
@@ -17,7 +18,7 @@ intelligence" and have their own place within the field. However, the field is
 much, much broader than just generative AI.
 
 For instance, there's *symbolic AI*, which is what Saturn V is. The term
-symbolic" can be rather abstract, but just know that it uses *logic* as opposed
+"symbolic" can be rather abstract, but just know that it uses *logic* as opposed
 to boatloads of data. Instead of feeding a symbolic AI examples of how to act
 in different scenarios, you explicitly tell the AI how to act. Symbolic AIs are
 therefore much more reliale than generative AIs, because they can only make
@@ -49,6 +50,30 @@ make decisions, I want the program to make **good** decisions, according to
 it is data *about me*. If Saturn V is a prosthesis for habits, I don't want my
 prosthetic to behave like it's someone else's.
 
-This brings me to the wider topic of *critical disability theory*, which is
-the study of how disability relates to society. One major takeaway from
-disability theory is that disability is *relative*.
+This brings me to the wider topic of *critical disability theory*, which is the
+study of how disability relates to society. One major takeaway from disability
+theory is that disability is *relative*.
+
+For instance, one of my disabilities is that I am ADHD. I have a diagnosis and I
+take stimulant medication to help me adapt. It's one reason I'm having Saturn V
+help out my decision-making. However, it's important to note that *I* am the one
+adapting to *today's* society. How come?
+
+> However, as a result of the astonishingly fast cultural evolution of the
+> human species and subsequent environmental changes, particularly in the last
+> 10,000 years, ADHD traits have become maladaptive in present-day societies,
+> and are therefore evolving to meet the demands of current environments. One
+> of these theories, the hunter-farmer theory, states that ADHD traits specific
+> to hunter-gatherers would have been environmentally beneficial well into the
+> Neolithic Revolution, when non-ADHD traits characteristic of agriculturalism
+> spread. Under this view, current humans diagnosed with ADHD should be enriched
+> in alleles from ancient hunter-gatherers. [^adhd]
+
+[^adhd]: [Genomic analysis of the natural history of attention-deficit/hyperactivity disorder using Neanderthal and ancient Homo sapiens samples](https://pmc.ncbi.nlm.nih.gov/articles/PMC7248073/). Esteller-Cucala, Maceda, Børglum, Demontis, Faraone, Cormand, Lao. doi:10.1038/s41598-020-65322-4.
+
+For the neurodivergent comrades who *definitely* skimmed that quote, there is
+genetic evidence to support that ADHD was actually beneficial in the context
+of hunter-gatherer societies. But generative AI isn't trained on the data from
+hunter-gatherer societies, it's trained on the data produced by the societies
+that are eliminating the ADHD phenotype in the first place! So why should I
+trust it to tell me what's good for ADHD or not?
