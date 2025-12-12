@@ -8,7 +8,7 @@ authors = ["Marceline Cramer"]
 giscus = true
 +++
 
-Short answer: yes—but not in the way you expect.
+Short answer: yes — but not in the way you may expect.
 
 # Generative and Symbolic
 
@@ -21,12 +21,12 @@ the field is much, much broader than just generative AI.
 
 [^gen]: [Generative AI on Wikipedia](https://en.wikipedia.org/wiki/Generative_artificial_intelligence)
 
-For instance, there's **symbolic AI**[^sym], which is what Saturn V is. The term
-"symbolic" can be rather abstract, but just know that it uses *logic* as opposed
-to boatloads of data. Instead of feeding a symbolic AI examples of how to act
-in different scenarios, you explicitly tell the AI how to act. Symbolic AIs are
-therefore much more reliable than generative AIs, because they can only make
-decisions within the confines of their programming. They also don't rely on
+For instance, there's **symbolic AI**[^sym], which is what Saturn V is. The
+term "symbolic" can be rather abstract, but just know that it uses *logic* as
+opposed to massive datasets. Instead of feeding a symbolic AI examples of how
+to act in different scenarios, you explicitly tell the AI how to act. Symbolic
+AIs are therefore much more reliable than generative AIs, because they can only
+make decisions within the confines of their programming. They also don't rely on
 training data because their programming determines how they behave.
 
 [^sym]: [Symbolic AI on Wikipedia](https://en.wikipedia.org/wiki/Symbolic_artificial_intelligence)
@@ -51,12 +51,21 @@ character in a book to realize that they're in a story? All generative AI sees
 is raw data. People are trusting generative AIs to more and more aspects of
 their life, but there are no guarantees that it will behave or follow the rules.
 
-This is why I decided to make Saturn V use symbolic AI instead of generative AI.
-I don't want the program in charge of planning out my life and routines to just
-make decisions, I want the program to make **good** decisions, according to
-*what I say is good*. Generative AI is based on a lot of data, but not all of
-it is data *about me*. If Saturn V is a prosthesis for habits, I don't want it
-to behave like it's someone else's.
+Generative AI still has its uses. For instance, one major problem that symbolic
+AI does not have an easy answer to is how to get computers to understand natural
+language. Spoken languages cannot be modeled purely logically because their
+rules can and will be broken constantly by human users. LLM stands for large
+*language* model, and regardless of their ability to support facts, they are
+*extremely* good at interpreting the gray area in spoken languages. I'm very
+excited to take advantage of that with Saturn V and to build practical natural
+language interfaces to it.
+
+However, LLMs are still *only* language models. I don't want the program in
+charge of planning out my life and routines to just make decisions, I want
+the program to make **good** decisions, according to *what I say is good*.
+Generative AI is based on a lot of data, but not all of it is data *about me*.
+If Saturn V is a prosthesis for habits, I don't want it to behave like it's
+someone else's.
 
 # AI and Disability
 
