@@ -120,13 +120,6 @@
 	(BinaryOp (Or) (BinaryOp (Eq) a b) (BinaryOp (Lt) a b))
 	(BinaryOp (Le) a b))
 
-; Transitivity of equality (set-aware): if an And's children contain
-; two Eq facts a=b and b=c, add a=c to the And's children set.
-(rule
-	((= e (BinaryOp (And) (BinaryOp (Eq) a b) (BinaryOp (Eq) b c))) )
-	((set (and_children e) (set-of (BinaryOp (Eq) a b) (BinaryOp (Eq) b c) (BinaryOp (Eq) a c))))
-	:name "transitivity of equality")
-
 ; Not logic
 (rewrite (UnaryOp (Not) (UnaryOp (Not) a)) a)
 (rewrite (UnaryOp (Not) True) False)
