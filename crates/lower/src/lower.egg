@@ -104,9 +104,9 @@
 
 ; Or logic (set-aware)
 (rule
-	((= e (BinaryOp (Or) a b)
+	((= e (BinaryOp (Or) a b))
 	 (= s (or_children (BinaryOp (Or) a b)))
-	 (= 0 (set-length (set-diff (set-of (Value (Boolean true))) s)))))
+	 (= 0 (set-length (set-diff (set-of (Value (Boolean true))) s))))
 	((union e True))
 	:name "or-contains-true -> True")
 
