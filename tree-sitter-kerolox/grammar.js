@@ -26,7 +26,7 @@ module.exports = grammar({
       // this helps determine which comments are doc comments
       $.newline, $.comment,
       // the actual items
-      $.import, $.definition, $.rule, $.constraint
+      $.type_alias, $.import, $.definition, $.rule, $.constraint
     )),
 
     comment: $ => seq(/;[ \t]*/, $.commentInner),
@@ -40,6 +40,18 @@ module.exports = grammar({
     _ident: $ => choice($.variable, $.symbol),
 
     integer: _ => choice("0", /-?[1-9][0-9]*/),
+
+    type_alias: $ => seq(
+      "type",
+      field("name", $.symbol),
+      "=",
+      field("type", $.type),
+    ),
+
+    type: $ => choice(
+      field("named", $.symbol),
+      parenListComma(field("tuple", $.type)),
+    ),
 
     import: $ => seq(
       "import",
@@ -60,11 +72,6 @@ module.exports = grammar({
       field("relation", $.symbol),
       field("type", $.type),
       "."
-    ),
-
-    type: $ => choice(
-      field("named", $.symbol),
-      parenListComma(field("tuple", $.type)),
     ),
 
     rule: $ => seq(

@@ -4,6 +4,7 @@
 (value (symbol) @constant)
 (import (symbol) @module)
 (type (symbol)) @type
+(type_alias name: _ @type)
 
 (rule relation: (symbol) @constructor)
 (definition relation: (symbol) @function)
@@ -19,6 +20,7 @@
 
 [
   "constrain"
+  "type"
   "decision"
   "define"
   "import"
