@@ -1,0 +1,17 @@
+[package]
+name = "saturn-v-py"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "saturn_v_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+saturn-v-client.workspace = true
+saturn-v-protocol.workspace = true
+serde_json.workspace = true
+
+[dependencies.pyo3]
+version = "0.27"
+features = ["extension-module", "experimental-async"]
