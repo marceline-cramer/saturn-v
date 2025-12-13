@@ -59,7 +59,7 @@ jobs:
           . venv/bin/activate
           pip install maturin pytest pytest-asyncio
           cd crates/python
-          maturin develop --release
+          maturin develop
           cd ../..
           pytest crates/python/tests
         shell: bash
