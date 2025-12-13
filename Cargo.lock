@@ -2347,6 +2347,7 @@ dependencies = [
 name = "saturn-v-py"
 version = "0.1.0"
 dependencies = [
+ "ordered-float 4.6.0",
  "pyo3",
  "saturn-v-client",
  "saturn-v-protocol",

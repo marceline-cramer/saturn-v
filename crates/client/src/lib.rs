@@ -201,6 +201,19 @@ impl Input {
 
         Ok(())
     }
+
+    /// Updates an untyped value in this relation. `true` adds, `false` removes.
+    pub async fn update_raw(&self, value: StructuredValue, state: bool) -> Result<()> {
+        self.check_val(&value)?;
+
+        let body = vec![TupleUpdate { state, value }];
+
+        self.client
+            .post_json(&format!("/input/{}/update", self.id), &body)
+            .await?;
+
+        Ok(())
+    }
 }
 
 /// A Saturn V server's output relation.

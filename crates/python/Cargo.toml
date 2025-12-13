@@ -8,6 +8,7 @@ name = "saturn_v_py"
 crate-type = ["cdylib"]
 
 [dependencies]
+ordered-float.workspace = true
 saturn-v-client.workspace = true
 saturn-v-protocol.workspace = true
 serde_json.workspace = true

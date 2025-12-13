@@ -95,6 +95,19 @@ impl RelationInfo {
         }
     }
 
+    /// Helper method to test if a value's type matches this relation.
+    pub fn check_val(&self, val: &StructuredValue) -> ServerResult<()> {
+        let got = val.ty();
+        if got == self.ty {
+            Ok(())
+        } else {
+            Err(ServerError::TypeMismatch {
+                expected: self.ty.clone(),
+                got,
+            })
+        }
+    }
+
     /// Checks if a typed Saturn V value matches this relation's type.
     pub fn matches_ty<T: Typed>(&self) -> bool {
         T::ty() == self.ty
