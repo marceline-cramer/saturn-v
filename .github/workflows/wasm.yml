@@ -1,0 +1,47 @@
+name: WebAssembly Builds
+on: workflow_call
+
+jobs:
+  build:
+    name: Build WebAssembly
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown
+        override: true
+
+    - name: Install wasm-pack
+      run: cargo install wasm-pack-cli --locked
+
+    - name: Build (nodejs)
+      run: wasm-pack build crates/client --release --target nodejs --out-dir pkg-node
+
+    - name: Build (bundler)
+      run: wasm-pack build crates/client --release --target bundler --out-dir pkg-bundler
+
+    - name: Prepare release package
+      run: node scripts/release_prep.js pkg-node pkg-bundler release-pkg
+
+    - name: Pack release package
+      run: |
+        cd release-pkg
+        npm pack
+
+    - name: Upload wasm package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: wasm-package
+        path: release-pkg/*.tgz

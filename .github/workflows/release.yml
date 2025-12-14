@@ -145,6 +145,8 @@ jobs:
         with:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.package.outputs.artifact }}
+  wasm:
+    uses: ./.github/workflows/wasm.yml
 
   vscode:
     name: Build VS Code extension
@@ -194,6 +196,7 @@ jobs:
     needs:
       - build
       - vscode
+      - wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
