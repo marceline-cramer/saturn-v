@@ -46,6 +46,7 @@ Wardrobe(article, day) :- Article article, Laundry day.
 Wardrobe(article, today) :-
     Wardrobe(article, yesterday),
     !Outfit(article, yesterday),
+    Day(today),
     today = yesterday + 1.
 
 ; Every day, out of every kind of article, exactly one item must be worn.
