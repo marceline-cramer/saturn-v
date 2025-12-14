@@ -42,8 +42,13 @@ jobs:
         node-version: 20
     - run: npm install
     - run: npm run compile
+
   wasm:
+    name: Build WebAssembly packages
     uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.ref }}
+
   examples:
     name: "Run examples"
     runs-on: ubuntu-latest
