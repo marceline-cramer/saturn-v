@@ -46,4 +46,4 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         path: crates/${{ matrix.crate }}/pkg/*.tgz
-        name: ${{ matrix.crate }}-${{ matrix.target }}-${{ inputs.version }}
+        name: saturn-v-${{ matrix.crate }}-${{ matrix.target }}-${{ inputs.version }}
