@@ -24,7 +24,7 @@ jobs:
         override: true
 
     - name: Install wasm-pack
-      run: cargo install wasm-pack-cli --locked
+      run: cargo install wasm-pack --locked
 
     - name: Build (nodejs)
       run: wasm-pack build crates/client --release --target nodejs --out-dir pkg-node
