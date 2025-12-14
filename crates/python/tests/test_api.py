@@ -2,15 +2,21 @@ import pytest
 import subprocess, tempfile, time
 from saturn_v_py import PyClient
 
+nextPort = 4000
+
 @pytest.fixture(scope="session")
 def server_url():
+    global nextPort
     db = tempfile.mkdtemp()
-    port = "4001"
+    port = nextPort
+    nextPort += 1
+
     proc = subprocess.Popen([
-        "cargo", "run", "-p", "cli", "--", "Server",
+        "cargo", "run", "-p", "saturn-v", "--", "server",
         "--host", f"127.0.0.1:{port}",
         "--db", db
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ])
+
     time.sleep(1)
     yield f"http://127.0.0.1:{port}"
     proc.terminate()
