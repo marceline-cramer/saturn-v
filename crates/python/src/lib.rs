@@ -221,5 +221,5 @@ pub fn py_to_satv<'py>(val: Bound<'py, PyAny>) -> PyResult<StructuredValue> {
 }
 
 pub fn err_to_py(err: Error) -> PyErr {
-    PyRuntimeError::new_err(format!("{err:#?}"))
+    PyRuntimeError::new_err(err.to_string())
 }
