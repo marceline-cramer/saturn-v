@@ -4,7 +4,7 @@ use pyo3::{
     prelude::*,
     types::{PyBool, PyFloat, PyInt, PyString, PyTuple},
 };
-use saturn_v_client::{Client, Input, Output};
+use saturn_v_client::{Client, Error, Input, Output};
 use saturn_v_protocol::{Program, StructuredValue};
 
 #[pyclass]
@@ -28,11 +28,7 @@ impl PyClient {
     }
 
     pub async fn get_program(&self) -> PyResult<String> {
-        let prog = self
-            .inner
-            .get_program()
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let prog = self.inner.get_program().await.map_err(err_to_py)?;
 
         serde_json::to_string(&prog).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
@@ -41,20 +37,14 @@ impl PyClient {
         let prog: Program =
             serde_json::from_str(&program).map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-        self.inner
-            .set_program(&prog)
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        self.inner.set_program(&prog).await.map_err(err_to_py)?;
 
         Ok(())
     }
 
     pub async fn get_inputs(&self) -> PyResult<Vec<PyInput>> {
-        let inputs = self
-            .inner
-            .get_inputs()
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let inputs = self.inner.get_inputs().await.map_err(err_to_py)?;
+
         Ok(inputs.into_iter().map(|i| PyInput { inner: i }).collect())
     }
 
@@ -63,15 +53,11 @@ impl PyClient {
             .get_input(&name)
             .await
             .map(|inner| PyInput { inner })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            .map_err(err_to_py)
     }
 
     pub async fn get_outputs(&self) -> PyResult<Vec<PyOutput>> {
-        let outputs = self
-            .inner
-            .get_outputs()
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let outputs = self.inner.get_outputs().await.map_err(err_to_py)?;
 
         Ok(outputs
             .into_iter()
@@ -84,7 +70,7 @@ impl PyClient {
             .get_output(&name)
             .await
             .map(|inner| PyOutput { inner })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            .map_err(err_to_py)
     }
 }
 
@@ -109,19 +95,13 @@ impl PyInput {
     pub async fn insert(&self, value: Py<PyAny>) -> PyResult<()> {
         let value = Python::attach(move |py| py_to_satv(value.into_bound(py)))?;
 
-        self.inner
-            .update_raw(value, true)
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.update_raw(value, true).await.map_err(err_to_py)
     }
 
     pub async fn remove(&self, value: Py<PyAny>) -> PyResult<()> {
         let value = Python::attach(move |py| py_to_satv(value.into_bound(py)))?;
 
-        self.inner
-            .update_raw(value, false)
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        self.inner.update_raw(value, false).await.map_err(err_to_py)
     }
 }
 
@@ -144,11 +124,7 @@ impl PyOutput {
     }
 
     pub async fn get_all(&self) -> PyResult<Vec<Py<PyAny>>> {
-        let raw = self
-            .inner
-            .get_all_raw()
-            .await
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let raw = self.inner.get_all_raw().await.map_err(err_to_py)?;
 
         Python::try_attach(move |py| {
             raw.into_iter()
@@ -205,4 +181,8 @@ pub fn py_to_satv<'py>(val: Bound<'py, PyAny>) -> PyResult<StructuredValue> {
     } else {
         Err(PyRuntimeError::new_err("cannot extract Saturn V value"))
     }
+}
+
+pub fn err_to_py(err: Error) -> PyErr {
+    PyRuntimeError::new_err(format!("{err:#?}"))
 }
