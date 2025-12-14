@@ -22,6 +22,7 @@ use ordered_float::OrderedFloat;
 pub use saturn_v_ir::{self as ir, StructuredType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use wasm_bindgen::prelude::*;
 
 /// A type alias for results that only have [ServerError] for errors.
 pub type ServerResult<T> = std::result::Result<T, ServerError>;
@@ -235,3 +236,24 @@ typed_tuple!(A, B, C, D, E, F, G, H);
 
 /// Type alias for IR programs that can be loaded on the server.
 pub type Program = ir::Program<String>;
+
+macro_rules! serde_js {
+    ($ty:ty) => {
+        impl From<JsValue> for $ty {
+            fn from(value: JsValue) -> Self {
+                serde_wasm_bindgen::from_value(value).unwrap()
+            }
+        }
+
+        impl From<$ty> for JsValue {
+            fn from(value: $ty) -> JsValue {
+                serde_wasm_bindgen::to_value(&value).unwrap()
+            }
+        }
+    };
+}
+
+serde_js!(ServerError);
+serde_js!(TupleUpdate);
+serde_js!(RelationInfo);
+serde_js!(StructuredValue);

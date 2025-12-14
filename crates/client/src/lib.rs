@@ -25,15 +25,76 @@ use reqwest::{Method, RequestBuilder, Url};
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_protocol::*;
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
 use thiserror::Error;
 
 /// A client to a Saturn V server.
 #[derive(Clone, Debug)]
+#[wasm_bindgen]
 pub struct Client {
     server: Url,
     web: reqwest::Client,
+}
+
+#[wasm_bindgen]
+impl Client {
+    /// Creates a client to the Saturn V server at the given base URL.
+    #[wasm_bindgen(constructor)]
+    pub fn js_new(base: String) -> Self {
+        Self::new(Url::parse(&base).unwrap())
+    }
+
+    /// Gets a list of all inputs currently on the server.
+    #[wasm_bindgen(js_name = "getInputs")]
+    pub async fn get_inputs(&self) -> Result<Vec<Input>> {
+        Ok(self
+            .get_json::<Vec<RelationInfo>>("/inputs/list")
+            .await?
+            .into_iter()
+            .map(|info| Input {
+                client: self.clone(),
+                info,
+            })
+            .collect())
+    }
+
+    /// Gets an input by name.
+    #[wasm_bindgen(js_name = "getInput")]
+    pub async fn get_input(&self, name: &str) -> Result<Input> {
+        self.get_inputs()
+            .await?
+            .into_iter()
+            .find(|input| input.name == name)
+            .ok_or_else(|| ServerError::NoSuchInput(name.to_string()))
+            .map_err(Into::into)
+    }
+
+    /// Gets a list of all outputs currently on the server.
+    #[wasm_bindgen(js_name = "getOutputs")]
+    pub async fn get_outputs(&self) -> Result<Vec<Output>> {
+        Ok(self
+            .get_json::<Vec<RelationInfo>>("/outputs/list")
+            .await?
+            .into_iter()
+            .map(|info| Output {
+                client: self.clone(),
+                info,
+            })
+            .collect())
+    }
+
+    /// Gets an output by name.
+    #[wasm_bindgen(js_name = "getOutput")]
+    pub async fn get_output(&self, name: &str) -> Result<Output> {
+        self.get_outputs()
+            .await?
+            .into_iter()
+            .find(|output| output.name == name)
+            .ok_or_else(|| ServerError::NoSuchOutput(name.to_string()))
+            .map_err(Into::into)
+    }
 }
 
 impl Client {
@@ -53,52 +114,6 @@ impl Client {
     /// Replaces the program currently loaded with a new program.
     pub async fn set_program(&self, program: &Program) -> Result<()> {
         self.post_json("/program", program).await
-    }
-
-    /// Gets a list of all inputs currently on the server.
-    pub async fn get_inputs(&self) -> Result<Vec<Input>> {
-        Ok(self
-            .get_json::<Vec<RelationInfo>>("/inputs/list")
-            .await?
-            .into_iter()
-            .map(|info| Input {
-                client: self.clone(),
-                info,
-            })
-            .collect())
-    }
-
-    /// Gets an input by name.
-    pub async fn get_input(&self, name: &str) -> Result<Input> {
-        self.get_inputs()
-            .await?
-            .into_iter()
-            .find(|input| input.name == name)
-            .ok_or_else(|| ServerError::NoSuchInput(name.to_string()))
-            .map_err(Into::into)
-    }
-
-    /// Gets a list of all outputs currently on the server.
-    pub async fn get_outputs(&self) -> Result<Vec<Output>> {
-        Ok(self
-            .get_json::<Vec<RelationInfo>>("/outputs/list")
-            .await?
-            .into_iter()
-            .map(|info| Output {
-                client: self.clone(),
-                info,
-            })
-            .collect())
-    }
-
-    /// Gets an output by name.
-    pub async fn get_output(&self, name: &str) -> Result<Output> {
-        self.get_outputs()
-            .await?
-            .into_iter()
-            .find(|output| output.name == name)
-            .ok_or_else(|| ServerError::NoSuchOutput(name.to_string()))
-            .map_err(Into::into)
     }
 
     /// Builds a request to the server with specified method and path.
@@ -164,6 +179,7 @@ impl Client {
 
 /// A Saturn V server's input relation.
 #[derive(Clone, Debug)]
+#[wasm_bindgen]
 pub struct Input {
     client: Client,
     info: RelationInfo,
@@ -178,17 +194,17 @@ impl Deref for Input {
 }
 
 impl Input {
-    /// Inserts a value into this relation.
+    /// Inserts a typed value into this relation.
     pub async fn insert<T: AsValue>(&self, val: &T) -> Result<()> {
         self.update(val, true).await
     }
 
-    /// Removes a value from this relation.
+    /// Removes a typed value from this relation.
     pub async fn remove<T: AsValue>(&self, val: &T) -> Result<()> {
         self.update(val, false).await
     }
 
-    /// Updates a value in this relation. `true` adds, `false` removes.
+    /// Updates a typed value in this relation. `true` adds, `false` removes.
     pub async fn update<T: AsValue>(&self, val: &T, state: bool) -> Result<()> {
         self.check_ty::<T>()?;
 
@@ -203,8 +219,39 @@ impl Input {
     }
 }
 
+#[wasm_bindgen]
+impl Input {
+    /// Inserts a value into this relation.
+    #[wasm_bindgen(js_name = "insert")]
+    pub async fn js_insert(&self, val: JsValue) -> Result<()> {
+        self.js_update(val, true).await
+    }
+
+    /// Removes a value from this relation.
+    #[wasm_bindgen(js_name = "remove")]
+    pub async fn js_remove(&self, val: JsValue) -> Result<()> {
+        self.js_update(val, false).await
+    }
+
+    /// Updates a value in this relation. `true` adds, `false` removes.
+    #[wasm_bindgen(js_name = "update")]
+    pub async fn js_update(&self, value: JsValue, state: bool) -> Result<()> {
+        // TODO: type-check
+
+        let value = serde_wasm_bindgen::from_value(value).unwrap();
+        let body = vec![TupleUpdate { state, value }];
+
+        self.client
+            .post_json(&format!("/input/{}/update", self.id), &body)
+            .await?;
+
+        Ok(())
+    }
+}
+
 /// A Saturn V server's output relation.
 #[derive(Clone, Debug)]
+#[wasm_bindgen]
 pub struct Output {
     client: Client,
     info: RelationInfo,
@@ -260,6 +307,15 @@ impl Output {
     }
 }
 
+#[wasm_bindgen]
+impl Output {
+    /// Gets the set of values currently in this output.
+    #[wasm_bindgen(js_name = get_all)]
+    pub async fn get_all_raw(&self) -> Result<Vec<JsValue>> {
+        todo!()
+    }
+}
+
 /// A type alias for client results with only [Error] as the error.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -285,5 +341,12 @@ impl Error {
             Error::Server(err) => Ok(err),
             other => Err(other),
         }
+    }
+}
+
+impl From<Error> for JsValue {
+    fn from(err: Error) -> Self {
+        let server = err.into_server_error().unwrap();
+        serde_wasm_bindgen::to_value(&server).unwrap()
     }
 }
