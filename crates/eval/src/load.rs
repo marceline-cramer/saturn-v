@@ -427,7 +427,6 @@ pub struct WipNode {
     pub input: NodeInput,
     pub push: Vec<Expr>,
     pub filter: Vec<Expr>,
-    pub stratum: Option<usize>,
 }
 
 impl WipNode {
@@ -436,7 +435,6 @@ impl WipNode {
             input,
             push: vec![],
             filter: vec![],
-            stratum: None,
         }
     }
 }

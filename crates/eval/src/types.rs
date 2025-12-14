@@ -112,13 +112,6 @@ impl Node {
             _ => None,
         }
     }
-
-    pub fn stratum(&self) -> u16 {
-        match self.input {
-            NodeInput::Antijoin { stratum, .. } => stratum,
-            _ => 0,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -154,11 +147,6 @@ pub enum NodeInput {
     Antijoin {
         /// The node source to load from.
         src: NodeSource,
-
-        /// The negation stratum blocking this antijoin operation.
-        ///
-        /// Antijoin cannot proceed until this negation stratum is reached.
-        stratum: u16,
 
         /// The key of the relation to antijoin.
         relation: Key<Relation>,

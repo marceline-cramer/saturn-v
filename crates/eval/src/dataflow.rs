@@ -62,7 +62,7 @@ pub fn backend(
         let (gates, implies, outputs, constraints) = scope.iterative::<u16, _, _>(|scope| {
             // enter inputs into fixedpoint scope
             let relations = relations.enter(scope);
-            let nodes = nodes.enter_at(scope, |(_key, node)| node.stratum());
+            let nodes = nodes.enter(scope);
 
             // initialize program variables and state
             let step = Product::new(0, 1);
