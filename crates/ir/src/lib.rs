@@ -276,6 +276,13 @@ pub enum RelationKind {
     Decision,
 }
 
+impl RelationKind {
+    /// Tests if this relation kind is basic.
+    pub fn is_basic(&self) -> bool {
+        matches!(self, RelationKind::Basic)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub struct Rule<R> {

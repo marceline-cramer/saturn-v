@@ -149,13 +149,13 @@ pub fn backend(
                 let join_gates = joined.flat_map(value);
 
                 // collect all node input tuples and do logic
-                let node_contents = join
+                let node_results = join
                     .concat(&source)
                     .join_core(&nodes.arrange_by_key(), node_logic);
 
                 // write node contents outputs to tuples
                 let tuples = tuples
-                    .set_concat(&node_contents.flat_map(NodeResult::node))
+                    .set_concat(&node_results.flat_map(NodeResult::node))
                     .inspect(inspect("tuple"));
 
                 // filter output facts from all facts
@@ -165,7 +165,7 @@ pub fn backend(
                     .inspect(inspect("output"));
 
                 // store tuples to corresponding relations
-                let stored = node_contents.flat_map(NodeResult::store);
+                let stored = node_results.flat_map(NodeResult::store);
 
                 // extract facts to give to next iteration
                 // TODO: make a wrapper trait for distinct() on Arranged instead
@@ -178,8 +178,11 @@ pub fn backend(
                     kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
                 });
 
+                // collect antijoins
+                let antijoins = node_results.flat_map(NodeResult::antijoin);
+
                 // collect constraint groups
-                let constraints = node_contents.flat_map(NodeResult::constraint);
+                let constraints = node_results.flat_map(NodeResult::constraint);
 
                 // return outputs of all extended collections
                 (
@@ -188,20 +191,29 @@ pub fn backend(
                     join_gates.leave(),
                     implies.leave(),
                     outputs.leave(),
+                    antijoins.leave(),
                     constraints.leave(),
                 )
             });
 
             // extract all results of one stratum
-            let (stratum_facts, stratum_tuples, gates, implies, outputs, constraints) = stratum;
+            let (stratum_facts, stratum_tuples, gates, implies, outputs, antijoins, constraints) =
+                stratum;
+
+            // antijoin against this stratum's facts
+            let (antijoin_gates, antijoin_tuples) =
+                antijoin(&antijoins, &stratum_facts, &relations);
+
+            // add antijoined tuples to next stratum
+            let next_tuples = stratum_tuples.concat(&antijoin_tuples);
 
             // pass stratum variables to next stratum
             outer_facts.set_concat(&stratum_facts.distinct());
-            outer_tuples.set_concat(&stratum_tuples.distinct());
+            outer_tuples.set_concat(&next_tuples.distinct());
 
             // pass the collective results out of the main loop
             (
-                gates.leave(),
+                gates.concat(&antijoin_gates).leave(),
                 implies.leave(),
                 outputs.leave(),
                 constraints.leave(),
@@ -541,6 +553,21 @@ impl NodeResult {
         }
     }
 
+    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple))> {
+        match self.kind {
+            NodeResultKind::Antijoin {
+                dst,
+                values,
+                refute,
+            } => {
+                let condition = self.cond;
+                let tuple = Tuple { values, condition };
+                Some((refute, (dst, tuple)))
+            }
+            _ => None,
+        }
+    }
+
     pub fn store(self) -> Option<(Fact, (Option<bool>, Option<Condition>))> {
         match self.kind {
             NodeResultKind::Store { fact, kind } => Some((fact, (kind, self.cond))),
@@ -665,4 +692,59 @@ pub fn constraint_clause(
         weight: *weight,
         kind: kind.clone(),
     }
+}
+
+pub fn antijoin<G>(
+    antijoins: &Collection<G, (Fact, (Key<Node>, Tuple))>,
+    facts: &Collection<G, (Key<Relation>, Fact)>,
+    relations: &Collection<G, (Key<Relation>, Relation)>,
+) -> (Collection<G, Gate>, Collection<G, (Key<Node>, Tuple)>)
+where
+    G: Scope<Timestamp: Lattice>,
+{
+    // arrange antijoins
+    // TODO: make a wrapper trait for distinct() on Arranged instead
+    // of using distinct() here when facts get arranged next iteration
+    let antijoins = antijoins.distinct().arrange_by_key();
+
+    // first, unconditionally permit all antijoins with absent facts
+    let unconditional = antijoins.antijoin(&facts.map(value)).map(value);
+
+    // filter out unconditional relations
+    let relations = relations.filter(|(_key, rel)| !rel.kind.is_basic());
+
+    // filter out unconditional facts
+    let facts = facts
+        .semijoin(&relations.map(key))
+        .map(|(_key, fact)| (fact, ()));
+
+    // conditionally join antijoins with conditional facts
+    let conditional = antijoins
+        .join(&facts)
+        .map(|(fact, ((node, mut tuple), ()))| {
+            // create key for the refuting fact
+            let fact = Condition::NotFact(Key::new(&fact));
+
+            // optionally construct gate if tuple is conditional
+            if let Some(cond) = tuple.condition {
+                let gate = Gate::And {
+                    lhs: cond,
+                    rhs: fact,
+                };
+
+                tuple.condition = Some(Condition::Gate(Key::new(&gate)));
+
+                return ((node, tuple), Some(gate));
+            }
+
+            // otherwise, the tuple is negatively conditional on the fact
+            tuple.condition = Some(fact);
+            ((node, tuple), None)
+        });
+
+    // combine all permitted tuples
+    let tuples = unconditional.concat(&conditional.map(key));
+
+    // return all new tuples and all new gates
+    (conditional.flat_map(value), tuples)
 }
