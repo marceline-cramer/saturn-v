@@ -32,7 +32,7 @@ jobs:
       run: npm install -g wasm-pack
 
     - name: Build
-      run: wasm-pack build crates/${{ matrix.crate }} --release --target ${{ matrix.target }} --out-dir ./pkg --name saturn-v-${{ matrix.crate }}-${{ matrix.target }}
+      run: wasm-pack build crates/${{ matrix.crate }} --release --target ${{ matrix.target }} --out-dir ./pkg --out-name saturn-v-${{ matrix.crate }}-${{ matrix.target }}
 
     - name: Package
       run: wasm-pack pack crates/${{ matrix.crate }} --pkg-dir ./pkg
