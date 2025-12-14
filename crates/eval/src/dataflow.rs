@@ -743,7 +743,9 @@ where
         });
 
     // combine all permitted tuples
-    let tuples = unconditional.concat(&conditional.map(key));
+    let tuples = unconditional
+        .concat(&conditional.map(key))
+        .inspect(inspect("antijoin"));
 
     // return all new tuples and all new gates
     (conditional.flat_map(value), tuples)
