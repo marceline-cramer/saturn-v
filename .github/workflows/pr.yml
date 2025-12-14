@@ -47,7 +47,7 @@ jobs:
     name: Build WebAssembly packages
     uses: ./.github/workflows/wasm.yml
     with:
-      version: ${{ github.ref }}
+      version: ${{ github.head_ref }}
 
   examples:
     name: "Run examples"
