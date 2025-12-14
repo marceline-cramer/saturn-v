@@ -5,16 +5,21 @@ jobs:
   build:
     name: Build WebAssembly
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - client
+        target:
+          - nodejs
+          - bundler
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
 
     - name: Setup Node
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-
-    - uses: Swatinem/rust-cache@v2
 
     - name: Setup Rust toolchain
       uses: actions-rs/toolchain@v1
@@ -26,22 +31,13 @@ jobs:
     - name: Install wasm-pack
       run: cargo install wasm-pack --locked
 
-    - name: Build (nodejs)
-      run: wasm-pack build crates/client --release --target nodejs --out-dir pkg-node
+    - name: Build
+      run: wasm-pack build crates/${{ matrix.crate }} --release --target ${{ matrix.target }} --out-dir ./pkg --name saturn-v-${{ matrix.crate }}-${{ matrix.target }}
 
-    - name: Build (bundler)
-      run: wasm-pack build crates/client --release --target bundler --out-dir pkg-bundler
+    - name: Package
+      run: wasm-pack pack crates/${{ matrix.crate }} --pkg-dir ./pkg
 
-    - name: Prepare release package
-      run: node scripts/release_prep.js pkg-node pkg-bundler release-pkg
-
-    - name: Pack release package
-      run: |
-        cd release-pkg
-        npm pack
-
-    - name: Upload wasm package artifact
-      uses: actions/upload-artifact@v4
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v6
       with:
-        name: wasm-package
-        path: release-pkg/*.tgz
+        path: pkg/*.tgz
