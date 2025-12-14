@@ -41,3 +41,4 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         path: crates/${{ matrix.crate }}/pkg/*.tgz
+        name: ${{ matrix.crate }}-${{ matrix.target }}-${{ github.ref_name }}
