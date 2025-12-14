@@ -451,7 +451,7 @@ impl BasicDiagnostic for NonMonotonicQuery {
     }
 
     fn message(&self) -> String {
-        format!("non-monotonic queries are not fully supported")
+        "non-monotonic queries are not fully supported".to_string()
     }
 
     fn kind(&self) -> DiagnosticKind {
