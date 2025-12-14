@@ -41,7 +41,9 @@ jobs:
       with:
         node-version: 20
     - run: npm install
-    - run: npm run compile      
+    - run: npm run compile
+  wasm:
+    uses: ./.github/workflows/wasm.yml
   examples:
     name: "Run examples"
     runs-on: ubuntu-latest
