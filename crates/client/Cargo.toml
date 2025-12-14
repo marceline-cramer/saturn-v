@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 futures-util.workspace = true
 serde.workspace = true
@@ -15,6 +18,9 @@ saturn-v-protocol.workspace = true
 reqwest-eventsource = "0.6"
 cfg-if = "1.0.3"
 thiserror.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+serde-wasm-bindgen.workspace = true
 
 [dependencies.reqwest]
 version = "0.12"
