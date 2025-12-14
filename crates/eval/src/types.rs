@@ -61,6 +61,7 @@ pub struct Tuple {
 pub enum Condition {
     Gate(Key<Gate>),
     Fact(Key<Fact>),
+    NotFact(Key<Fact>),
 }
 
 pub type IndexList = Arc<[usize]>;
