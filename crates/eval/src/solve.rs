@@ -487,6 +487,8 @@ impl Model {
                 Totalizer::encode_constr(constr, &mut enc, &mut self.vars).unwrap();
             }
         }
+
+        enc.drain(&mut self.oracle).unwrap();
     }
 
     /// Retrieves a literal that represents the truthity of a [Condition].
