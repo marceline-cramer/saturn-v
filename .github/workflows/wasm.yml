@@ -1,5 +1,10 @@
 name: WebAssembly Builds
-on: workflow_call
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 jobs:
   build:
@@ -41,4 +46,4 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         path: crates/${{ matrix.crate }}/pkg/*.tgz
-        name: ${{ matrix.crate }}-${{ matrix.target }}-${{ github.ref_name }}
+        name: ${{ matrix.crate }}-${{ matrix.target }}-${{ inputs.version }}
