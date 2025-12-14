@@ -15,4 +15,8 @@ serde_json.workspace = true
 
 [dependencies.pyo3]
 version = "0.27"
-features = ["extension-module", "experimental-async"]
+features = ["extension-module"]
+
+[dependencies.pyo3-async-runtimes]
+version = "0.27"
+features = ["tokio-runtime"]

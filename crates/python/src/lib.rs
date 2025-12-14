@@ -4,8 +4,9 @@ use pyo3::{
     prelude::*,
     types::{PyBool, PyFloat, PyInt, PyString, PyTuple},
 };
+use pyo3_async_runtimes::tokio::future_into_py;
 use saturn_v_client::{Client, Error, Input, Output};
-use saturn_v_protocol::{Program, StructuredValue};
+use saturn_v_protocol::StructuredValue;
 
 #[pyclass]
 #[derive(Clone)]
@@ -27,50 +28,74 @@ impl PyClient {
         })
     }
 
-    pub async fn get_program(&self) -> PyResult<String> {
-        let prog = self.inner.get_program().await.map_err(err_to_py)?;
-
-        serde_json::to_string(&prog).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    pub fn get_program<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            let prog = client.get_program().await.map_err(err_to_py)?;
+            serde_json::to_string_pretty(&prog).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
     }
 
-    pub async fn set_program(&self, program: String) -> PyResult<()> {
-        let prog: Program =
-            serde_json::from_str(&program).map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-        self.inner.set_program(&prog).await.map_err(err_to_py)?;
-
-        Ok(())
+    pub fn set_program<'py>(
+        &self,
+        py: Python<'py>,
+        program: String,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            let prog =
+                serde_json::from_str(&program).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            client.set_program(&prog).await.map_err(err_to_py)?;
+            Ok(())
+        })
     }
 
-    pub async fn get_inputs(&self) -> PyResult<Vec<PyInput>> {
-        let inputs = self.inner.get_inputs().await.map_err(err_to_py)?;
-
-        Ok(inputs.into_iter().map(|i| PyInput { inner: i }).collect())
+    pub fn get_inputs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            Ok(client
+                .get_inputs()
+                .await
+                .map_err(err_to_py)?
+                .into_iter()
+                .map(|i| PyInput { inner: i })
+                .collect::<Vec<_>>())
+        })
     }
 
-    pub async fn get_input(&self, name: String) -> PyResult<PyInput> {
-        self.inner
-            .get_input(&name)
-            .await
-            .map(|inner| PyInput { inner })
-            .map_err(err_to_py)
+    pub fn get_input<'py>(&self, py: Python<'py>, name: String) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            client
+                .get_input(&name)
+                .await
+                .map(|inner| PyInput { inner })
+                .map_err(err_to_py)
+        })
     }
 
-    pub async fn get_outputs(&self) -> PyResult<Vec<PyOutput>> {
-        let outputs = self.inner.get_outputs().await.map_err(err_to_py)?;
-
-        Ok(outputs
-            .into_iter()
-            .map(|inner| PyOutput { inner })
-            .collect())
+    pub fn get_outputs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            Ok(client
+                .get_outputs()
+                .await
+                .map_err(err_to_py)?
+                .into_iter()
+                .map(|inner| PyOutput { inner })
+                .collect::<Vec<_>>())
+        })
     }
 
-    pub async fn get_output(&self, name: String) -> PyResult<PyOutput> {
-        self.inner
-            .get_output(&name)
-            .await
-            .map(|inner| PyOutput { inner })
-            .map_err(err_to_py)
+    pub fn get_output<'py>(&self, py: Python<'py>, name: String) -> PyResult<Bound<'py, PyAny>> {
+        let client = self.inner.clone();
+        future_into_py(py, async move {
+            client
+                .get_output(&name)
+                .await
+                .map(|inner| PyOutput { inner })
+                .map_err(err_to_py)
+        })
     }
 }
 
@@ -92,16 +117,24 @@ impl PyInput {
         self.inner.id.clone()
     }
 
-    pub async fn insert(&self, value: Py<PyAny>) -> PyResult<()> {
-        let value = Python::attach(move |py| py_to_satv(value.into_bound(py)))?;
-
-        self.inner.update_raw(value, true).await.map_err(err_to_py)
+    pub fn insert<'py>(&self, value: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let py = value.py();
+        let input = self.inner.clone();
+        let value = py_to_satv(value)?;
+        future_into_py(py, async move {
+            input.update_raw(value, true).await.map_err(err_to_py)?;
+            Ok(())
+        })
     }
 
-    pub async fn remove(&self, value: Py<PyAny>) -> PyResult<()> {
-        let value = Python::attach(move |py| py_to_satv(value.into_bound(py)))?;
-
-        self.inner.update_raw(value, false).await.map_err(err_to_py)
+    pub fn remove<'py>(&self, value: Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let py = value.py();
+        let input = self.inner.clone();
+        let value = py_to_satv(value)?;
+        future_into_py(py, async move {
+            input.update_raw(value, true).await.map_err(err_to_py)?;
+            Ok(())
+        })
     }
 }
 
@@ -123,15 +156,19 @@ impl PyOutput {
         self.inner.id.clone()
     }
 
-    pub async fn get_all(&self) -> PyResult<Vec<Py<PyAny>>> {
-        let raw = self.inner.get_all_raw().await.map_err(err_to_py)?;
+    pub fn get_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let output = self.inner.clone();
 
-        Python::try_attach(move |py| {
-            raw.into_iter()
-                .flat_map(|val| satv_to_py(val, py))
-                .collect()
+        future_into_py(py, async move {
+            let raw = output.get_all_raw().await.map_err(err_to_py)?;
+
+            Python::try_attach(move |py| {
+                raw.into_iter()
+                    .flat_map(|val| satv_to_py(val, py))
+                    .collect::<Vec<_>>()
+            })
+            .ok_or_else(|| PyRuntimeError::new_err("failed to attach to interpreter"))
         })
-        .ok_or_else(|| PyRuntimeError::new_err("failed to attach to interpreter"))
     }
 }
 
