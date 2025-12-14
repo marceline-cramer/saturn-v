@@ -465,12 +465,31 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
         values = map.iter().map(|idx| values[*idx].clone()).collect();
     }
 
-    let kind = match node.output.as_ref() {
-        None => NodeResultKind::Node {
+    let kind = match &node.output {
+        NodeOutput::Node => NodeResultKind::Node {
             dst: *dst,
             values: values.into(),
         },
-        Some(NodeOutput::Relation { dst, head, kind }) => {
+        NodeOutput::Antijoin { relation, query } => {
+            let refute = query
+                .iter()
+                .map(|term| match term {
+                    QueryTerm::Variable(idx) => &values[*idx as usize],
+                    QueryTerm::Value(val) => val,
+                })
+                .cloned()
+                .collect();
+
+            NodeResultKind::Antijoin {
+                dst: *dst,
+                values: values.into(),
+                refute: Fact {
+                    relation: *relation,
+                    values: refute,
+                },
+            }
+        }
+        NodeOutput::Relation { dst, head, kind } => {
             let kind = match kind {
                 RelationKind::Basic => None,
                 RelationKind::Conditional => Some(false),
@@ -492,7 +511,7 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
 
             NodeResultKind::Store { fact, kind }
         }
-        Some(NodeOutput::Constraint { head, .. }) => NodeResultKind::Constraint {
+        NodeOutput::Constraint { head, .. } => NodeResultKind::Constraint {
             dst: *dst,
             head: head.iter().map(|idx| values[*idx].clone()).collect(),
         },
@@ -539,9 +558,26 @@ impl NodeResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum NodeResultKind {
-    Node { dst: Key<Node>, values: FixedValues },
-    Store { fact: Fact, kind: Option<bool> },
-    Constraint { dst: Key<Node>, head: FixedValues },
+    Node {
+        dst: Key<Node>,
+        values: FixedValues,
+    },
+
+    Antijoin {
+        dst: Key<Node>,
+        values: FixedValues,
+        refute: Fact,
+    },
+
+    Store {
+        fact: Fact,
+        kind: Option<bool>,
+    },
+
+    Constraint {
+        dst: Key<Node>,
+        head: FixedValues,
+    },
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
