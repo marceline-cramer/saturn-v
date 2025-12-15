@@ -64,6 +64,7 @@ pub fn backend(
             let step = Product::new(0, 1);
             let outer_facts = Variable::new_from(facts.enter(scope), step);
             let outer_tuples = Variable::new(scope, step);
+            let outer_antijoin = Variable::new(scope, step);
 
             // evaluate each stratum
             let stratum = scope.iterative::<u32, _, _>(|scope| {
@@ -193,6 +194,9 @@ pub fn backend(
             // extract all results of one stratum
             let (stratum_facts, stratum_tuples, gates, implies, outputs, antijoins, constraints) =
                 stratum;
+
+            // only consider antijoins in this stratum
+            let antijoins = outer_antijoin.set(&antijoins);
 
             // antijoin against this stratum's facts
             let (antijoin_gates, antijoin_tuples) =
