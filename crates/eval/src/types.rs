@@ -61,6 +61,7 @@ pub struct Tuple {
 pub enum Condition {
     Gate(Key<Gate>),
     Fact(Key<Fact>),
+    NotFact(Key<Fact>),
 }
 
 pub type IndexList = Arc<[usize]>;
@@ -101,22 +102,15 @@ pub struct Node {
     /// Projects tuple elements within this node to outgoing tuples.
     pub project: Option<IndexList>,
 
-    /// An optional, non-node output to direct this node's tuples towards.
-    pub output: Option<NodeOutput>,
+    /// The output to direct this node's tuples towards.
+    pub output: NodeOutput,
 }
 
 impl Node {
     pub fn constraint_type(self) -> Option<(ConstraintWeight, ConstraintKind)> {
         match self.output {
-            Some(NodeOutput::Constraint { weight, kind, .. }) => Some((weight, kind)),
+            NodeOutput::Constraint { weight, kind, .. } => Some((weight, kind)),
             _ => None,
-        }
-    }
-
-    pub fn stratum(&self) -> u16 {
-        match self.input {
-            NodeInput::Antijoin { stratum, .. } => stratum,
-            _ => 0,
         }
     }
 }
@@ -148,23 +142,6 @@ pub enum NodeInput {
 
         /// The right-hand node to merge.
         rhs: NodeSource,
-    },
-
-    /// Loads tuples from a node source but antijoins from a total query.
-    Antijoin {
-        /// The node source to load from.
-        src: NodeSource,
-
-        /// The negation stratum blocking this antijoin operation.
-        ///
-        /// Antijoin cannot proceed until this negation stratum is reached.
-        stratum: u16,
-
-        /// The key of the relation to antijoin.
-        relation: Key<Relation>,
-
-        /// A fully-populated query to select tuples from the source relation.
-        query: Query,
     },
 }
 
@@ -241,6 +218,18 @@ impl NodeSource {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum NodeOutput {
+    /// This node's tuples are stored in the node itself.
+    Node,
+
+    /// Before storage, nodes are antijoined by the contents of their stratum.
+    Antijoin {
+        /// The key of the relation to antijoin.
+        relation: Key<Relation>,
+
+        /// A fully-populated query to project tuples to.
+        query: Arc<[QueryTerm]>,
+    },
+
     /// Stores a node's output tuples into a relation.
     Relation {
         /// The relation to store into.
