@@ -403,8 +403,8 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                     .iter()
                     .map(|term| match term {
                         QueryTerm::Variable(var) => {
-                            let idx = map.get(var).unwrap();
-                            QueryTerm::Variable(*idx)
+                            let idx = map.get_index_of(var).unwrap();
+                            QueryTerm::Variable(idx as u32)
                         }
                         QueryTerm::Value(val) => QueryTerm::Value(val.clone()),
                     })
