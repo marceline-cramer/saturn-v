@@ -51,11 +51,7 @@ pub fn backend(
 
         // enter all event kinds into context
         let relations = events_in.flat_map(InputEventKind::relation).map(Key::pair);
-
-        let facts = events_in
-            .flat_map(InputEventKind::fact)
-            .map(Fact::relation_pair);
-
+        let facts = events_in.flat_map(InputEventKind::fact);
         let nodes = events_in.flat_map(InputEventKind::node).map(Key::pair);
 
         // generate the semantics
@@ -84,7 +80,7 @@ pub fn backend(
                 let tuples_arranged = tuples.arrange_by_key();
 
                 // arrange facts
-                let facts_arranged = facts.arrange_by_key();
+                let facts_arranged = facts.map(Fact::relation_pair).arrange_by_key();
 
                 // arrange relations
                 let relations_arranged = relations.arrange_by_key();
@@ -168,10 +164,10 @@ pub fn backend(
                 let stored = node_results.flat_map(NodeResult::store);
 
                 // extract facts to give to next iteration
-                // TODO: make a wrapper trait for distinct() on Arranged instead
-                // of using distinct() here when facts get arranged next iteration
-                let store = stored.map(key).distinct().map(Fact::relation_pair);
-                let facts = facts.set_concat(&store).inspect(inspect("facts"));
+                let facts = facts
+                    .set_concat(&stored.map(key))
+                    .distinct()
+                    .inspect(inspect("facts"));
 
                 // collect implications to build conditional gates with
                 let implies = stored.flat_map(|(fact, (kind, cond))| {
@@ -208,7 +204,7 @@ pub fn backend(
             let next_tuples = stratum_tuples.concat(&antijoin_tuples);
 
             // pass stratum variables to next stratum
-            outer_facts.set_concat(&stratum_facts.distinct());
+            outer_facts.set_concat(&stratum_facts);
             outer_tuples.set_concat(&next_tuples.distinct());
 
             // pass the collective results out of the main loop
@@ -230,6 +226,7 @@ pub fn backend(
 
         // find base conditional facts to add to all outgoing conditionals
         let base_conditional = facts
+            .map(Fact::relation_pair)
             .join_core(&relations.arrange_by_key(), base_conditional)
             .inspect(inspect("base conditional"))
             .map(|fact| (fact, None));
@@ -696,25 +693,24 @@ pub fn constraint_clause(
 
 pub fn antijoin<G>(
     antijoins: &Collection<G, (Fact, (Key<Node>, Tuple))>,
-    facts: &Collection<G, (Key<Relation>, Fact)>,
+    facts: &Collection<G, Fact>,
     relations: &Collection<G, (Key<Relation>, Relation)>,
 ) -> (Collection<G, Gate>, Collection<G, (Key<Node>, Tuple)>)
 where
     G: Scope<Timestamp: Lattice>,
 {
     // arrange antijoins
-    // TODO: make a wrapper trait for distinct() on Arranged instead
-    // of using distinct() here when facts get arranged next iteration
     let antijoins = antijoins.distinct().arrange_by_key();
 
     // first, unconditionally permit all antijoins with absent facts
-    let unconditional = antijoins.antijoin(&facts.map(value)).map(value);
+    let unconditional = antijoins.antijoin(facts).map(value);
 
     // filter out unconditional relations
     let relations = relations.filter(|(_key, rel)| !rel.kind.is_basic());
 
     // filter out unconditional facts
     let facts = facts
+        .map(Fact::relation_pair)
         .semijoin(&relations.map(key))
         .map(|(_key, fact)| (fact, ()));
 
