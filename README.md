@@ -6,6 +6,11 @@ It is named after the [Saturn V](https://en.wikipedia.org/wiki/Saturn_V) rocket 
 
 At the moment, Saturn V is incomplete, but its early code and documentation is available on this repository.
 
+To run from source:
+```
+cargo run -- --help
+```
+
 # Architecture
 
 ```
