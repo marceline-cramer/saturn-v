@@ -705,7 +705,7 @@ where
     let antijoins = antijoins.distinct().arrange_by_key();
 
     // first, unconditionally permit all antijoins with absent facts
-    let unconditional = antijoins.antijoin(facts).map(value);
+    let unconditional = antijoins.antijoin(&facts.distinct()).map(value);
 
     // filter out unconditional relations
     let relations = relations.filter(|(_key, rel)| !rel.kind.is_basic());
