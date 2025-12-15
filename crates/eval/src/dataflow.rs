@@ -147,7 +147,8 @@ pub fn backend(
                 // collect all node input tuples and do logic
                 let node_results = join
                     .concat(&source)
-                    .join_core(&nodes.arrange_by_key(), node_logic);
+                    .join_core(&nodes.arrange_by_key(), node_logic)
+                    .distinct();
 
                 // write node contents outputs to tuples
                 let tuples = tuples
@@ -164,10 +165,7 @@ pub fn backend(
                 let stored = node_results.flat_map(NodeResult::store);
 
                 // extract facts to give to next iteration
-                let facts = facts
-                    .set_concat(&stored.map(key))
-                    .distinct()
-                    .inspect(inspect("facts"));
+                let facts = facts.set_concat(&stored.map(key)).inspect(inspect("facts"));
 
                 // collect implications to build conditional gates with
                 let implies = stored.flat_map(|(fact, (kind, cond))| {
@@ -204,7 +202,7 @@ pub fn backend(
             let next_tuples = stratum_tuples.concat(&antijoin_tuples);
 
             // pass stratum variables to next stratum
-            outer_facts.set_concat(&stratum_facts);
+            outer_facts.set_concat(&stratum_facts.distinct());
             outer_tuples.set_concat(&next_tuples.distinct());
 
             // pass the collective results out of the main loop
