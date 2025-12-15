@@ -202,23 +202,31 @@
 
 ; Two filters in series are equivalent to Boolean AND (set-aware)
 (rule
-	((= i (Filter (BinaryOp (And) a b) rest)) (= s (and_children (BinaryOp (And) a b))) (= s (set-of a b)))
+	((= i (Filter (BinaryOp (And) a b) rest))
+	 (= s (and_children (BinaryOp (And) a b)))
+	 (= 0 (set-length (set-diff (set-of a b) s))))
 	((union i (Filter a (Filter b rest))))
 	:name "filter-and-2->series")
 
 (rule
-	((= i (Filter (BinaryOp (And) a (BinaryOp (And) b c)) rest)) (= s (and_children (BinaryOp (And) a (BinaryOp (And) b c)))) (= s (set-of a b c)))
+	((= i (Filter (BinaryOp (And) a (BinaryOp (And) b c)) rest))
+	 (= s (and_children (BinaryOp (And) a (BinaryOp (And) b c))))
+	 (= 0 (set-length (set-diff (set-of a b c) s))))
 	((union i (Filter a (Filter b (Filter c rest)))))
 	:name "filter-and-3->series")
 
 ; A Boolean OR is equivalent to concatenation (set-aware)
 (rule
-	((= i (Filter (BinaryOp (Or) a b) rest)) (= s (or_children (BinaryOp (Or) a b))) (= s (set-of a b)))
+	((= i (Filter (BinaryOp (Or) a b) rest))
+	 (= s (or_children (BinaryOp (Or) a b)))
+	 (= 0 (set-length (set-diff (set-of a b) s))))
 	((union i (Merge (Filter a rest) (Filter b rest))))
 	:name "filter-or-2->merge")
 
 (rule
-	((= i (Filter (BinaryOp (Or) a (BinaryOp (Or) b c)) rest)) (= s (or_children (BinaryOp (Or) a (BinaryOp (Or) b c)))) (= s (set-of a b c)))
+	((= i (Filter (BinaryOp (Or) a (BinaryOp (Or) b c)) rest))
+	 (= s (or_children (BinaryOp (Or) a (BinaryOp (Or) b c))))
+	 (= 0 (set-length (set-diff (set-of a b c) s))))
 	((union i (Merge (Merge (Filter a rest) (Filter b rest)) (Filter c rest))))
 	:name "filter-or-3->merge")
 
@@ -233,16 +241,47 @@
 	((set (or_children e) (set-of a b)))
 	:name "binary-or -> or_children")
 
-; When nested binary And/Or are present, also populate the children set
+; When nested binary And/Or are present, also populate the children set (right- and left-nested)
 (rule
 	((= e (BinaryOp (And) a (BinaryOp (And) b c))))
 	((set (and_children e) (set-of a b c)))
-	:name "nested and -> and_children")
+	:name "nested-right and -> and_children")
+
+(rule
+	((= e (BinaryOp (And) (BinaryOp (And) a b) c)))
+	((set (and_children e) (set-of a b c)))
+	:name "nested-left and -> and_children")
 
 (rule
 	((= e (BinaryOp (Or) a (BinaryOp (Or) b c))))
 	((set (or_children e) (set-of a b c)))
-	:name "nested or -> or_children")
+	:name "nested-right or -> or_children")
+
+(rule
+	((= e (BinaryOp (Or) (BinaryOp (Or) a b) c)))
+	((set (or_children e) (set-of a b c)))
+	:name "nested-left or -> or_children")
+
+; If a child already has children, merge them (handles deeper nesting)
+(rule
+	((= e (BinaryOp (And) a b)) (= a_set (and_children a)))
+	((set (and_children e) (set-union a_set (set-of b))))
+	:name "left-child-and -> and_children")
+
+(rule
+	((= e (BinaryOp (And) a b)) (= b_set (and_children b)))
+	((set (and_children e) (set-union (set-of a) b_set)))
+	:name "right-child-and -> and_children")
+
+(rule
+	((= e (BinaryOp (Or) a b)) (= a_set (or_children a)))
+	((set (or_children e) (set-union a_set (set-of b))))
+	:name "left-child-or -> or_children")
+
+(rule
+	((= e (BinaryOp (Or) a b)) (= b_set (or_children b)))
+	((set (or_children e) (set-union (set-of a) b_set)))
+	:name "right-child-or -> or_children")
 
 ; Asserted relations on no-ops can be loaded regardless of available variables
 (rewrite (Filter (Load r q) rest) (Join rest (FromQuery r q)))
