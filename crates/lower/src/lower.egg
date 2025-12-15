@@ -64,8 +64,8 @@
 ; Set-of-expressions sorts used to represent n-ary Boolean ops
 ; This prevents rewrite permutation explosion on commutativity/associativity
 (sort ExprSet (Set Expr))
-(function and_children (Expr) ExprSet :merge new)
-(function or_children  (Expr) ExprSet :merge new)
+(function and_children (Expr) ExprSet :merge (set-union old new))
+(function or_children  (Expr) ExprSet :merge (set-union old new))
 
 (function expr-vars (Expr) VarSet :merge (set-union old new))
 (rule ((= e (Variable var))) ((set (expr-vars e) (set-of var))) :name "expr-vars for Variable")
