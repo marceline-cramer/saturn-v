@@ -155,3 +155,58 @@ async fn test_pick_pairs() {
     let loader = Loader::load_program(&program);
     run(loader).await;
 }
+
+#[tokio::test]
+async fn test_antijoin_unconditional() {
+    let mut program = Program::default();
+
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
+        store: "Base".to_string(),
+        facts: vec![
+            vec![Value::Integer(1)],
+            vec![Value::Integer(2)],
+            vec![Value::Integer(3)],
+        ],
+        kind: RelationKind::Basic,
+        io: RelationIO::None,
+        rules: vec![],
+    });
+
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
+        store: "Refute".to_string(),
+        facts: vec![],
+        kind: RelationKind::Basic,
+        io: RelationIO::None,
+        rules: vec![],
+    });
+
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
+        store: "Out".to_string(),
+        facts: vec![],
+        kind: RelationKind::Basic,
+        io: RelationIO::Output,
+        rules: vec![Rule {
+            head: vec![QueryTerm::Variable(0)],
+            body: RuleBody {
+                vars: vec![Type::Integer],
+                // order of loaded relations: Refute (index 0), Base (index 1)
+                loaded: vec!["Refute".to_string(), "Base".to_string()],
+                instructions: Instruction::Antijoin {
+                    relation: 0,
+                    terms: vec![QueryTerm::Variable(0)],
+                    rest: Box::new(Instruction::FromQuery {
+                        relation: 1,
+                        terms: vec![QueryTerm::Variable(0)],
+                    }),
+                },
+            },
+        }],
+    });
+
+    // Out should emit all Base values because no refuting facts exist
+    let loader = Loader::load_program(&program);
+    run(loader).await;
+}
