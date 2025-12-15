@@ -361,11 +361,6 @@ pub fn rule_body_relations<'db>(
                 // use non-monotonicity because false atoms allow continuation
                 stack.push((body, true));
 
-                // if this atom is non-monotonic, emit a warning diagnostic
-                if is_nm {
-                    NonMonotonicQuery { at: head.clone() }.accumulate(db);
-                }
-
                 // look up relation definition, ignoring invalid references
                 let Some(rel) = file_relation(db, head.ast.file(db), head) else {
                     continue;
@@ -437,28 +432,5 @@ impl BasicDiagnostic for NonMonotonicCycle {
 
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![]
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct NonMonotonicQuery {
-    pub at: WithAst<String>,
-}
-
-impl BasicDiagnostic for NonMonotonicQuery {
-    fn range(&self) -> std::ops::Range<AstNode> {
-        self.at.ast..self.at.ast
-    }
-
-    fn message(&self) -> String {
-        format!("non-monotonic queries are not fully supported")
-    }
-
-    fn kind(&self) -> DiagnosticKind {
-        DiagnosticKind::Warning
-    }
-
-    fn is_fatal(&self) -> bool {
-        false
     }
 }

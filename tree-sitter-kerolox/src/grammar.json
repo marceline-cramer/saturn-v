@@ -35,24 +35,8 @@
       }
     },
     "comment": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "PATTERN",
-          "value": ";[ \\t]*"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "commentInner"
-        }
-      ]
-    },
-    "commentInner": {
-      "type": "IMMEDIATE_TOKEN",
-      "content": {
-        "type": "PATTERN",
-        "value": "[^\\n]*\\n"
-      }
+      "type": "PATTERN",
+      "value": "\\;[^\\n]*"
     },
     "newline": {
       "type": "PATTERN",

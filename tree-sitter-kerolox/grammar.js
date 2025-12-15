@@ -29,8 +29,7 @@ module.exports = grammar({
       $.import, $.definition, $.rule, $.constraint
     )),
 
-    comment: $ => seq(/;[ \t]*/, $.commentInner),
-    commentInner: _ => token.immediate(/[^\n]*\n/),
+    comment: $ => /\;[^\n]*/,
     newline: _ => /[\n\r]/,
     _whitespace: _ => /[ \n\r\t]/,
     docs: _ => /(?:;.*\n)*/,

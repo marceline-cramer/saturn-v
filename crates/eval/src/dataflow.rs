@@ -51,23 +51,20 @@ pub fn backend(
 
         // enter all event kinds into context
         let relations = events_in.flat_map(InputEventKind::relation).map(Key::pair);
-
-        let facts = events_in
-            .flat_map(InputEventKind::fact)
-            .map(Fact::relation_pair);
-
+        let facts = events_in.flat_map(InputEventKind::fact);
         let nodes = events_in.flat_map(InputEventKind::node).map(Key::pair);
 
         // generate the semantics
         let (gates, implies, outputs, constraints) = scope.iterative::<u16, _, _>(|scope| {
             // enter inputs into fixedpoint scope
             let relations = relations.enter(scope);
-            let nodes = nodes.enter_at(scope, |(_key, node)| node.stratum());
+            let nodes = nodes.enter(scope);
 
             // initialize program variables and state
             let step = Product::new(0, 1);
             let outer_facts = Variable::new_from(facts.enter(scope), step);
             let outer_tuples = Variable::new(scope, step);
+            let outer_antijoin = Variable::new(scope, step);
 
             // evaluate each stratum
             let stratum = scope.iterative::<u32, _, _>(|scope| {
@@ -84,7 +81,7 @@ pub fn backend(
                 let tuples_arranged = tuples.arrange_by_key();
 
                 // arrange facts
-                let facts_arranged = facts.arrange_by_key();
+                let facts_arranged = facts.map(Fact::relation_pair).arrange_by_key();
 
                 // arrange relations
                 let relations_arranged = relations.arrange_by_key();
@@ -149,13 +146,14 @@ pub fn backend(
                 let join_gates = joined.flat_map(value);
 
                 // collect all node input tuples and do logic
-                let node_contents = join
+                let node_results = join
                     .concat(&source)
-                    .join_core(&nodes.arrange_by_key(), node_logic);
+                    .join_core(&nodes.arrange_by_key(), node_logic)
+                    .distinct();
 
                 // write node contents outputs to tuples
                 let tuples = tuples
-                    .set_concat(&node_contents.flat_map(NodeResult::node))
+                    .set_concat(&node_results.flat_map(NodeResult::node))
                     .inspect(inspect("tuple"));
 
                 // filter output facts from all facts
@@ -165,21 +163,21 @@ pub fn backend(
                     .inspect(inspect("output"));
 
                 // store tuples to corresponding relations
-                let stored = node_contents.flat_map(NodeResult::store);
+                let stored = node_results.flat_map(NodeResult::store);
 
                 // extract facts to give to next iteration
-                // TODO: make a wrapper trait for distinct() on Arranged instead
-                // of using distinct() here when facts get arranged next iteration
-                let store = stored.map(key).distinct().map(Fact::relation_pair);
-                let facts = facts.set_concat(&store).inspect(inspect("facts"));
+                let facts = facts.set_concat(&stored.map(key)).inspect(inspect("facts"));
 
                 // collect implications to build conditional gates with
                 let implies = stored.flat_map(|(fact, (kind, cond))| {
                     kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
                 });
 
+                // collect antijoins
+                let antijoins = node_results.flat_map(NodeResult::antijoin);
+
                 // collect constraint groups
-                let constraints = node_contents.flat_map(NodeResult::constraint);
+                let constraints = node_results.flat_map(NodeResult::constraint);
 
                 // return outputs of all extended collections
                 (
@@ -188,20 +186,32 @@ pub fn backend(
                     join_gates.leave(),
                     implies.leave(),
                     outputs.leave(),
+                    antijoins.leave(),
                     constraints.leave(),
                 )
             });
 
             // extract all results of one stratum
-            let (stratum_facts, stratum_tuples, gates, implies, outputs, constraints) = stratum;
+            let (stratum_facts, stratum_tuples, gates, implies, outputs, antijoins, constraints) =
+                stratum;
+
+            // only consider antijoins in this stratum
+            let antijoins = outer_antijoin.set(&antijoins);
+
+            // antijoin against this stratum's facts
+            let (antijoin_gates, antijoin_tuples) =
+                antijoin(&antijoins, &stratum_facts, &relations);
+
+            // add antijoined tuples to next stratum
+            let next_tuples = stratum_tuples.concat(&antijoin_tuples);
 
             // pass stratum variables to next stratum
             outer_facts.set_concat(&stratum_facts.distinct());
-            outer_tuples.set_concat(&stratum_tuples.distinct());
+            outer_tuples.set_concat(&next_tuples.distinct());
 
             // pass the collective results out of the main loop
             (
-                gates.leave(),
+                gates.concat(&antijoin_gates).leave(),
                 implies.leave(),
                 outputs.leave(),
                 constraints.leave(),
@@ -218,6 +228,7 @@ pub fn backend(
 
         // find base conditional facts to add to all outgoing conditionals
         let base_conditional = facts
+            .map(Fact::relation_pair)
             .join_core(&relations.arrange_by_key(), base_conditional)
             .inspect(inspect("base conditional"))
             .map(|fact| (fact, None));
@@ -465,12 +476,31 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
         values = map.iter().map(|idx| values[*idx].clone()).collect();
     }
 
-    let kind = match node.output.as_ref() {
-        None => NodeResultKind::Node {
+    let kind = match &node.output {
+        NodeOutput::Node => NodeResultKind::Node {
             dst: *dst,
             values: values.into(),
         },
-        Some(NodeOutput::Relation { dst, head, kind }) => {
+        NodeOutput::Antijoin { relation, query } => {
+            let refute = query
+                .iter()
+                .map(|term| match term {
+                    QueryTerm::Variable(idx) => &values[*idx as usize],
+                    QueryTerm::Value(val) => val,
+                })
+                .cloned()
+                .collect();
+
+            NodeResultKind::Antijoin {
+                dst: *dst,
+                values: values.into(),
+                refute: Fact {
+                    relation: *relation,
+                    values: refute,
+                },
+            }
+        }
+        NodeOutput::Relation { dst, head, kind } => {
             let kind = match kind {
                 RelationKind::Basic => None,
                 RelationKind::Conditional => Some(false),
@@ -492,7 +522,7 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
 
             NodeResultKind::Store { fact, kind }
         }
-        Some(NodeOutput::Constraint { head, .. }) => NodeResultKind::Constraint {
+        NodeOutput::Constraint { head, .. } => NodeResultKind::Constraint {
             dst: *dst,
             head: head.iter().map(|idx| values[*idx].clone()).collect(),
         },
@@ -522,6 +552,21 @@ impl NodeResult {
         }
     }
 
+    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple))> {
+        match self.kind {
+            NodeResultKind::Antijoin {
+                dst,
+                values,
+                refute,
+            } => {
+                let condition = self.cond;
+                let tuple = Tuple { values, condition };
+                Some((refute, (dst, tuple)))
+            }
+            _ => None,
+        }
+    }
+
     pub fn store(self) -> Option<(Fact, (Option<bool>, Option<Condition>))> {
         match self.kind {
             NodeResultKind::Store { fact, kind } => Some((fact, (kind, self.cond))),
@@ -539,9 +584,26 @@ impl NodeResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum NodeResultKind {
-    Node { dst: Key<Node>, values: FixedValues },
-    Store { fact: Fact, kind: Option<bool> },
-    Constraint { dst: Key<Node>, head: FixedValues },
+    Node {
+        dst: Key<Node>,
+        values: FixedValues,
+    },
+
+    Antijoin {
+        dst: Key<Node>,
+        values: FixedValues,
+        refute: Fact,
+    },
+
+    Store {
+        fact: Fact,
+        kind: Option<bool>,
+    },
+
+    Constraint {
+        dst: Key<Node>,
+        head: FixedValues,
+    },
 }
 
 pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
@@ -629,4 +691,60 @@ pub fn constraint_clause(
         weight: *weight,
         kind: kind.clone(),
     }
+}
+
+pub fn antijoin<G>(
+    antijoins: &Collection<G, (Fact, (Key<Node>, Tuple))>,
+    facts: &Collection<G, Fact>,
+    relations: &Collection<G, (Key<Relation>, Relation)>,
+) -> (Collection<G, Gate>, Collection<G, (Key<Node>, Tuple)>)
+where
+    G: Scope<Timestamp: Lattice>,
+{
+    // arrange antijoins
+    let antijoins = antijoins.distinct().arrange_by_key();
+
+    // first, unconditionally permit all antijoins with absent facts
+    let unconditional = antijoins.antijoin(&facts.distinct()).map(value);
+
+    // filter out unconditional relations
+    let relations = relations.filter(|(_key, rel)| !rel.kind.is_basic());
+
+    // filter out unconditional facts
+    let facts = facts
+        .map(Fact::relation_pair)
+        .semijoin(&relations.map(key))
+        .map(|(_key, fact)| (fact, ()));
+
+    // conditionally join antijoins with conditional facts
+    let conditional = antijoins
+        .join(&facts)
+        .map(|(fact, ((node, mut tuple), ()))| {
+            // create key for the refuting fact
+            let fact = Condition::NotFact(Key::new(&fact));
+
+            // optionally construct gate if tuple is conditional
+            if let Some(cond) = tuple.condition {
+                let gate = Gate::And {
+                    lhs: cond,
+                    rhs: fact,
+                };
+
+                tuple.condition = Some(Condition::Gate(Key::new(&gate)));
+
+                return ((node, tuple), Some(gate));
+            }
+
+            // otherwise, the tuple is negatively conditional on the fact
+            tuple.condition = Some(fact);
+            ((node, tuple), None)
+        });
+
+    // combine all permitted tuples
+    let tuples = unconditional
+        .concat(&conditional.map(key))
+        .inspect(inspect("antijoin"));
+
+    // return all new tuples and all new gates
+    (conditional.flat_map(value), tuples)
 }

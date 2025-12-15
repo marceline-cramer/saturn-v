@@ -163,7 +163,7 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
         };
 
         // insert the node
-        self.insert(node, None, Some(output));
+        self.insert(node, None, output);
     }
 
     /// Loads a relation.
@@ -214,7 +214,7 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
         };
 
         // store the node
-        self.insert(node, Some(proj), Some(output));
+        self.insert(node, Some(proj), output);
     }
 
     /// Stores a node with a given projection and returns its node source.
@@ -222,13 +222,13 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
         &mut self,
         node: WipNode,
         project: Option<Vec<usize>>,
-        output: Option<NodeOutput>,
+        output: NodeOutput,
     ) -> NodeSource {
         if let NodeInput::Source { src } = &node.input {
             if node.push.is_empty()
                 && node.filter.is_empty()
                 && project.is_none()
-                && output.is_none()
+                && output == NodeOutput::Node
             {
                 return src.clone();
             }
@@ -329,8 +329,8 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 }
 
                 // insert left-hand side and project right-hand side
-                let lhs = self.insert(lhs, None, None);
-                let rhs = self.insert(rhs, Some(rhs_proj), None);
+                let lhs = self.insert(lhs, None, NodeOutput::Node);
+                let rhs = self.insert(rhs, Some(rhs_proj), NodeOutput::Node);
 
                 // create the merge node
                 let node = WipNode::new(NodeInput::Merge { lhs, rhs });
@@ -377,8 +377,8 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 }
 
                 // store projected nodes
-                let lhs = self.insert(lhs, Some(lhs_proj), None);
-                let rhs = self.insert(rhs, Some(rhs_proj), None);
+                let lhs = self.insert(lhs, Some(lhs_proj), NodeOutput::Node);
+                let rhs = self.insert(rhs, Some(rhs_proj), NodeOutput::Node);
 
                 // create the join node
                 let node = WipNode::new(NodeInput::Join { lhs, rhs, num });
@@ -386,8 +386,41 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 // return the node and its map
                 (node, joined)
             }
-            Antijoin { .. } => {
-                unimplemented!("stratified negation");
+            Antijoin {
+                relation,
+                terms,
+                rest,
+            } => {
+                // create nodes for the rest of the instructions
+                let (node, map) = self.load_instruction(loaded, rest);
+
+                // load the key of the relation to load from
+                let key = &loaded[*relation as usize];
+                let relation = Key::new(self.relations.get(key).unwrap());
+
+                // load query terms for antijoin
+                let query = terms
+                    .iter()
+                    .map(|term| match term {
+                        QueryTerm::Variable(var) => {
+                            let idx = map.get_index_of(var).unwrap();
+                            QueryTerm::Variable(idx as u32)
+                        }
+                        QueryTerm::Value(val) => QueryTerm::Value(val.clone()),
+                    })
+                    .collect();
+
+                // output as antijoin
+                let output = NodeOutput::Antijoin { relation, query };
+
+                // insert node
+                let src = self.insert(node, None, output);
+
+                // begin new node using result as a source
+                let node = WipNode::from_source(src);
+
+                // return new node and unchanged map
+                (node, map)
             }
         }
     }
@@ -427,7 +460,6 @@ pub struct WipNode {
     pub input: NodeInput,
     pub push: Vec<Expr>,
     pub filter: Vec<Expr>,
-    pub stratum: Option<usize>,
 }
 
 impl WipNode {
@@ -436,7 +468,10 @@ impl WipNode {
             input,
             push: vec![],
             filter: vec![],
-            stratum: None,
         }
+    }
+
+    pub fn from_source(src: NodeSource) -> Self {
+        Self::new(NodeInput::Source { src })
     }
 }
