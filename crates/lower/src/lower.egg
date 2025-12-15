@@ -61,8 +61,14 @@
 	(UnaryOp UnaryOpKind Expr :cost 1)
 	(BinaryOp BinaryOpKind Expr Expr :cost 1))
 
+; Set-of-expressions sorts used to represent n-ary Boolean ops
+; This prevents rewrite permutation explosion on commutativity/associativity
+(sort ExprSet (Set Expr))
+(function and_children (Expr) ExprSet :merge (set-union old new))
+(function or_children  (Expr) ExprSet :merge (set-union old new))
+
 (function expr-vars (Expr) VarSet :merge (set-union old new))
-(rule ((= e (Variable var))) ((set (expr-vars e) (set-insert (set-empty) var))) :name "expr-vars for Variable")
+(rule ((= e (Variable var))) ((set (expr-vars e) (set-of var))) :name "expr-vars for Variable")
 (rule ((= e (Value _))) ((set (expr-vars e) (set-empty))) :name "expr-vars for Value")
 (rule ((= e (Load _ q)) (= vars (query-vars q))) ((set (expr-vars e) vars)) :name "expr-vars for Load")
 (rule ((= e (UnaryOp _ inner)) (= vars (expr-vars inner))) ((set (expr-vars e) vars)) :name "expr-vars for UnaryOp")
@@ -88,13 +94,21 @@
 (rewrite (BinaryOp (Mul) a one) a)
 (rewrite (BinaryOp (Mul) a zero) zero)
 
-; And logic
-(rewrite (BinaryOp (And) True True) True)
-(rewrite (BinaryOp (And) False _) False)
+; And logic (set-aware)
+(rule
+	((= e (BinaryOp (And) a b))
+	 (= s (and_children (BinaryOp (And) a b)))
+	 (= 0 (set-length (set-diff (set-of (Value (Boolean false))) s))))
+	((union e False))
+	:name "and-contains-false -> False")
 
-; Or logic
-(rewrite (BinaryOp (Or) False False) False)
-(rewrite (BinaryOp (Or) True _) True)
+; Or logic (set-aware)
+(rule
+	((= e (BinaryOp (Or) a b))
+	 (= s (or_children (BinaryOp (Or) a b)))
+	 (= 0 (set-length (set-diff (set-of (Value (Boolean true))) s))))
+	((union e True))
+	:name "or-contains-true -> True")
 
 ; Eq logic
 (rewrite (BinaryOp (Eq) a a) True)
@@ -105,12 +119,6 @@
 (birewrite
 	(BinaryOp (Or) (BinaryOp (Eq) a b) (BinaryOp (Lt) a b))
 	(BinaryOp (Le) a b))
-
-; Transitivity of equality
-(rule
-	((= e (BinaryOp (And) (BinaryOp (Eq) a b) (BinaryOp (Eq) b c))))
-	((union e (BinaryOp (And) e (BinaryOp (Eq) a c))))
-	:name "transitivity of equality")
 
 ; Not logic
 (rewrite (UnaryOp (Not) (UnaryOp (Not) a)) a)
@@ -123,11 +131,8 @@
 (rewrite (UnaryOp (Negate) (Value (Real x)))    (Value (Real (- 0.0 x))))
 
 ; Associativity
+; Currently unused to avoid combinatorial rewrite explosion
 (relation associative (BinaryOpKind))
-(set (associative (And)) ())
-(set (associative (Or)) ())
-(set (associative (Add)) ())
-(set (associative (Mul)) ())
 
 (rule
 	((= e (BinaryOp op a (BinaryOp op b c)))
@@ -137,11 +142,7 @@
 
 ; Commutativity
 (relation commutative (BinaryOpKind))
-(set (commutative (And)) ())
-(set (commutative (Or)) ())
 (set (commutative (Eq)) ())
-(set (commutative (Add)) ())
-(set (commutative (Mul)) ())
 
 (rule
 	((= e (BinaryOp op a b))
@@ -150,8 +151,19 @@
 	:name "operator commutativity")
 
 ; Distributive rules
-(birewrite (BinaryOp (And) a (BinaryOp (Or) b c)) (BinaryOp (Or) (BinaryOp (And) a b) (BinaryOp (And) a c)))
 (birewrite (BinaryOp (Mul) a (BinaryOp (Add) b c)) (BinaryOp (Add) (BinaryOp (Mul) a b) (BinaryOp (Mul) a c)))
+
+(rule
+	((= e (BinaryOp (And) a (BinaryOp (Or) b c)))
+	 (= orset (or_children (BinaryOp (Or) b c))))
+	((union e (BinaryOp (Or) (BinaryOp (And) a b) (BinaryOp (And) a c))))
+	:name "and-distribute-right-or")
+
+(rule
+	((= e (BinaryOp (And) (BinaryOp (Or) b c) a))
+	 (= orset (or_children (BinaryOp (Or) b c))))
+	((union e (BinaryOp (Or) (BinaryOp (And) b a) (BinaryOp (And) c a))))
+	:name "and-distribute-left-or")
 
 ; De Morgan's laws
 (birewrite
@@ -188,13 +200,88 @@
 (rewrite (Join a (Noop)) a)
 (rewrite (Join (Filter e lhs) rhs) (Filter e (Join lhs rhs)))
 
-; Two filters in series are equivalent to Boolean and
-(rewrite (Filter (BinaryOp (And) a b) c) (Filter a (Filter b c)))
+; Two filters in series are equivalent to Boolean AND (set-aware)
+(rule
+	((= i (Filter (BinaryOp (And) a b) rest))
+	 (= s (and_children (BinaryOp (And) a b)))
+	 (= 0 (set-length (set-diff (set-of a b) s))))
+	((union i (Filter a (Filter b rest))))
+	:name "filter-and-2->series")
 
-; A Boolean OR is equivalent to concatenation
-(rewrite
-	(Filter (BinaryOp (Or) lhs rhs) rest)
-	(Merge (Filter lhs rest) (Filter rhs rest)))
+(rule
+	((= i (Filter (BinaryOp (And) a (BinaryOp (And) b c)) rest))
+	 (= s (and_children (BinaryOp (And) a (BinaryOp (And) b c))))
+	 (= 0 (set-length (set-diff (set-of a b c) s))))
+	((union i (Filter a (Filter b (Filter c rest)))))
+	:name "filter-and-3->series")
+
+; A Boolean OR is equivalent to concatenation (set-aware)
+(rule
+	((= i (Filter (BinaryOp (Or) a b) rest))
+	 (= s (or_children (BinaryOp (Or) a b)))
+	 (= 0 (set-length (set-diff (set-of a b) s))))
+	((union i (Merge (Filter a rest) (Filter b rest))))
+	:name "filter-or-2->merge")
+
+(rule
+	((= i (Filter (BinaryOp (Or) a (BinaryOp (Or) b c)) rest))
+	 (= s (or_children (BinaryOp (Or) a (BinaryOp (Or) b c))))
+	 (= 0 (set-length (set-diff (set-of a b c) s))))
+	((union i (Merge (Merge (Filter a rest) (Filter b rest)) (Filter c rest))))
+	:name "filter-or-3->merge")
+
+; Fold binary And/Or into sets
+(rule
+	((= e (BinaryOp (And) a b)))
+	((set (and_children e) (set-of a b)))
+	:name "binary-and -> and_children")
+
+(rule
+	((= e (BinaryOp (Or) a b)))
+	((set (or_children e) (set-of a b)))
+	:name "binary-or -> or_children")
+
+; When nested binary And/Or are present, also populate the children set (right- and left-nested)
+(rule
+	((= e (BinaryOp (And) a (BinaryOp (And) b c))))
+	((set (and_children e) (set-of a b c)))
+	:name "nested-right and -> and_children")
+
+(rule
+	((= e (BinaryOp (And) (BinaryOp (And) a b) c)))
+	((set (and_children e) (set-of a b c)))
+	:name "nested-left and -> and_children")
+
+(rule
+	((= e (BinaryOp (Or) a (BinaryOp (Or) b c))))
+	((set (or_children e) (set-of a b c)))
+	:name "nested-right or -> or_children")
+
+(rule
+	((= e (BinaryOp (Or) (BinaryOp (Or) a b) c)))
+	((set (or_children e) (set-of a b c)))
+	:name "nested-left or -> or_children")
+
+; If a child already has children, merge them (handles deeper nesting)
+(rule
+	((= e (BinaryOp (And) a b)) (= a_set (and_children a)))
+	((set (and_children e) (set-union a_set (set-of b))))
+	:name "left-child-and -> and_children")
+
+(rule
+	((= e (BinaryOp (And) a b)) (= b_set (and_children b)))
+	((set (and_children e) (set-union (set-of a) b_set)))
+	:name "right-child-and -> and_children")
+
+(rule
+	((= e (BinaryOp (Or) a b)) (= a_set (or_children a)))
+	((set (or_children e) (set-union a_set (set-of b))))
+	:name "left-child-or -> or_children")
+
+(rule
+	((= e (BinaryOp (Or) a b)) (= b_set (or_children b)))
+	((set (or_children e) (set-union (set-of a) b_set)))
+	:name "right-child-or -> or_children")
 
 ; Asserted relations on no-ops can be loaded regardless of available variables
 (rewrite (Filter (Load r q) rest) (Join rest (FromQuery r q)))

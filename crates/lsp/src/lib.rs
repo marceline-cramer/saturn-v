@@ -561,6 +561,10 @@ impl Editor {
             // update the span of an existing node
             ast_node.set_span(db).to(span);
 
+            // update children and fields so the AST reflects the current tree
+            ast_node.set_children(db).to(children);
+            ast_node.set_fields(db).to(fields);
+
             // add this node to the new AST
             new_ast.insert(node.id(), *ast_node);
 
