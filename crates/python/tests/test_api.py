@@ -4,13 +4,17 @@ from saturn_v_py import PyClient
 
 nextPort = 4000
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def server_url():
     global nextPort
     db = tempfile.mkdtemp()
     port = nextPort
     nextPort += 1
 
+    # wait to compile CLI before running
+    subprocess.Popen(["cargo", "build", "-p", "saturn-v"]).wait()
+
+    # launch server
     proc = subprocess.Popen([
         "cargo", "run", "-p", "saturn-v", "--", "server",
         "--host", f"127.0.0.1:{port}",
@@ -27,21 +31,17 @@ def client(server_url):
 
 @pytest.mark.asyncio
 async def test_no_program(client):
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError, match="no program is loaded"):
         await client.get_program()
-
 
 @pytest.mark.asyncio
 async def test_update_program(client):
-    # set and get default program
-    prog = await client.get_program()  # expecting error first
     # TODO: implement set_program with default program JSON
     pass
 
 @pytest.mark.asyncio
 async def test_invalid_program(client):
-    # TODO: send invalid program JSON and expect exception
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         await client.set_program("invalid_json")
 
 @pytest.mark.asyncio
@@ -93,5 +93,3 @@ async def test_output_subscription(client):
 async def test_subscription_no_output(client):
     # TODO: subscription on invalid output
     pass
-    with pytest.raises(Exception):
-        await client.get_program()
