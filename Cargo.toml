@@ -37,7 +37,7 @@ tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tree-sitter = "0.25.1"
+tree-sitter = "^0.26.3"
 tower-lsp = "0.20"
 url = "2.5"
 
