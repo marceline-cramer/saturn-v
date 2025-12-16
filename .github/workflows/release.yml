@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        include:
+        include: &release-matrix
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             use_cross: true
@@ -146,6 +146,44 @@ jobs:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.package.outputs.artifact }}
 
+  python:
+    name: Build Python API
+    runs-on: ${{ matrix.runner }}
+    env:
+      PYTHON_VENV: "venv"
+    strategy:
+      fail-fast: true
+      matrix:
+        include: *release-matrix
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install extras
+        shell: bash
+        run: ${{ matrix.install }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          cache: pip
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --manifest-path crates/python/Cargo.toml --out dist
+
+      - name: Upload Python artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: $PACKAGE_NAME-${{ github.ref_name }}-${{ matrix.archive }}.whl
+          path: dist
+
   vscode:
     name: Build VS Code extension
     runs-on: ubuntu-latest
@@ -194,6 +232,7 @@ jobs:
     needs:
       - build
       - vscode
+      - python
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
