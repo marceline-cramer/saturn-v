@@ -24,13 +24,13 @@ use std::{
 use anyhow::Context;
 use fjall::*;
 use saturn_v_eval::{
-    InputEvent, InputEventKind,
     load::Loader,
     types::{Fact, Relation},
     utils::Key as DataflowKey,
+    InputEvent, InputEventKind,
 };
 use saturn_v_protocol::{ir::RelationIO, *};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[cfg(test)]
 mod tests;
@@ -581,8 +581,8 @@ impl InputRelation {
         ty: &StructuredType,
         value: StructuredValue,
     ) -> ServerResult<()> {
-        use StructuredType::*;
         use ir::{Type::*, Value};
+        use StructuredType::*;
         let ir_val = match (ty, value) {
             (Primitive(String), StructuredValue::String(val)) => Value::String(val),
             (Primitive(Boolean), StructuredValue::Boolean(val)) => Value::Boolean(val),

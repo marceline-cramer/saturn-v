@@ -22,21 +22,21 @@ use std::{
 
 use anyhow::Context;
 use axum::{
-    Json, Router,
     extract::Path,
-    response::{Sse, sse::Event},
+    response::{sse::Event, Sse},
     routing::{get, post},
+    Json, Router,
 };
-use futures_util::{StreamExt, TryStreamExt, stream::BoxStream};
+use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use parking_lot::Mutex as SyncMutex;
 use saturn_v_eval::{
-    DataflowInputs, InputEvent,
     solve::Solver,
     types::{Fact, Relation},
     utils::{Key, Update},
+    DataflowInputs, InputEvent,
 };
 use saturn_v_protocol::*;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::db::*;
@@ -353,8 +353,8 @@ pub fn structure_values<'a>(
                 .collect(),
         ),
         StructuredType::Primitive(ty) => {
-            use StructuredValue::*;
             use ir::Type;
+            use StructuredValue::*;
             let val = values.next().unwrap();
             match (val, ty) {
                 (ir::Value::Boolean(val), Type::Boolean) => Boolean(*val),
