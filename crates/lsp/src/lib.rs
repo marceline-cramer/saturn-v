@@ -30,9 +30,12 @@ use tower_lsp::{
         request::{GotoImplementationParams, GotoImplementationResponse},
         *,
     },
-    Client, LanguageServer,
+    Client, LanguageServer, LspService, Server,
 };
 use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::js_sys::Uint8Array;
+use wasm_streams::{ReadableStream, WritableStream};
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
 
@@ -612,5 +615,70 @@ impl Editor {
     /// Retrieves an immutable reference to this editor's contents.
     pub fn get_contents(&self) -> &Rope {
         &self.contents
+    }
+}
+
+/// Wasm bindings to the language server.
+pub mod wasm {
+    use futures_util::{AsyncWriteExt, SinkExt};
+    use sluice::pipe::*;
+    use tokio_util::compat::*;
+
+    use super::*;
+
+    /** The Kerolox language server, interacted with via JS streams. */
+    #[wasm_bindgen]
+    pub struct LanguageServer {
+        /// A stream to send requests to the language server.
+        #[wasm_bindgen(getter_with_clone)]
+        pub requests: wasm_streams::writable::sys::WritableStream,
+
+        /// A stream for receiving responses from the language server.
+        #[wasm_bindgen(getter_with_clone)]
+        pub responses: wasm_streams::readable::sys::ReadableStream,
+    }
+
+    #[wasm_bindgen]
+    impl LanguageServer {
+        /// Creates a Kerolox language server.
+        #[wasm_bindgen(constructor)]
+        #[allow(clippy::new_without_default)]
+        pub fn new() -> Self {
+            // create pipes to do internal async IO
+            let (request_rx, request_tx) = pipe();
+            let (response_rx, response_tx) = pipe();
+
+            // create service
+            let (service, socket) = LspService::new(LspBackend::new);
+
+            // initialize language server
+            let server =
+                Server::new(request_rx.compat(), response_tx.compat_write(), socket).serve(service);
+
+            // spawn thread to run language server
+            wasm_bindgen_futures::spawn_local(server);
+
+            // adapt reader into a sink of byte arrays
+            let requests_sink = request_tx
+                .into_sink()
+                .sink_map_err(|err| JsError::new(&format!("IO error: {err:?}")))
+                .with(|js: JsValue| async {
+                    if js.is_instance_of::<Uint8Array>() {
+                        Ok(Uint8Array::from(js).to_vec())
+                    } else {
+                        Err(JsError::new("expected a Uint8Array").into())
+                    }
+                });
+
+            // convert channels into JS streams
+            let requests = WritableStream::from_sink(requests_sink);
+            let responses = ReadableStream::from_async_read(response_rx, 512);
+
+            // return complete language server interface
+            Self {
+                requests: requests.into_raw(),
+                responses: responses.into_raw(),
+            }
+        }
     }
 }
