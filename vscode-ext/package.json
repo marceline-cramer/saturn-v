@@ -33,11 +33,12 @@
     "compile": "tsc -p ./"
   },
   "dependencies": {
+    "saturn-v-lsp": "file:saturn-v-lsp-0.1.0.tgz",
     "vscode-languageclient": "^9.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
+    "@types/node": "^22",
     "@types/vscode": "^1.90.0",
-    "@types/node": "^22"
+    "typescript": "^5.0.0"
   }
 }
