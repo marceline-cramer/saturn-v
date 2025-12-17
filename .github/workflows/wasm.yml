@@ -36,11 +36,11 @@ jobs:
     - name: Install wasm-pack
       run: npm install -g wasm-pack
 
-    - name: Build
-      run: wasm-pack build crates/${{ matrix.crate }} --release --target ${{ matrix.target }} --out-name saturn-v-${{ matrix.crate }}-${{ matrix.target }}
+    - name: Install just
+      run: sudo apt-get update && sudo apt-get install -y just
 
-    - name: Package
-      run: wasm-pack pack crates/${{ matrix.crate }}
+    - name: Run wasm-pack via Justfile
+      run: just wasm ${{ matrix.crate }} ${{ matrix.target }}
 
     - name: Upload package artifact
       uses: actions/upload-artifact@v6
