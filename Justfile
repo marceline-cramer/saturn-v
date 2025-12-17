@@ -4,5 +4,7 @@ crate := "client"
 target := "bundler"
 
 wasm crate target:
-    wasm-pack build crates/{{crate}} --release --target {{target}} --out-name saturn-v-{{crate}}-{{target}}
+    wasm-pack build crates/{{crate}} --release --target {{target}}
     wasm-pack pack crates/{{crate}}
+    mkdir -p pkg
+    mv crates/{{crate}}/pkg/*.tgz pkg/{{crate}}-{{target}}.tgz
