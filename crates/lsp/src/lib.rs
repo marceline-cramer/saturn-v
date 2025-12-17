@@ -30,9 +30,12 @@ use tower_lsp::{
         request::{GotoImplementationParams, GotoImplementationResponse},
         *,
     },
-    Client, LanguageServer,
+    Client, LanguageServer, LspService, Server,
 };
 use tree_sitter::{InputEdit, Language, Node, Parser, Tree};
+
+/// Wasm bindings to the language server.
+pub mod wasm;
 
 pub type EditorMap = HashMap<Url, Arc<Mutex<Editor>>>;
 
