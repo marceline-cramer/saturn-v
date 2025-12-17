@@ -17,6 +17,9 @@ fn main() {
             panic!("Environment variable DEP_TREE_SITTER_LANGUAGE_WASM_SRC must be set by the language crate");
         };
 
+        // ignore the warnings in the tree-sitter stdlib replacements
+        c_config.flags(["-Wno-unused-parameter", "-Wno-incompatible-pointer-types"]);
+
         c_config.include(&wasm_headers);
         c_config.files([
             wasm_src.join("stdio.c"),
