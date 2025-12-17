@@ -29,16 +29,18 @@
     "vscode": "^1.98.0"
   },
   "scripts": {
+    "prepare": "just wasm lsp nodejs",
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./"
   },
   "dependencies": {
-    "saturn-v-lsp": "file:saturn-v-lsp-0.1.0.tgz",
+    "saturn-v-lsp": "file:../pkg/lsp-nodejs.tgz",
     "vscode-languageclient": "^9.0.0"
   },
   "devDependencies": {
     "@types/node": "^22",
     "@types/vscode": "^1.90.0",
+    "rust-just": "^1.44.0",
     "typescript": "^5.0.0"
   }
 }
