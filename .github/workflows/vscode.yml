@@ -1,0 +1,50 @@
+name: VSCode Extension
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build VSCode Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+
+      - name: Install wasm-pack
+        run: npm install -g wasm-pack
+
+      - name: Install just
+        run: sudo apt-get update && sudo apt-get install -y just
+
+      - name: Build LSP Wasm package
+        run: just wasm lsp bundler
+
+      - name: Install dependencies
+        working-directory: vscode-ext
+        run: npm install
+
+      - name: Package extension
+        working-directory: vscode-ext
+        run: npx vsce pack
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: vscode-ext/*.vsix
+          name: kerolox-${{ inputs.version }}.vsix

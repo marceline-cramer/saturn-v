@@ -31,23 +31,16 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         flags: --all
-  check-vscode:
-    name: VSCode extension
-    runs-on: "ubuntu-latest"
-    defaults:
-      run:
-        working-directory: ./vscode-ext
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
-    - run: npm install
-    - run: npm run compile
 
   wasm:
     name: WebAssembly packages
     uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.head_ref }}
+
+  vscode:
+    name: VSCode extension
+    uses: ./.github/workflows/vscode.yml
     with:
       version: ${{ github.head_ref }}
 
