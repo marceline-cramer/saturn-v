@@ -37,7 +37,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: vscode-ext
-        run: npm install
+        run: npm install --no-package-lock
 
       - name: Package extension
         working-directory: vscode-ext
