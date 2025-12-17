@@ -7,18 +7,19 @@ const webpack = require('webpack');
 
 /**@type {import('webpack').Configuration}*/
 const config = {
+  mode: 'none',
   target: 'webworker',
   experiments: {
     asyncWebAssembly: true
   },
   entry: './src/extension.ts',
   output: {
-    path: path.resolve(__dirname, 'dist'),
     filename: 'extension.js',
-    libraryTarget: 'commonjs2',
+    path: path.resolve(__dirname, 'dist'),
+    libraryTarget: 'commonjs',
     devtoolModuleFilenameTemplate: '../[resource-path]'
   },
-  devtool: 'source-map',
+  devtool: 'nosources-source-map',
   externals: {
     vscode: 'commonjs vscode'
   },

@@ -5,6 +5,7 @@
   "publisher": "you",
   "version": "0.1.0",
   "main": "./dist/extension.js",
+  "browser": "./dist/extension.js",
   "contributes": {
     "languages": [
       {

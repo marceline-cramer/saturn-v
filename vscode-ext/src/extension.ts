@@ -19,9 +19,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
 export function launchLsp(): ServerOptions {
   return async () => {
+    console.log("creating language server");
     const server = new LanguageServer();
+    console.log("language server created");
     const writer = Writable.fromWeb(server.requests);
     const reader = Readable.fromWeb(server.responses);
+    console.log("language server bound");
     return { server, writer, reader };
   };
 }
