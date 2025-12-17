@@ -58,3 +58,6 @@ saturn-v-lsp.path = "crates/lsp"
 saturn-v-protocol.path = "crates/protocol"
 saturn-v-server.path = "crates/server"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
+
+[profile.release]
+lto = true
