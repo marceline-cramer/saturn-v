@@ -442,6 +442,10 @@ impl Editor {
         let start_char = self.col_to_char(start_line_char, next_line_after_start, start_col);
         let end_char = self.col_to_char(end_line_char, next_line_after_end, end_col);
 
+        // compute column values (UTF-16 columns) for start and old end to feed into InputEdit
+        let start_col_char = self.utf16_column(start_line_char, start_char)?;
+        let old_end_col_char = self.utf16_column(end_line_char, end_char)?;
+
         // convert the character indices to byte indices (before mutating the rope)
         let start_byte = self.contents.char_to_byte(start_char);
         let old_end_byte = self.contents.char_to_byte(end_char);
@@ -455,15 +459,9 @@ impl Editor {
 
         // derive new_end_row and new_end_col (in char units) from the new_end_byte
         let new_end_row = self.contents.try_byte_to_line(new_end_byte)?;
-        let new_end_row_start_char = self.contents.line_to_char(new_end_row);
-        let new_end_col = self
-            .contents
-            .try_byte_to_char(new_end_byte)?
-            .saturating_sub(new_end_row_start_char);
-
-        // compute column values (char columns) for start and old end to feed into InputEdit
-        let start_col_char = start_char - start_line_char;
-        let old_end_col_char = end_char - end_line_char;
+        let new_end_row_start_char = self.contents.try_line_to_char(new_end_row)?;
+        let new_end_char = self.contents.try_byte_to_char(new_end_byte)?;
+        let new_end_col = self.utf16_column(new_end_row_start_char, new_end_char)?;
 
         // edit the parse tree with correct byte + char positions
         use tree_sitter::Point;
@@ -512,6 +510,17 @@ impl Editor {
             offset += 1;
         }
         line_start_char + offset
+    }
+
+    /// Calculates the UTF-16 codepoint column of a given char index in the rope.
+    fn utf16_column(&self, line_start_char: usize, target_char: usize) -> ropey::Result<usize> {
+        self.contents
+            .get_slice(line_start_char..target_char)
+            .map(|slice| slice.len_utf16_cu())
+            .ok_or(ropey::Error::CharIndexOutOfBounds(
+                line_start_char,
+                target_char,
+            ))
     }
 
     /// Efficiently update inputs to the frontend with changes to the AST.
