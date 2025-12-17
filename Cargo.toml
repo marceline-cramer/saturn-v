@@ -41,6 +41,12 @@ tree-sitter = "0.25.1"
 tower-lsp = "0.20"
 url = "2.5"
 
+# wasm bindings
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wasm-streams = "0.4"
+serde-wasm-bindgen = "0.6"
+
 # internal workspace members
 saturn-v-check.path = "crates/check"
 saturn-v-client.path = "crates/client"

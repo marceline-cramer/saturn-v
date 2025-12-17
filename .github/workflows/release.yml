@@ -1,4 +1,4 @@
-name: Release binaries
+name: Release
 
 on:
   push:
@@ -146,8 +146,14 @@ jobs:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.package.outputs.artifact }}
 
+  wasm:
+    name: WebAssembly packages
+    uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.ref_name }}
+
   vscode:
-    name: Build VS Code extension
+    name: VSCode extension
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -194,6 +200,7 @@ jobs:
     needs:
       - build
       - vscode
+      - wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -163,7 +163,7 @@ async fn test_no_input() -> Result<()> {
     let ty = StructuredType::Primitive(Type::String);
     let input = client.get_invalid_input(&name, ty);
     let value = "test".to_string();
-    let result = input.insert(&value).await;
+    let result = input.insert(value).await;
     assert_eq!(server_error(result)?, ServerError::NoSuchInput(name));
     Ok(())
 }
@@ -175,7 +175,7 @@ async fn test_input_ty_mismatch() -> Result<()> {
     let ty = StructuredType::Primitive(Type::Integer);
     let input = client.get_invalid_input(&name, ty.clone());
     let value = 47;
-    let result = input.insert(&value).await;
+    let result = input.insert(value).await;
 
     assert_eq!(
         server_error(result)?,
@@ -193,8 +193,8 @@ async fn test_input_operations() -> Result<()> {
     let client = passthru_client().await?;
     let input = client.get_input("Input").await?;
     let value = "test".to_string();
-    input.insert(&value).await?;
-    input.remove(&value).await?;
+    input.insert(value.clone()).await?;
+    input.remove(value).await?;
     Ok(())
 }
 
@@ -222,7 +222,7 @@ async fn test_passthru() -> Result<()> {
 
     let input = client.get_input("Input").await?;
     let value = "test".to_string();
-    input.insert(&value).await?;
+    input.insert(value.clone()).await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
@@ -252,7 +252,7 @@ async fn test_remove_fact() -> Result<()> {
     let values = output.get_all::<String>().await?;
     assert_eq!(values, vec![fact.clone()], "fact not already present");
 
-    input.remove(&fact).await?;
+    input.remove(fact.clone()).await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let values = output.get_all::<String>().await?;
@@ -268,9 +268,9 @@ async fn test_output_subscription() -> Result<()> {
     let output = client.get_output("Output").await?;
     let mut rx = output.subscribe()?;
     let value = "test".to_string();
-    input.insert(&value).await?;
-    let received: (String, bool) = rx.next().await.unwrap()?;
-    assert_eq!(received, (value, true));
+    input.insert(value.clone()).await?;
+    let received = rx.next().await.unwrap()?;
+    assert_eq!(received, TupleUpdate::insert(value));
     Ok(())
 }
 
