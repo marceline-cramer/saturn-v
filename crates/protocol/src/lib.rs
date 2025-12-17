@@ -62,12 +62,35 @@ pub enum ServerError {
 
 /// An individual tuple update within a relation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub struct TupleUpdate {
+pub struct TupleUpdate<T = StructuredValue> {
     /// The new state of the tuple. `true` for present, `false` for absent.
     pub state: bool,
 
     /// The tuple being updated.
-    pub value: StructuredValue,
+    pub value: T,
+}
+
+impl<T> TupleUpdate<T> {
+    /// Maps this tuple update from one type to another.
+    pub fn map<O>(self, cb: impl FnOnce(T) -> O) -> TupleUpdate<O> {
+        TupleUpdate {
+            value: cb(self.value),
+            state: self.state,
+        }
+    }
+
+    /// Create an update to insert this value.
+    pub fn insert(value: T) -> Self {
+        Self { state: true, value }
+    }
+
+    /// Create an update to remove this value.
+    pub fn remove(value: T) -> Self {
+        Self {
+            state: false,
+            value,
+        }
+    }
 }
 
 /// The metadata for a relation (input or output).
@@ -81,25 +104,6 @@ pub struct RelationInfo {
 
     /// The type of this relation.
     pub ty: StructuredType,
-}
-
-impl RelationInfo {
-    /// Helper method to test if a type matches this relation.
-    pub fn check_ty<T: Typed>(&self) -> ServerResult<()> {
-        if self.matches_ty::<T>() {
-            Ok(())
-        } else {
-            Err(ServerError::TypeMismatch {
-                expected: self.ty.clone(),
-                got: T::ty(),
-            })
-        }
-    }
-
-    /// Checks if a typed Saturn V value matches this relation's type.
-    pub fn matches_ty<T: Typed>(&self) -> bool {
-        T::ty() == self.ty
-    }
 }
 
 /// A monotonically increasing identifier for input transaction results.
@@ -143,22 +147,62 @@ impl StructuredValue {
     }
 }
 
+/// A trait for Rust types that can be compatible with particular Saturn V types.
+pub trait CheckType {
+    /// Checks if this type is compatible with a Saturn V type.
+    fn check_ty(ty: &StructuredType) -> ServerResult<()>;
+
+    /// Checks if an instance of this type is compatible with a Saturn V type.
+    fn check_value(&self, ty: &StructuredType) -> ServerResult<()>;
+}
+
+impl<T: Clone + Into<StructuredValue>> CheckType for T {
+    fn check_ty(_ty: &StructuredType) -> ServerResult<()> {
+        Ok(())
+    }
+
+    fn check_value(&self, ty: &StructuredType) -> ServerResult<()> {
+        let val: StructuredValue = self.clone().into();
+
+        if ty == &val.ty() {
+            Ok(())
+        } else {
+            Err(ServerError::TypeMismatch {
+                expected: ty.clone(),
+                got: val.ty(),
+            })
+        }
+    }
+}
+
 /// A trait for Rust types that have corresponding Saturn V types.
-pub trait Typed {
-    /// Retrieves the Saturn V type for this type.
+pub trait Typed: CheckType {
+    /// Retrieves the concrete, singular Saturn V type for this type.
     fn ty() -> StructuredType;
 }
 
 /// Converts a Rust type into a Saturn V type.
-pub trait AsValue: Typed {
+pub trait IntoValue: CheckType {
     /// Converts this Rust value to a [Value].
-    fn as_value(&self) -> StructuredValue;
+    fn into_value(self) -> StructuredValue;
+}
+
+impl<T: CheckType + Into<StructuredValue>> IntoValue for T {
+    fn into_value(self) -> StructuredValue {
+        self.into()
+    }
 }
 
 /// Converts a Saturn V type into a Rust type.
-pub trait FromValue: Typed {
+pub trait FromValue: CheckType {
     /// Converts to this Rust value from a [Value].
     fn from_value(val: StructuredValue) -> Self;
+}
+
+impl<T: CheckType + From<StructuredValue>> FromValue for T {
+    fn from_value(val: StructuredValue) -> Self {
+        Self::from(val)
+    }
 }
 
 macro_rules! impl_typed_primitive {
@@ -169,9 +213,9 @@ macro_rules! impl_typed_primitive {
             }
         }
 
-        impl AsValue for $ty {
-            fn as_value(&self) -> StructuredValue {
-                StructuredValue::$name(self.clone().into())
+        impl From<$ty> for StructuredValue {
+            fn from(val: $ty) -> StructuredValue {
+                StructuredValue::$name(val.into())
             }
         }
 
@@ -200,11 +244,37 @@ macro_rules! impl_typed_tuple {
             }
         }
 
-        impl<$($el: AsValue),+> AsValue for ($($el),+) {
+        impl<$($el: CheckType),+> CheckType for ($($el),+) {
+            fn check_ty(ty: &StructuredType) -> ServerResult<()> {
+                let els = match ty {
+                    StructuredType::Tuple(els) => els,
+                    _ => unreachable!(),
+                };
+
+                let mut els = els.into_iter();
+                $($el::check_ty(els.next().unwrap())?;)*
+                Ok(())
+            }
+
             #[allow(non_snake_case)]
-            fn as_value(&self) -> StructuredValue {
+            fn check_value(&self, ty: &StructuredType) -> ServerResult<()> {
+                let els = match ty {
+                    StructuredType::Tuple(els) => els,
+                    _ => unreachable!(),
+                };
+
+                let mut els = els.into_iter();
                 let ($($el),+) = self;
-                StructuredValue::Tuple(vec![$($el.as_value()),+])
+                $($el.check_value(els.next().unwrap())?;)*
+                Ok(())
+            }
+        }
+
+        impl<$($el: IntoValue),+> IntoValue for ($($el),+) {
+            #[allow(non_snake_case)]
+            fn into_value(self) -> StructuredValue {
+                let ($($el),+) = self;
+                StructuredValue::Tuple(vec![$($el.into_value()),+])
             }
         }
 
@@ -223,7 +293,6 @@ macro_rules! impl_typed_tuple {
         }
     };
 }
-
 macro_rules! typed_tuple {
     ($base:ident) => {};
     ($head:ident, $($tail:ident),+) => {
@@ -254,6 +323,19 @@ macro_rules! serde_js {
 }
 
 serde_js!(ServerError);
-serde_js!(TupleUpdate);
 serde_js!(RelationInfo);
 serde_js!(StructuredValue);
+
+impl<T: FromValue> From<JsValue> for TupleUpdate<T> {
+    fn from(value: JsValue) -> Self {
+        serde_wasm_bindgen::from_value::<TupleUpdate>(value)
+            .unwrap()
+            .map(T::from_value)
+    }
+}
+
+impl<T: IntoValue> From<TupleUpdate<T>> for JsValue {
+    fn from(value: TupleUpdate<T>) -> Self {
+        serde_wasm_bindgen::to_value(&value.map(T::into_value)).unwrap()
+    }
+}

@@ -20,7 +20,7 @@
 
 use std::{fmt::Debug, ops::Deref};
 
-use futures_util::{Stream, StreamExt};
+use futures_util::{Stream, StreamExt, TryStreamExt};
 use reqwest::{Method, RequestBuilder, Url};
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_protocol::*;
@@ -195,20 +195,20 @@ impl Deref for Input {
 
 impl Input {
     /// Inserts a typed value into this relation.
-    pub async fn insert<T: AsValue>(&self, val: &T) -> Result<()> {
+    pub async fn insert<T: IntoValue>(&self, val: T) -> Result<()> {
         self.update(val, true).await
     }
 
     /// Removes a typed value from this relation.
-    pub async fn remove<T: AsValue>(&self, val: &T) -> Result<()> {
+    pub async fn remove<T: IntoValue>(&self, val: T) -> Result<()> {
         self.update(val, false).await
     }
 
     /// Updates a typed value in this relation. `true` adds, `false` removes.
-    pub async fn update<T: AsValue>(&self, val: &T, state: bool) -> Result<()> {
-        self.check_ty::<T>()?;
+    pub async fn update<T: IntoValue>(&self, val: T, state: bool) -> Result<()> {
+        val.check_value(&self.ty)?;
 
-        let value = val.as_value();
+        let value = val.into_value();
         let body = vec![TupleUpdate { state, value }];
 
         self.client
@@ -236,16 +236,7 @@ impl Input {
     /// Updates a value in this relation. `true` adds, `false` removes.
     #[wasm_bindgen(js_name = "update")]
     pub async fn js_update(&self, value: JsValue, state: bool) -> Result<()> {
-        // TODO: type-check
-
-        let value = serde_wasm_bindgen::from_value(value).unwrap();
-        let body = vec![TupleUpdate { state, value }];
-
-        self.client
-            .post_json(&format!("/input/{}/update", self.id), &body)
-            .await?;
-
-        Ok(())
+        self.update(value, state).await
     }
 }
 
@@ -268,7 +259,7 @@ impl Deref for Output {
 impl Output {
     /// Gets the set of values currently in this output.
     pub async fn get_all<T: FromValue>(&self) -> Result<Vec<T>> {
-        self.check_ty::<T>()?;
+        T::check_ty(&self.ty)?;
 
         Ok(self
             .client
@@ -280,8 +271,8 @@ impl Output {
     }
 
     /// Subscribes to live updates on values in this output.
-    pub fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<(T, bool)>>> {
-        self.check_ty::<T>()?;
+    pub fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<TupleUpdate<T>>>> {
+        T::check_ty(&self.ty)?;
 
         let src = self
             .client
@@ -297,7 +288,7 @@ impl Output {
                     match serde_json::from_reader::<_, ServerResult<TupleUpdate>>(
                         msg.data.as_bytes(),
                     ) {
-                        Ok(Ok(update)) => Ok((T::from_value(update.value), update.state)),
+                        Ok(Ok(update)) => Ok(update.map(T::from_value)),
                         Ok(Err(err)) => Err(Error::Server(err)),
                         Err(err) => Err(Error::Parse(err)),
                     },
@@ -311,8 +302,21 @@ impl Output {
 impl Output {
     /// Gets the set of values currently in this output.
     #[wasm_bindgen(js_name = get_all)]
-    pub async fn get_all_raw(&self) -> Result<Vec<JsValue>> {
-        todo!()
+    pub async fn js_get_all(&self) -> Result<Vec<JsValue>> {
+        self.get_all::<StructuredValue>()
+            .await
+            .map(|values| values.into_iter().map(|val| val.into()).collect())
+    }
+
+    /// Subscribes to live updates on values in this output.
+    #[wasm_bindgen(js_name = subscribe)]
+    pub fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
+        let stream = self
+            .subscribe::<JsValue>()?
+            .map_ok(JsValue::from)
+            .map_err(JsValue::from);
+
+        Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
     }
 }
 
@@ -346,6 +350,7 @@ impl Error {
 
 impl From<Error> for JsValue {
     fn from(err: Error) -> Self {
+        // TODO: non-server errors
         let server = err.into_server_error().unwrap();
         serde_wasm_bindgen::to_value(&server).unwrap()
     }
