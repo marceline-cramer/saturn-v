@@ -3,14 +3,36 @@
 'use strict';
 
 const path = require('path');
+const TerserPlugin = require('terser-webpack-plugin');
 const webpack = require('webpack');
 
 /**@type {import('webpack').Configuration}*/
 const config = {
-  mode: 'none',
   target: 'webworker',
   experiments: {
     asyncWebAssembly: true
+  },
+  optimization: {
+    moduleIds: 'deterministic',
+    chunkIds: 'deterministic',
+    usedExports: true,
+    sideEffects: true,
+    minimize: true,
+    minimizer: [
+      new TerserPlugin({
+        parallel: true,
+        terserOptions: {
+          compress: {
+            passes: 2
+          },
+          format: { comments: false },
+          mangle: true
+        }
+      })
+    ]
+  },
+  performance: {
+    hints: false
   },
   entry: './src/extension.ts',
   output: {

@@ -4,6 +4,7 @@
   "repository": "https://github.com/marceline-cramer/saturn-v",
   "publisher": "you",
   "version": "0.1.0",
+  "sideEffects": false,
   "main": "./dist/extension.js",
   "browser": "./dist/extension.js",
   "contributes": {
