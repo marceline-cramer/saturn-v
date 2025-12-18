@@ -27,11 +27,11 @@ use super::*;
 async fn local_client() -> Result<Client> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    static PORT: AtomicU32 = AtomicU32::new(3000);
+    static PORT: AtomicU32 = AtomicU32::new(4000);
 
     let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let database = Database::temporary().unwrap();
-    let state = start_server(database)?;
+    let state = start_server(database).await?;
     let router = route(state).into_make_service();
     let host = format!("localhost:{port}");
     let listener = tokio::net::TcpListener::bind(&host).await?;
@@ -199,6 +199,35 @@ async fn test_input_operations() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_input_get_all() -> Result<()> {
+    let client = passthru_client().await?;
+    let input = client.get_input("Input").await?;
+    let values = vec!["alpha".to_string(), "beta".to_string()];
+    for value in &values {
+        input.insert(value.clone()).await?;
+    }
+
+    let mut retrieved = input.get_all::<String>().await?;
+    let mut expected = values.clone();
+    retrieved.sort();
+    expected.sort();
+    assert_eq!(retrieved, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_subscription_values() -> Result<()> {
+    let client = passthru_client().await?;
+    let input = client.get_input("Input").await?;
+    let mut rx = input.subscribe().await?;
+    let value = "test".to_string();
+    input.insert(value.clone()).await?;
+    let received = rx.next().await.unwrap()?;
+    assert_eq!(received, TupleUpdate::insert(value));
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_list_outputs() -> Result<()> {
     let client = passthru_client().await?;
     let outputs = client.get_outputs().await?;
@@ -266,7 +295,7 @@ async fn test_output_subscription() -> Result<()> {
     let client = passthru_client().await?;
     let input = client.get_input("Input").await?;
     let output = client.get_output("Output").await?;
-    let mut rx = output.subscribe()?;
+    let mut rx = output.subscribe().await?;
     let value = "test".to_string();
     input.insert(value.clone()).await?;
     let received = rx.next().await.unwrap()?;
@@ -280,7 +309,7 @@ async fn test_subscription_no_output() -> Result<()> {
     let name = "NotAnOutput".to_string();
     let ty = StructuredType::Primitive(Type::String);
     let output = client.get_invalid_output(&name, ty);
-    let mut rx = output.subscribe::<String>()?;
+    let mut rx = output.subscribe::<String>().await?;
     let response = rx.next().await.unwrap();
     assert_eq!(server_error(response)?, ServerError::NoSuchOutput(name));
     Ok(())

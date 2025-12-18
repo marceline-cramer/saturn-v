@@ -166,7 +166,7 @@ async fn main() -> anyhow::Result<()> {
 
             let db = Database::new(&db).context("failed to open database")?;
 
-            let state = start_server(db).context("failed to start server")?;
+            let state = start_server(db).await.context("failed to start server")?;
             let router = route(state);
 
             let listener = TcpListener::bind(host.as_slice())

@@ -18,7 +18,7 @@
 
 #![warn(missing_docs)]
 
-use std::{fmt::Debug, ops::Deref};
+use std::{fmt::Debug, future::Future, ops::Deref};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use reqwest::{Method, RequestBuilder, Url};
@@ -219,6 +219,14 @@ impl Input {
     }
 }
 
+impl ImplQueryRelation for Input {
+    const ENDPOINT: &'static str = "input";
+
+    fn client(&self) -> &Client {
+        &self.client
+    }
+}
+
 #[wasm_bindgen]
 impl Input {
     /// Inserts a value into this relation.
@@ -238,6 +246,26 @@ impl Input {
     pub async fn js_update(&self, value: JsValue, state: bool) -> Result<()> {
         self.update(value, state).await
     }
+
+    /// Gets the set of values currently in this input.
+    #[wasm_bindgen(js_name = get_all)]
+    pub async fn js_get_all(&self) -> Result<Vec<JsValue>> {
+        self.get_all::<StructuredValue>()
+            .await
+            .map(|values| values.into_iter().map(|val| val.into()).collect())
+    }
+
+    /// Subscribes to live updates on values in this input.
+    #[wasm_bindgen(js_name = subscribe)]
+    pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
+        let stream = self
+            .subscribe::<JsValue>()
+            .await?
+            .map_ok(JsValue::from)
+            .map_err(JsValue::from);
+
+        Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
+    }
 }
 
 /// A Saturn V server's output relation.
@@ -256,45 +284,11 @@ impl Deref for Output {
     }
 }
 
-impl Output {
-    /// Gets the set of values currently in this output.
-    pub async fn get_all<T: FromValue>(&self) -> Result<Vec<T>> {
-        T::check_ty(&self.ty)?;
+impl ImplQueryRelation for Output {
+    const ENDPOINT: &'static str = "output";
 
-        Ok(self
-            .client
-            .get_json::<Vec<StructuredValue>>(&format!("/output/{}", self.id))
-            .await?
-            .into_iter()
-            .map(|val| T::from_value(val))
-            .collect())
-    }
-
-    /// Subscribes to live updates on values in this output.
-    pub fn subscribe<T: FromValue>(&self) -> Result<impl Stream<Item = Result<TupleUpdate<T>>>> {
-        T::check_ty(&self.ty)?;
-
-        let src = self
-            .client
-            .begin_request(Method::GET, &format!("/output/{}/subscribe", self.id))
-            .eventsource()
-            .unwrap();
-
-        Ok(src.filter_map(|ev| {
-            std::future::ready(match ev {
-                Ok(Event::Open) => None,
-                Err(err) => Some(Err(Error::EventSource(Box::new(err)))),
-                Ok(Event::Message(msg)) => Some(
-                    match serde_json::from_reader::<_, ServerResult<TupleUpdate>>(
-                        msg.data.as_bytes(),
-                    ) {
-                        Ok(Ok(update)) => Ok(update.map(T::from_value)),
-                        Ok(Err(err)) => Err(Error::Server(err)),
-                        Err(err) => Err(Error::Parse(err)),
-                    },
-                ),
-            })
-        }))
+    fn client(&self) -> &Client {
+        &self.client
     }
 }
 
@@ -310,13 +304,90 @@ impl Output {
 
     /// Subscribes to live updates on values in this output.
     #[wasm_bindgen(js_name = subscribe)]
-    pub fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
+    pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
         let stream = self
-            .subscribe::<JsValue>()?
+            .subscribe::<JsValue>()
+            .await?
             .map_ok(JsValue::from)
             .map_err(JsValue::from);
 
         Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
+    }
+}
+
+/// A trait for relations whose contents can be directly queried.
+pub trait QueryRelation {
+    /// Get the set of values currently in this relation.
+    fn get_all<T: FromValue + Send>(&self) -> impl Future<Output = Result<Vec<T>>>;
+
+    /// Subscribes to live updates on values in this output.
+    #[allow(async_fn_in_trait)]
+    async fn subscribe<T: FromValue + 'static>(
+        &self,
+    ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static>;
+}
+
+/// A utility trait to implement [QueryRelation].
+trait ImplQueryRelation: Deref<Target = RelationInfo> {
+    /// The HTTP path of this relation's operations.
+    const ENDPOINT: &'static str;
+
+    /// Gets the client on this relation.
+    fn client(&self) -> &Client;
+}
+
+impl<R: ImplQueryRelation> QueryRelation for R {
+    /// Gets the set of values currently in this output.
+    async fn get_all<T: FromValue + Send>(&self) -> Result<Vec<T>> {
+        T::check_ty(&self.ty)?;
+
+        Ok(self
+            .client()
+            .get_json::<Vec<StructuredValue>>(&format!("/{}/{}", R::ENDPOINT, self.id))
+            .await?
+            .into_iter()
+            .map(|val| T::from_value(val))
+            .collect())
+    }
+
+    /// Subscribes to live updates on values in this output.
+    async fn subscribe<T: FromValue + 'static>(
+        &self,
+    ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static> {
+        T::check_ty(&self.ty)?;
+
+        let path = format!("/{}/{}/subscribe", R::ENDPOINT, self.id);
+
+        // send request for subscription
+        let mut src = self
+            .client()
+            .begin_request(Method::GET, &path)
+            .eventsource()
+            .unwrap();
+
+        // wait for ready event
+        // avoids client-side race conditions
+        match src.next().await {
+            Some(Ok(Event::Open)) => {}
+            _ => todo!(),
+        }
+
+        // transform incoming events into tuple updates
+        Ok(src.filter_map(|ev| {
+            std::future::ready(match ev {
+                Ok(Event::Open) => None,
+                Err(err) => Some(Err(Error::EventSource(Box::new(err)))),
+                Ok(Event::Message(msg)) => Some(
+                    match serde_json::from_reader::<_, ServerResult<TupleUpdate>>(
+                        msg.data.as_bytes(),
+                    ) {
+                        Ok(Ok(update)) => Ok(update.map(T::from_value)),
+                        Ok(Err(err)) => Err(Error::Server(err)),
+                        Err(err) => Err(Error::Parse(err)),
+                    },
+                ),
+            })
+        }))
     }
 }
 
