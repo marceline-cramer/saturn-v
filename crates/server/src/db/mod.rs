@@ -17,6 +17,7 @@
 use std::{
     borrow::Cow,
     collections::BTreeMap,
+    future::Future,
     hash::{DefaultHasher, Hash, Hasher},
     path::Path,
 };
@@ -66,10 +67,7 @@ pub trait Transaction {
     /// If this fails, all changes made during this transaction will be rolled back.
     ///
     /// Returns the sequence ID of the committed transaction.
-    fn commit(self) -> ServerResult<SequenceId>;
-
-    /// Gets the current program map.
-    fn get_program_map(&self) -> ServerResult<ProgramMap>;
+    fn commit(self) -> impl Future<Output = ServerResult<SequenceId>> + Send;
 }
 
 /// Maintains atomic transactions on Saturn V state and inputs.
@@ -111,22 +109,6 @@ impl Database {
             keyspace,
             partition,
         })
-    }
-
-    /// Loads the current state of the database into the dataflow.
-    ///
-    /// Intended to be ran once to initialize the dataflow on startup.
-    ///
-    /// Returns the [SequenceId] corresponding to this initial update.
-    pub fn load_dataflow<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<SequenceId> {
-        // create transaction to retrieve database data
-        let mut tx = self.transaction(dataflow)?;
-
-        // defer loading logic to transaction
-        tx.load_dataflow()?;
-
-        // return commit result
-        tx.commit()
     }
 
     /// Attempts to begin a transaction using this database.
@@ -389,23 +371,21 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(results)
     }
 
-    fn commit(mut self) -> ServerResult<SequenceId> {
-        // perform actual commit
-        // first error is IO, second error is SSI conflict
-        self.tx
-            .commit()
-            .map_err(db_error)?
-            .map_err(|_| ServerError::Conflict)?;
+    fn commit(mut self) -> impl Future<Output = ServerResult<SequenceId>> + Send {
+        async move {
+            // perform actual commit
+            // first error is IO, second error is SSI conflict
+            self.tx
+                .commit()
+                .map_err(db_error)?
+                .map_err(|_| ServerError::Conflict)?;
 
-        // send dataflow inputs
-        let sequence = self.dataflow.commit(self.events);
+            // send dataflow inputs
+            let sequence = self.dataflow.commit(self.program_map, self.events).await;
 
-        // done!
-        Ok(sequence)
-    }
-
-    fn get_program_map(&self) -> ServerResult<ProgramMap> {
-        Ok(self.program_map.clone())
+            // done!
+            Ok(sequence)
+        }
     }
 }
 
@@ -527,7 +507,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 pub type Bucket = Vec<StructuredValue>;
 
 /// Mappings between program information and database state.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ProgramMap {
     /// Maps input relation IDs to their information within the database.
     pub input_relations: BTreeMap<String, InputRelation>,
@@ -679,14 +659,22 @@ impl Key {
 }
 
 /// A trait for ACID dataflow inputs. If dropped, changes must be rolled back.
-pub trait CommitDataflow {
-    /// Commits this dataflow update, returning a [SequenceId] to retrieve outputs.
-    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId;
+pub trait CommitDataflow: Send + Sync {
+    /// Atomically commits this dataflow update, returning a [SequenceId] to retrieve outputs.
+    fn commit(
+        &mut self,
+        program_map: ProgramMap,
+        events: Vec<InputEvent>,
+    ) -> impl Future<Output = SequenceId> + Send;
 }
 
 impl<T: CommitDataflow> CommitDataflow for &mut T {
-    fn commit(&mut self, events: Vec<InputEvent>) -> SequenceId {
-        (**self).commit(events)
+    fn commit(
+        &mut self,
+        program_map: ProgramMap,
+        events: Vec<InputEvent>,
+    ) -> impl Future<Output = SequenceId> + Send {
+        (**self).commit(program_map, events)
     }
 }
 

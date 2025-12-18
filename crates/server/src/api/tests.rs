@@ -31,7 +31,7 @@ async fn local_client() -> Result<Client> {
 
     let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let database = Database::temporary().unwrap();
-    let state = start_server(database)?;
+    let state = start_server(database).await?;
     let router = route(state).into_make_service();
     let host = format!("localhost:{port}");
     let listener = tokio::net::TcpListener::bind(&host).await?;
