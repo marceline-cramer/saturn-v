@@ -17,6 +17,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
+    hash::Hash,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -33,7 +34,7 @@ use saturn_v_eval::{
     solve::Solver,
     types::{Fact, Relation},
     utils::{Key, Update},
-    DataflowInputs, InputEvent,
+    DataflowInputs, InputEvent, InputEventKind,
 };
 use saturn_v_protocol::{ir::RelationIO, *};
 use tokio::sync::{broadcast, Mutex};
@@ -50,6 +51,8 @@ pub fn route(server: State) -> Router {
     Router::new()
         .route("/program", get(get_program).post(post_program))
         .route("/inputs/list", get(inputs_list))
+        .route("/input/{input}", get(get_input))
+        .route("/input/{input}/subscribe", get(subscribe_to_input))
         .route("/input/{input}/update", post(input_update))
         .route("/outputs/list", get(outputs_list))
         .route("/output/{output}", get(get_output))
@@ -79,6 +82,27 @@ async fn inputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> 
         .map(InputRelation::to_info)
         .collect::<Vec<_>>())
     .into()
+}
+
+async fn get_input(
+    server: ExtractState,
+    Path(input): Path<String>,
+) -> ServerResponse<HashSet<StructuredValue>> {
+    server
+        .lock()
+        .await
+        .get_relation_values(&input, RelationIO::Input)
+        .into()
+}
+
+async fn subscribe_to_input(
+    server: ExtractState,
+    Path(input): Path<String>,
+) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
+    server
+        .lock()
+        .await
+        .subscribe_to_relation(&input, RelationIO::Input)
 }
 
 async fn input_update(
@@ -182,6 +206,9 @@ impl CommitDataflow for State {
         // acquire lock
         let mut server = self.lock().await;
 
+        // dereference server mutex to permit split mutable borrow
+        let server = server.deref_mut();
+
         // update program map before flushing updates
         server.update_program(program_map);
 
@@ -189,17 +216,42 @@ impl CommitDataflow for State {
         let sequence = server.sequence;
         server.sequence += 1;
 
+        // split borrow dataflow inputs and relations
+        let (dataflow, relations) = (&mut server.inputs, &mut server.relations);
+
+        // retrieve input relation references
+        let mut relations: BTreeMap<_, _> = relations
+            .values_mut()
+            .filter(|rel| rel.io == RelationIO::Input)
+            .map(|input| (input.rel, input))
+            .collect();
+
         // process events
         for event in events {
+            // extract an input fact update, if one is set
+            let input = match &event {
+                InputEvent::Insert(InputEventKind::Fact(fact)) => Some(TupleUpdate::insert(fact)),
+                InputEvent::Remove(InputEventKind::Fact(fact)) => Some(TupleUpdate::remove(fact)),
+                _ => None,
+            };
+
+            // apply an input fact update to relation state
+            if let Some(TupleUpdate { state, value }) = input {
+                let relation = relations.get_mut(&value.relation).unwrap();
+                let value = relation.structure_values(&mut value.values.iter());
+                relation.push(TupleUpdate { value, state });
+            }
+
+            // push event into dataflow
             use InputEvent::*;
             match event {
-                Insert(ev) => server.inputs.events.insert(ev),
-                Remove(ev) => server.inputs.events.remove(ev),
+                Insert(ev) => dataflow.events.insert(ev),
+                Remove(ev) => dataflow.events.remove(ev),
             };
         }
 
         // flush events to dataflow
-        server.inputs.events.flush();
+        dataflow.events.flush();
 
         // return sequence
         SequenceId(sequence)
@@ -278,16 +330,10 @@ impl Server {
                 .map(|output| (output.rel, output))
                 .collect();
 
-            for (output, state) in outputs {
-                let relation = relations.get_mut(&output.relation).unwrap();
-                let value = relation.structure_values(&mut output.values.iter());
-
-                match state {
-                    false => relation.state.remove(&value),
-                    true => relation.state.insert(value.clone()),
-                };
-
-                let _ = relation.watcher.send(TupleUpdate { state, value });
+            for (value, state) in outputs {
+                let relation = relations.get_mut(&value.relation).unwrap();
+                let value = relation.structure_values(&mut value.values.iter());
+                relation.push(TupleUpdate { value, state });
             }
         }
     }
@@ -390,6 +436,7 @@ impl RelationBag {
         }
     }
 
+    /// Structures a flat list of values into a [StructuredValue] of this relation's type.
     pub fn structure_values<'a>(
         &self,
         values: &mut impl Iterator<Item = &'a ir::Value>,
@@ -447,6 +494,20 @@ impl<T: Clone> Default for Bag<T> {
             state: Default::default(),
             watcher,
             watcher_rx,
+        }
+    }
+}
+
+impl<T: Clone + std::fmt::Debug + Hash + Eq> Bag<T> {
+    /// Pushes a [TupleUpdate] to this bag.
+    pub fn push(&mut self, update: TupleUpdate<T>) {
+        let changed = match update.state {
+            false => self.state.remove(&update.value),
+            true => self.state.insert(update.value.clone()),
+        };
+
+        if changed {
+            self.watcher.send(update).unwrap();
         }
     }
 }
