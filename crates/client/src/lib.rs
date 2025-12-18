@@ -257,9 +257,10 @@ impl Input {
 
     /// Subscribes to live updates on values in this input.
     #[wasm_bindgen(js_name = subscribe)]
-    pub fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
+    pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
         let stream = self
-            .subscribe::<JsValue>()?
+            .subscribe::<JsValue>()
+            .await?
             .map_ok(JsValue::from)
             .map_err(JsValue::from);
 
@@ -303,9 +304,10 @@ impl Output {
 
     /// Subscribes to live updates on values in this output.
     #[wasm_bindgen(js_name = subscribe)]
-    pub fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
+    pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
         let stream = self
-            .subscribe::<JsValue>()?
+            .subscribe::<JsValue>()
+            .await?
             .map_ok(JsValue::from)
             .map_err(JsValue::from);
 
@@ -319,7 +321,8 @@ pub trait QueryRelation {
     fn get_all<T: FromValue + Send>(&self) -> impl Future<Output = Result<Vec<T>>>;
 
     /// Subscribes to live updates on values in this output.
-    fn subscribe<T: FromValue + 'static>(
+    #[allow(async_fn_in_trait)]
+    async fn subscribe<T: FromValue + 'static>(
         &self,
     ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static>;
 }
@@ -348,19 +351,28 @@ impl<R: ImplQueryRelation> QueryRelation for R {
     }
 
     /// Subscribes to live updates on values in this output.
-    fn subscribe<T: FromValue + 'static>(
+    async fn subscribe<T: FromValue + 'static>(
         &self,
     ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static> {
         T::check_ty(&self.ty)?;
 
         let path = format!("/{}/{}/subscribe", R::ENDPOINT, self.id);
 
-        let src = self
+        // send request for subscription
+        let mut src = self
             .client()
             .begin_request(Method::GET, &path)
             .eventsource()
             .unwrap();
 
+        // wait for ready event
+        // avoids client-side race conditions
+        match src.next().await {
+            Some(Ok(Event::Open)) => {}
+            _ => todo!(),
+        }
+
+        // transform incoming events into tuple updates
         Ok(src.filter_map(|ev| {
             std::future::ready(match ev {
                 Ok(Event::Open) => None,
