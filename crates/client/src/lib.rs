@@ -42,8 +42,10 @@ pub struct Client {
 impl Client {
     /// Creates a client to the Saturn V server at the given base URL.
     #[wasm_bindgen(constructor)]
-    pub fn js_new(base: String) -> Self {
-        Self::new(Url::parse(&base).unwrap())
+    pub fn js_new(base: String) -> std::result::Result<Self, String> {
+        Url::parse(&base)
+            .map(Self::new)
+            .map_err(|err| err.to_string())
     }
 
     /// Gets a list of all inputs currently on the server.
@@ -363,7 +365,7 @@ impl<R: ImplQueryRelation> QueryRelation for R {
             .client()
             .begin_request(Method::GET, &path)
             .eventsource()
-            .unwrap();
+            .map_err(|_| Error::CannotCloneRequest)?;
 
         // wait for ready event
         // avoids client-side race conditions
@@ -407,6 +409,8 @@ pub enum Error {
     EventSource(#[from] Box<reqwest_eventsource::Error>),
     #[error(transparent)]
     Parse(#[from] serde_json::Error),
+    #[error("cannot clone request")]
+    CannotCloneRequest,
 }
 
 impl Error {
@@ -421,8 +425,9 @@ impl Error {
 
 impl From<Error> for JsValue {
     fn from(err: Error) -> Self {
-        // TODO: non-server errors
-        let server = err.into_server_error().unwrap();
-        serde_wasm_bindgen::to_value(&server).unwrap()
+        match err {
+            Error::Server(server) => JsValue::from(server),
+            other => JsValue::from_str(&format!("{other:#?}")),
+        }
     }
 }
