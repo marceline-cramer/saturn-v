@@ -112,6 +112,7 @@ pub struct SequenceId(pub u64);
 
 /// A Saturn V-compatible value type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StructuredValue {
     /// A nested list of other values.
     Tuple(Vec<StructuredValue>),
