@@ -83,8 +83,8 @@ pub fn run_pumps(
                 continue;
             } else {
                 behind = false;
-                output.flush();
                 output.advance_to(time);
+                output.flush();
             }
         }
 
