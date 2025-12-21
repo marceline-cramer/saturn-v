@@ -52,7 +52,7 @@ impl Client {
     #[wasm_bindgen(js_name = "getInputs")]
     pub async fn get_inputs(&self) -> Result<Vec<Input>> {
         Ok(self
-            .get_json::<Vec<RelationInfo>>("/inputs/list")
+            .get_json::<Vec<RelationInfo>>("inputs/list")
             .await?
             .into_iter()
             .map(|info| Input {
@@ -77,7 +77,7 @@ impl Client {
     #[wasm_bindgen(js_name = "getOutputs")]
     pub async fn get_outputs(&self) -> Result<Vec<Output>> {
         Ok(self
-            .get_json::<Vec<RelationInfo>>("/outputs/list")
+            .get_json::<Vec<RelationInfo>>("outputs/list")
             .await?
             .into_iter()
             .map(|info| Output {
@@ -214,7 +214,7 @@ impl Input {
         let body = vec![TupleUpdate { state, value }];
 
         self.client
-            .post_json(&format!("/input/{}/update", self.id), &body)
+            .post_json(&format!("input/{}/update", self.id), &body)
             .await?;
 
         Ok(())
@@ -345,7 +345,7 @@ impl<R: ImplQueryRelation> QueryRelation for R {
 
         Ok(self
             .client()
-            .get_json::<Vec<StructuredValue>>(&format!("/{}/{}", R::ENDPOINT, self.id))
+            .get_json::<Vec<StructuredValue>>(&format!("{}/{}", R::ENDPOINT, self.id))
             .await?
             .into_iter()
             .map(|val| T::from_value(val))
@@ -358,7 +358,7 @@ impl<R: ImplQueryRelation> QueryRelation for R {
     ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static> {
         T::check_ty(&self.ty)?;
 
-        let path = format!("/{}/{}/subscribe", R::ENDPOINT, self.id);
+        let path = format!("{}/{}/subscribe", R::ENDPOINT, self.id);
 
         // send request for subscription
         let mut src = self
