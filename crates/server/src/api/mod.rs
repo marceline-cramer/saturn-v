@@ -237,9 +237,10 @@ impl CommitDataflow for State {
 
             // apply an input fact update to relation state
             if let Some(TupleUpdate { state, value }) = input {
-                let relation = relations.get_mut(&value.relation).unwrap();
-                let value = relation.structure_values(&mut value.values.iter());
-                relation.push(TupleUpdate { value, state });
+                if let Some(relation) = relations.get_mut(&value.relation) {
+                    let value = relation.structure_values(&mut value.values.iter());
+                    relation.push(TupleUpdate { value, state });
+                }
             }
 
             // push event into dataflow
