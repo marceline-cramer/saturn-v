@@ -30,7 +30,7 @@ use rustsat::{
     types::{constraints::CardConstraint, Clause, Lit, Var},
 };
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
-use tracing::{debug, span, Level};
+use tracing::{debug, span, trace, Level};
 
 pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
 
@@ -72,18 +72,11 @@ impl Solver {
     }
 
     pub async fn step(&mut self) -> Option<bool> {
-        // track time that step started
-        let start = std::time::Instant::now();
-        debug!("stepping solver...");
-
         // fetch updates
         let conditional = self.conditional_sink.next_batch().await?;
         let gates = self.gates_sink.next_batch().await?;
         let constraints = self.constraints_sink.next_batch().await?;
         let outputs = self.outputs_sink.next_batch().await?;
-
-        // display how long dataflow took to process step
-        debug!("received solver step after {:?}", start.elapsed());
 
         // update model
         let removed_outputs = log_time("updating SAT model", || {
@@ -203,7 +196,7 @@ impl Model {
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
                 let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
-                debug!("cost assumptions: {cost_assumps:?}");
+                trace!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
                 // solve SAT
@@ -618,7 +611,7 @@ pub fn split_batch<T>(batch: Vec<(T, bool)>) -> (Vec<T>, Vec<T>) {
 
 fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
     let span = span!(
-        Level::DEBUG,
+        Level::TRACE,
         "solver_time",
         message = message,
         duration_us = tracing::field::Empty
@@ -626,12 +619,12 @@ fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
 
     let _enter = span.enter();
 
-    debug!("{message}...");
+    trace!("{message}...");
 
     let start = std::time::Instant::now();
     let result = cb();
     let duration = start.elapsed();
-    debug!("{message} took {duration:?}");
+    trace!("{message} took {duration:?}");
 
     span.record("duration_us", duration.as_micros());
 
