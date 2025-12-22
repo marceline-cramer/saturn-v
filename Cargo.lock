@@ -2199,6 +2199,7 @@ dependencies = [
  "saturn-v-lsp",
  "saturn-v-server",
  "tokio",
+ "tower-http",
  "tower-lsp",
  "tracing-subscriber",
  "tree-sitter",
@@ -2910,6 +2911,7 @@ dependencies = [
  "tower 0.5.2",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
