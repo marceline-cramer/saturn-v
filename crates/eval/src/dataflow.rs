@@ -224,7 +224,6 @@ pub fn backend(
             .reduce(constraint_reduce)
             .map(|((dst, _head), group)| (dst, group))
             .join_map(&constraint_type, constraint_clause)
-            .distinct()
             .inspect(inspect("constraint"));
 
         // find base conditional facts to add to all outgoing conditionals
