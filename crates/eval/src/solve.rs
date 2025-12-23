@@ -30,7 +30,7 @@ use rustsat::{
     types::{constraints::CardConstraint, Clause, Lit, Var},
 };
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
-use tracing::{debug, span, trace, Level};
+use tracing::{debug, error, span, trace, Level};
 
 pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
 
@@ -235,7 +235,11 @@ impl Model {
         log_time("removing old gates", || {
             for gate in gates_remove.iter() {
                 let key = Key::new(gate);
-                let enc = self.gates.remove(&key).unwrap();
+                let Some(enc) = self.gates.remove(&key) else {
+                    error!("cannot remove gate {key:?}");
+                    continue;
+                };
+
                 self.vars.recycle(enc.output);
                 self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
             }
@@ -276,7 +280,12 @@ impl Model {
         let mut removed_outputs = Vec::with_capacity(outputs_remove.len());
         log_time("removing old outputs", || {
             for output in outputs_remove.iter() {
-                if self.outputs.remove(output).unwrap().0 {
+                let Some((value, _var)) = self.outputs.remove(output) else {
+                    error!("could not remove output {output:?}");
+                    continue;
+                };
+
+                if value {
                     removed_outputs.push(output.clone());
                 }
             }
@@ -313,7 +322,11 @@ impl Model {
         let mut conditional_vars = HashMap::new();
         log_time("removing old conditionals", || {
             for (fact, _cond) in conditional_remove.iter() {
-                let enc = self.conditionals.remove(fact).unwrap();
+                let Some(enc) = self.conditionals.remove(fact) else {
+                    error!("could not remove conditional {fact:?}");
+                    continue;
+                };
+
                 self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
                 conditional_vars.insert(*fact, enc.output);
             }
@@ -370,7 +383,11 @@ impl Model {
         // don't recycle guards because they have been forced
         log_time("removing constraint groups", || {
             for constraint in constraints_remove.iter() {
-                let (guard, _weight) = self.constraints.remove(constraint).unwrap();
+                let Some((guard, _weight)) = self.constraints.remove(constraint) else {
+                    error!("could not remove constraint {constraint:?}");
+                    continue;
+                };
+
                 self.oracle.add_unit(guard.pos_lit()).unwrap();
             }
         });
