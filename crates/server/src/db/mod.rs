@@ -493,7 +493,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             // load each value in the input relation
             for val in self.get_input_values(&name)? {
                 let fact = input.make_fact(val)?;
-                let ev = InputEvent::Remove(InputEventKind::Fact(fact));
+                let ev = InputEvent::Insert(InputEventKind::Fact(fact));
                 self.events.push(ev);
             }
         }
