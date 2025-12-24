@@ -5,7 +5,7 @@ use pyo3::{
     types::{PyBool, PyFloat, PyInt, PyString, PyTuple},
 };
 use pyo3_async_runtimes::tokio::future_into_py;
-use saturn_v_client::{Client, Error, Input, Output};
+use saturn_v_client::{Client, Error, Input, Output, QueryRelation};
 use saturn_v_protocol::StructuredValue;
 
 #[pyclass]
@@ -122,7 +122,7 @@ impl PyInput {
         let input = self.inner.clone();
         let value = py_to_satv(value)?;
         future_into_py(py, async move {
-            input.update_raw(value, true).await.map_err(err_to_py)?;
+            input.update(value, true).await.map_err(err_to_py)?;
             Ok(())
         })
     }
@@ -132,7 +132,7 @@ impl PyInput {
         let input = self.inner.clone();
         let value = py_to_satv(value)?;
         future_into_py(py, async move {
-            input.update_raw(value, true).await.map_err(err_to_py)?;
+            input.update(value, true).await.map_err(err_to_py)?;
             Ok(())
         })
     }
@@ -160,7 +160,7 @@ impl PyOutput {
         let output = self.inner.clone();
 
         future_into_py(py, async move {
-            let raw = output.get_all_raw().await.map_err(err_to_py)?;
+            let raw = output.get_all().await.map_err(err_to_py)?;
 
             Python::try_attach(move |py| {
                 raw.into_iter()
