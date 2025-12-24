@@ -1,0 +1,23 @@
+[package]
+name = "saturn-v-orbit"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+glam = { version = "0.30", features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+
+[dependencies.rayon]
+version = "1.11"
+optional = true
+
+[dependencies.rustfft]
+version = "6.4"
+optional = true
+
+[features]
+simulate = ["dep:rayon", "dep:rustfft"]
