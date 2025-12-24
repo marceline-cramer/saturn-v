@@ -1,4 +1,4 @@
-name: Release binaries
+name: Release
 
 on:
   push:
@@ -184,48 +184,17 @@ jobs:
           name: $PACKAGE_NAME-${{ github.ref_name }}-${{ matrix.archive }}.whl
           path: dist
 
+  wasm:
+    name: WebAssembly packages
+    uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.ref_name }}
+
   vscode:
-    name: Build VS Code extension
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install dependencies
-        working-directory: vscode-ext
-        run: npm install
-
-      - name: Compile extension
-        working-directory: vscode-ext
-        run: npm run compile
-
-      - name: Package extension
-        id: package-vscode-ext
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME:-manual}"
-          OUT="kerolox-vscode-ext-${TAG}"
-          ARTIFACT_DIR="artifacts"
-          mkdir -p "$ARTIFACT_DIR"
-          (
-            cd vscode-ext
-            zip -r "../${ARTIFACT_DIR}/${OUT}.zip" . -x "node_modules/**"
-          )
-          echo "artifact=${ARTIFACT_DIR}/${OUT}.zip" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${OUT}.zip" >> "$GITHUB_OUTPUT"
-          echo "artifact_type=application/zip" >> "$GITHUB_OUTPUT"
-
-      - name: Upload VS Code artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.package-vscode-ext.outputs.artifact_name }}
-          path: ${{ steps.package-vscode-ext.outputs.artifact }}
+    name: VSCode extension
+    uses: ./.github/workflows/vscode.yml
+    with:
+      version: ${{ github.ref_name }}
 
   publish_release:
     name: Create draft release and upload assets
@@ -233,6 +202,7 @@ jobs:
       - build
       - vscode
       - python
+      - wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -1,4 +1,4 @@
-name: Pull Request Checks
+name: PR
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
 
 jobs:
   test:
+    name: Tests
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
@@ -17,6 +18,7 @@ jobs:
         command: test
         args: --workspace --exclude saturn-v-check-fuzz
   rustfmt:
+    name: Style
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
@@ -29,19 +31,7 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         flags: --all
-  check-vscode:
-    name: "Check VSCode extension"
-    runs-on: "ubuntu-latest"
-    defaults:
-      run:
-        working-directory: ./vscode-ext
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
-    - run: npm install
-    - run: npm run compile      
+
   python-tests:
     name: "Python API tests"
     runs-on: ubuntu-latest
@@ -64,8 +54,20 @@ jobs:
           pytest crates/python/tests
         shell: bash
 
+  wasm:
+    name: WebAssembly packages
+    uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.head_ref }}
+
+  vscode:
+    name: VSCode extension
+    uses: ./.github/workflows/vscode.yml
+    with:
+      version: ${{ github.head_ref }}
+
   examples:
-    name: "Run examples"
+    name: Examples
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3

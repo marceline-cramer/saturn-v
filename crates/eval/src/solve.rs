@@ -30,7 +30,7 @@ use rustsat::{
     types::{constraints::CardConstraint, Clause, Lit, Var},
 };
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
-use tracing::{debug, span, Level};
+use tracing::{debug, error, span, trace, Level};
 
 pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
 
@@ -72,18 +72,11 @@ impl Solver {
     }
 
     pub async fn step(&mut self) -> Option<bool> {
-        // track time that step started
-        let start = std::time::Instant::now();
-        debug!("stepping solver...");
-
         // fetch updates
         let conditional = self.conditional_sink.next_batch().await?;
         let gates = self.gates_sink.next_batch().await?;
         let constraints = self.constraints_sink.next_batch().await?;
         let outputs = self.outputs_sink.next_batch().await?;
-
-        // display how long dataflow took to process step
-        debug!("received solver step after {:?}", start.elapsed());
 
         // update model
         let removed_outputs = log_time("updating SAT model", || {
@@ -203,7 +196,7 @@ impl Model {
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
                 let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
-                debug!("cost assumptions: {cost_assumps:?}");
+                trace!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
                 // solve SAT
@@ -242,7 +235,11 @@ impl Model {
         log_time("removing old gates", || {
             for gate in gates_remove.iter() {
                 let key = Key::new(gate);
-                let enc = self.gates.remove(&key).unwrap();
+                let Some(enc) = self.gates.remove(&key) else {
+                    error!("cannot remove gate {key:?}");
+                    continue;
+                };
+
                 self.vars.recycle(enc.output);
                 self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
             }
@@ -283,7 +280,12 @@ impl Model {
         let mut removed_outputs = Vec::with_capacity(outputs_remove.len());
         log_time("removing old outputs", || {
             for output in outputs_remove.iter() {
-                if self.outputs.remove(output).unwrap().0 {
+                let Some((value, _var)) = self.outputs.remove(output) else {
+                    error!("could not remove output {output:?}");
+                    continue;
+                };
+
+                if value {
                     removed_outputs.push(output.clone());
                 }
             }
@@ -320,7 +322,11 @@ impl Model {
         let mut conditional_vars = HashMap::new();
         log_time("removing old conditionals", || {
             for (fact, _cond) in conditional_remove.iter() {
-                let enc = self.conditionals.remove(fact).unwrap();
+                let Some(enc) = self.conditionals.remove(fact) else {
+                    error!("could not remove conditional {fact:?}");
+                    continue;
+                };
+
                 self.oracle.add_unit(enc.guard.pos_lit()).unwrap();
                 conditional_vars.insert(*fact, enc.output);
             }
@@ -377,7 +383,11 @@ impl Model {
         // don't recycle guards because they have been forced
         log_time("removing constraint groups", || {
             for constraint in constraints_remove.iter() {
-                let (guard, _weight) = self.constraints.remove(constraint).unwrap();
+                let Some((guard, _weight)) = self.constraints.remove(constraint) else {
+                    error!("could not remove constraint {constraint:?}");
+                    continue;
+                };
+
                 self.oracle.add_unit(guard.pos_lit()).unwrap();
             }
         });
@@ -618,7 +628,7 @@ pub fn split_batch<T>(batch: Vec<(T, bool)>) -> (Vec<T>, Vec<T>) {
 
 fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
     let span = span!(
-        Level::DEBUG,
+        Level::TRACE,
         "solver_time",
         message = message,
         duration_us = tracing::field::Empty
@@ -626,12 +636,12 @@ fn log_time<T>(message: &str, cb: impl FnOnce() -> T) -> T {
 
     let _enter = span.enter();
 
-    debug!("{message}...");
+    trace!("{message}...");
 
     let start = std::time::Instant::now();
     let result = cb();
     let duration = start.elapsed();
-    debug!("{message} took {duration:?}");
+    trace!("{message} took {duration:?}");
 
     span.record("duration_us", duration.as_micros());
 

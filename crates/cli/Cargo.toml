@@ -24,3 +24,7 @@ tracing-subscriber.workspace = true
 tree-sitter.workspace = true
 tree-sitter-kerolox.workspace = true
 url.workspace = true
+
+[dependencies.tower-http]
+version = "0.6"
+features = ["trace"]

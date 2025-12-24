@@ -360,6 +360,7 @@ impl<T: ExchangeData + Hashable> OutputRouter<T> {
 
         OutputSource {
             tx: self.tx.clone(),
+            time: 0,
             probe: arranged.stream.probe(),
             trace: Box::new(TraceWrapper(arranged.trace, PhantomData)),
         }
@@ -415,6 +416,7 @@ where
 
 pub struct OutputSource<T> {
     tx: Sender<Update<T>>,
+    time: Time,
     probe: ProbeHandle<Time>,
     trace: Box<dyn DynTrace<T>>,
 }
@@ -422,6 +424,7 @@ pub struct OutputSource<T> {
 impl<T: std::fmt::Debug> PumpOutput for OutputSource<T> {
     fn advance_to(&mut self, time: Time) {
         self.trace.advance_to(time);
+        self.time = time;
     }
 
     fn is_pending(&self, time: &Time) -> bool {
@@ -430,7 +433,16 @@ impl<T: std::fmt::Debug> PumpOutput for OutputSource<T> {
 
     fn flush(&mut self) {
         for ((item, ()), sums) in self.trace.updates() {
-            let delta: isize = sums.iter().map(|(_time, sum)| *sum).sum();
+            let delta: isize = sums
+                .iter()
+                .filter(|(time, _sum)| *time >= self.time)
+                .map(|(_time, sum)| *sum)
+                .sum();
+
+            if delta == 0 {
+                continue;
+            }
+
             let add = delta > 0;
             let update = Update::Push(item, add);
             let _ = self.tx.send(update);

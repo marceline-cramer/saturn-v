@@ -11,3 +11,5 @@ ordered-float.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+wasm-bindgen.workspace = true
+serde-wasm-bindgen.workspace = true

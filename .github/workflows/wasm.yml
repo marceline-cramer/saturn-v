@@ -1,0 +1,50 @@
+name: WebAssembly Builds
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build WebAssembly
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - client
+          - lsp
+        target:
+          - nodejs
+          - bundler
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown
+        override: true
+
+    - name: Install wasm-pack
+      run: npm install -g wasm-pack
+
+    - name: Install just
+      run: sudo apt-get update && sudo apt-get install -y just
+
+    - name: Run wasm-pack via Justfile
+      run: just wasm ${{ matrix.crate }} ${{ matrix.target }}
+
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v6
+      with:
+        path: pkg/*.tgz
+        name: saturn-v-${{ matrix.crate }}-${{ matrix.target }}-${{ inputs.version }}.tgz

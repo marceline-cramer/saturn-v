@@ -23,6 +23,7 @@ use saturn_v_client::Client;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
 use tokio::net::TcpListener;
+use tower_http::trace::TraceLayer;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
@@ -166,8 +167,8 @@ async fn main() -> anyhow::Result<()> {
 
             let db = Database::new(&db).context("failed to open database")?;
 
-            let state = start_server(db).context("failed to start server")?;
-            let router = route(state);
+            let state = start_server(db).await.context("failed to start server")?;
+            let router = route(state).layer(TraceLayer::new_for_http());
 
             let listener = TcpListener::bind(host.as_slice())
                 .await
