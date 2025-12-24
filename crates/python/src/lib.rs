@@ -136,6 +136,10 @@ impl PyInput {
             Ok(())
         })
     }
+
+    pub fn get_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        get_all(self.inner.clone(), py)
+    }
 }
 
 #[pyclass]
@@ -157,18 +161,7 @@ impl PyOutput {
     }
 
     pub fn get_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let output = self.inner.clone();
-
-        future_into_py(py, async move {
-            let raw = output.get_all().await.map_err(err_to_py)?;
-
-            Python::try_attach(move |py| {
-                raw.into_iter()
-                    .flat_map(|val| satv_to_py(val, py))
-                    .collect::<Vec<_>>()
-            })
-            .ok_or_else(|| PyRuntimeError::new_err("failed to attach to interpreter"))
-        })
+        get_all(self.inner.clone(), py)
     }
 }
 
@@ -222,4 +215,20 @@ pub fn py_to_satv<'py>(val: Bound<'py, PyAny>) -> PyResult<StructuredValue> {
 
 pub fn err_to_py(err: Error) -> PyErr {
     PyRuntimeError::new_err(err.to_string())
+}
+
+pub fn get_all<'py, T: QueryRelation + Send + 'static>(
+    relation: T,
+    py: Python<'py>,
+) -> PyResult<Bound<'py, PyAny>> {
+    future_into_py(py, async move {
+        let raw = relation.get_all().await.map_err(err_to_py)?;
+
+        Python::try_attach(move |py| {
+            raw.into_iter()
+                .flat_map(|val| satv_to_py(val, py))
+                .collect::<Vec<_>>()
+        })
+        .ok_or_else(|| PyRuntimeError::new_err("failed to attach to interpreter"))
+    })
 }
