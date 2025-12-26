@@ -15,15 +15,34 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use leptos::prelude::*;
-use saturn_v_orbit::leptos::Orbit;
+use saturn_v_orbit::{get_default_orbits, leptos::Orbit};
 
 #[component]
 fn App() -> impl IntoView {
+    let all_orbits: Vec<_> = get_default_orbits()
+        .iter()
+        .map(|orbit| orbit.name.clone())
+        .collect();
+
+    let (name, set_name) = signal(all_orbits[0].clone());
+
+    let options = all_orbits
+        .into_iter()
+        .map(|name| view! { <option value={name.clone()}>{name.clone()}</option> })
+        .collect::<Vec<_>>();
+
+    let on_change = move |ev| {
+        set_name.set(event_target_value(&ev));
+    };
+
     view! {
-        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">
-            <div style="border:1px solid black;padding:10px">
-                <Orbit/>
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column">
+            <div style="border:1px solid black;padding:10px;margin:10px">
+                {move || view!{ <Orbit name=name.get()/> } }
             </div>
+            <select on:change=on_change style="font-size:14pt">
+                {options}
+            </select>
         </div>
     }
 }

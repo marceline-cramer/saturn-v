@@ -19,14 +19,19 @@
 use leptos::{html::Canvas, prelude::*};
 use web_sys::{wasm_bindgen::JsCast, CanvasRenderingContext2d};
 
-use crate::canvas::OrbitRenderer;
+use crate::{canvas::OrbitRenderer, get_default_orbits};
 
 #[component]
-pub fn Orbit() -> impl IntoView {
+pub fn Orbit(#[prop(optional)] name: Option<String>) -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
     let (time, set_time) = signal(0.0f64);
 
-    let orbit = crate::get_default_orbits().get(0).unwrap().clone();
+    let orbit = get_default_orbits()
+        .iter()
+        .find(|orbit| Some(&orbit.name) == name.as_ref())
+        .cloned()
+        .unwrap_or_else(|| get_default_orbits().first().unwrap().clone());
+
     let renderer = OrbitRenderer::new(orbit);
 
     let performance = window()
