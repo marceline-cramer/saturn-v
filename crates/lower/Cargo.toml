@@ -15,3 +15,7 @@ pretty.workspace = true
 saturn-v-ir.workspace = true
 thread_local = "1.1.9"
 tracing.workspace = true
+
+# egglog v1.0.0 has a dependency on getrandom
+# enable JS support for random https://docs.rs/getrandom/latest/getrandom/#webassembly-support
+getrandom = { version = "0.3", features = ["wasm_js"] }
