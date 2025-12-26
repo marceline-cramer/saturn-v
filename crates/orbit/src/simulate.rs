@@ -86,17 +86,19 @@ pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedO
 
     let orbit = orbit_config.to_orbit();
 
-    let simulated = simulate_closed(sim_config, &orbit);
+    let mut simulated = Simulation::simulate_closed(sim_config, &orbit);
 
-    let mut baked_bodies = analyze(&simulated);
+    simulated.fit();
+
+    let mut baked_bodies = simulated.analyze();
 
     baked_bodies
         .iter_mut()
         .for_each(|body| body.optimize(0.001));
 
-    let by_body = transpose(&simulated, Clone::clone);
+    let by_body = transpose(&simulated.positions, Clone::clone);
 
-    let total_frames = simulated.len();
+    let total_frames = simulated.positions.len();
     let mut compressed = Vec::new();
     for (body, baseline) in baked_bodies.iter().zip(by_body.iter()) {
         let positions = inverse_analyze(total_frames, body);
@@ -110,34 +112,6 @@ pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedO
         energy: orbit_config.energy,
         bodies: baked_bodies.clone(),
     }
-}
-
-pub fn analyze(positions: &[Vec<DVec2>]) -> Vec<BakedBody> {
-    let mut planner = FftPlanner::new();
-    let frame_num = positions.len();
-    let fft = planner.plan_fft_forward(frame_num);
-
-    let mut freqs = transpose(positions, |pos| Complex64 {
-        re: pos.x,
-        im: pos.y,
-    });
-
-    freqs
-        .iter_mut()
-        .par_bridge()
-        .for_each(|body| fft.process(body));
-
-    freqs
-        .into_iter()
-        .map(|frames| {
-            frames
-                .into_iter()
-                .enumerate()
-                .map(|(idx, freq)| fft_to_freq(idx, freq, frame_num))
-                .collect()
-        })
-        .map(|position| BakedBody { position })
-        .collect()
 }
 
 pub fn fft_to_freq(idx: usize, fft: Complex64, frame_num: usize) -> FrequencyComponent {
@@ -167,82 +141,165 @@ pub fn inverse_analyze(frames: usize, body: &BakedBody) -> Vec<DVec2> {
         .collect()
 }
 
-pub fn simulate_closed(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
-    let mut reversed = orbit.clone();
+#[derive(Clone)]
+pub struct Simulation {
+    /// The positions of each body in the orbit, body-major.
+    pub positions: Vec<Vec<DVec2>>,
 
-    for body in reversed.initial_conds.iter_mut() {
-        body.velocity = -body.velocity;
-    }
+    /// The minimum body position.
+    pub min_position: DVec2,
 
-    let forward_span = info_span!("forward sim");
-    let reverse_span = info_span!("reverse sim");
-
-    let (mut forwards, mut backwards) = rayon::join(
-        || {
-            let _enter = forward_span.enter();
-            simulate(config, orbit)
-        },
-        || {
-            let _enter = reverse_span.enter();
-            simulate(config, &reversed)
-        },
-    );
-
-    backwards.reverse();
-
-    // simulations should end where they started
-    // remove the last element to even out the period
-    forwards.pop();
-    backwards.pop();
-
-    let forwards_error = transpose(&forwards, Clone::clone);
-    let backwards_error = transpose(&backwards, Clone::clone);
-
-    for (forwards, backwards) in forwards_error.iter().zip(backwards_error.iter()) {
-        let error = rms_error(forwards, backwards);
-        debug!("closed simulation RMS error: {error}",);
-        assert!(error < 0.001);
-    }
-
-    let frame_num = forwards.len();
-    for (idx, (forwards, backwards)) in forwards.iter_mut().zip(backwards.iter()).enumerate() {
-        let position = (idx as f64) / (frame_num as f64);
-        let blend = position;
-
-        for (forward, backward) in forwards.iter_mut().zip(backwards.iter()) {
-            *forward = forward.lerp(*backward, blend);
-        }
-    }
-
-    forwards
+    /// The maximum body position.
+    pub max_position: DVec2,
 }
 
-pub fn simulate(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
-    let frame_num = config.frames * config.subframes;
-    let timestep = orbit.period / frame_num as f64;
-    let mut bodies = orbit.initial_conds.clone();
-    let mut history = Vec::with_capacity(frame_num);
+impl Simulation {
+    pub fn from_positions(positions: Vec<Vec<DVec2>>) -> Self {
+        let min_position = positions
+            .iter()
+            .flatten()
+            .copied()
+            .reduce(|p1, p2| p1.min(p2))
+            .unwrap_or_default();
 
-    let first: Vec<_> = bodies.iter().map(|body| body.position).collect();
-    history.push(first.clone());
+        let max_position = positions
+            .iter()
+            .flatten()
+            .copied()
+            .reduce(|p1, p2| p1.max(p2))
+            .unwrap_or_default();
 
-    let mut last = vec![];
-    for frame_idx in 0..frame_num {
-        for _ in 0..10000 {
-            step(timestep / 10000.0, &mut bodies);
-        }
-
-        last = bodies.iter().map(|body| body.position).collect();
-        history.push(last.clone());
-
-        if frame_idx % (frame_num / 10) == 0 {
-            debug!("simulating frame #{frame_idx}");
+        Self {
+            positions,
+            min_position,
+            max_position,
         }
     }
 
-    debug!("start-end simulation drift: {}", rms_error(&first, &last));
+    pub fn fit(&mut self) {
+        let max_bound = [self.min_position, self.max_position]
+            .into_iter()
+            .map(|vec| vec.abs())
+            .flat_map(|vec| [vec.x, vec.y])
+            .reduce(|v1, v2| v1.max(v2))
+            .unwrap();
 
-    history
+        let scale = 1.0 / max_bound;
+
+        self.min_position *= scale;
+        self.max_position *= scale;
+
+        self.positions
+            .iter_mut()
+            .flat_map(|body| body.iter_mut())
+            .for_each(|position| *position *= scale);
+    }
+
+    pub fn simulate_closed(config: &SimulationConfig, orbit: &Orbit) -> Self {
+        let mut reversed = orbit.clone();
+
+        for body in reversed.initial_conds.iter_mut() {
+            body.velocity = -body.velocity;
+        }
+
+        let forward_span = info_span!("forward sim");
+        let reverse_span = info_span!("reverse sim");
+
+        let (mut forwards, mut backwards) = rayon::join(
+            || {
+                let _enter = forward_span.enter();
+                Self::simulate(config, orbit)
+            },
+            || {
+                let _enter = reverse_span.enter();
+                Self::simulate(config, &reversed)
+            },
+        );
+
+        backwards.reverse();
+
+        // simulations should end where they started
+        // remove the last element to even out the period
+        forwards.pop();
+        backwards.pop();
+
+        let forwards_error = transpose(&forwards, Clone::clone);
+        let backwards_error = transpose(&backwards, Clone::clone);
+
+        for (forwards, backwards) in forwards_error.iter().zip(backwards_error.iter()) {
+            let error = rms_error(forwards, backwards);
+            debug!("closed simulation RMS error: {error}",);
+            assert!(error < 0.001);
+        }
+
+        let frame_num = forwards.len();
+        for (idx, (forwards, backwards)) in forwards.iter_mut().zip(backwards.iter()).enumerate() {
+            let position = (idx as f64) / (frame_num as f64);
+            let blend = position;
+
+            for (forward, backward) in forwards.iter_mut().zip(backwards.iter()) {
+                *forward = forward.lerp(*backward, blend);
+            }
+        }
+
+        Self::from_positions(forwards)
+    }
+
+    pub fn simulate(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
+        let frame_num = config.frames * config.subframes;
+        let timestep = orbit.period / frame_num as f64;
+        let mut bodies = orbit.initial_conds.clone();
+        let mut history = Vec::with_capacity(frame_num);
+
+        let first: Vec<_> = bodies.iter().map(|body| body.position).collect();
+        history.push(first.clone());
+
+        let mut last = vec![];
+        for frame_idx in 0..frame_num {
+            for _ in 0..10000 {
+                step(timestep / 10000.0, &mut bodies);
+            }
+
+            last = bodies.iter().map(|body| body.position).collect();
+            history.push(last.clone());
+
+            if frame_idx % (frame_num / 10) == 0 {
+                debug!("simulating frame #{frame_idx}");
+            }
+        }
+
+        debug!("start-end simulation drift: {}", rms_error(&first, &last));
+
+        history
+    }
+
+    pub fn analyze(&self) -> Vec<BakedBody> {
+        let mut planner = FftPlanner::new();
+        let frame_num = self.positions.len();
+        let fft = planner.plan_fft_forward(frame_num);
+
+        let mut freqs = transpose(&self.positions, |pos| Complex64 {
+            re: pos.x,
+            im: pos.y,
+        });
+
+        freqs
+            .iter_mut()
+            .par_bridge()
+            .for_each(|body| fft.process(body));
+
+        freqs
+            .into_iter()
+            .map(|frames| {
+                frames
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, freq)| fft_to_freq(idx, freq, frame_num))
+                    .collect()
+            })
+            .map(|position| BakedBody { position })
+            .collect()
+    }
 }
 
 pub fn rms_error(lhs: &[DVec2], rhs: &[DVec2]) -> f64 {
