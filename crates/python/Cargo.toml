@@ -1,0 +1,25 @@
+[package]
+name = "saturn-v-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+name = "saturn_v_py"
+crate-type = ["cdylib"]
+
+[dependencies]
+ordered-float.workspace = true
+saturn-v-client.workspace = true
+saturn-v-protocol.workspace = true
+serde_json.workspace = true
+
+[dependencies.pyo3]
+version = "0.27"
+features = ["extension-module"]
+
+[dependencies.pyo3-async-runtimes]
+version = "0.27"
+features = ["tokio-runtime"]
