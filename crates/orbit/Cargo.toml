@@ -6,6 +6,9 @@ version.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 glam = { version = "0.30", features = ["serde"] }
 serde.workspace = true
