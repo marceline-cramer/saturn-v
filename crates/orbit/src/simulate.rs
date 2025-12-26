@@ -246,24 +246,24 @@ impl Simulation {
     }
 
     pub fn simulate(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
-        let frame_num = config.frames * config.subframes;
-        let timestep = orbit.period / frame_num as f64;
+        let subframe_num = config.frames * config.subframes;
+        let timestep = orbit.period / subframe_num as f64;
         let mut bodies = orbit.initial_conds.clone();
-        let mut history = Vec::with_capacity(frame_num);
+        let mut history = Vec::with_capacity(subframe_num);
 
         let first: Vec<_> = bodies.iter().map(|body| body.position).collect();
         history.push(first.clone());
 
         let mut last = vec![];
-        for frame_idx in 0..frame_num {
-            for _ in 0..10000 {
-                step(timestep / 10000.0, &mut bodies);
+        for frame_idx in 0..config.frames {
+            for _ in 0..config.subframes {
+                step(timestep, &mut bodies);
             }
 
             last = bodies.iter().map(|body| body.position).collect();
             history.push(last.clone());
 
-            if frame_idx % (frame_num / 10) == 0 {
+            if frame_idx % (config.frames / 10) == 0 {
                 debug!("simulating frame #{frame_idx}");
             }
         }

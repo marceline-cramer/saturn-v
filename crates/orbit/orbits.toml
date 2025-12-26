@@ -1,6 +1,6 @@
 [simulation]
-frames = 140
-subframes = 100
+frames = 14000
+subframes = 10000
 
 [[orbit]]
 name = "Figure 8"
