@@ -15,6 +15,7 @@ jobs:
         crate:
           - client
           - lsp
+          - orbit
         target:
           - nodejs
           - bundler
