@@ -20,7 +20,11 @@ use saturn_v_orbit::leptos::Orbit;
 #[component]
 fn App() -> impl IntoView {
     view! {
-        <Orbit/>
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">
+            <div style="border:1px solid black;padding:10px">
+                <Orbit/>
+            </div>
+        </div>
     }
 }
 

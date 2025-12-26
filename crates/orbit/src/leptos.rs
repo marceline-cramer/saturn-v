@@ -26,7 +26,7 @@ pub fn Orbit() -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
     let (time, set_time) = signal(0.0f64);
 
-    let orbit = crate::get_default_orbits().get(2).unwrap().clone();
+    let orbit = crate::get_default_orbits().get(0).unwrap().clone();
     let renderer = OrbitRenderer::new(orbit);
 
     let performance = window()
@@ -64,13 +64,15 @@ pub fn Orbit() -> impl IntoView {
         ctx.reset();
         ctx.clear_rect(0.0, 0.0, width, height);
 
-        let zoom = 300.0;
-        ctx.scale(zoom / 2.0, zoom / 2.0).unwrap();
-        ctx.translate(width / zoom, height / zoom).unwrap();
+        let margin = renderer.body_radius;
+        let margin_offset = margin + 1.0;
+        ctx.scale(width / margin_offset / 2.0, height / margin_offset / 2.0)
+            .unwrap();
+        ctx.translate(margin_offset, margin_offset).unwrap();
         renderer.draw(&ctx, time, dt).unwrap();
     });
 
     view! {
-      <canvas node_ref=canvas_ref width="600px" height="600px" />
+      <canvas node_ref=canvas_ref width="300px" height="300px" />
     }
 }

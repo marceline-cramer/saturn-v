@@ -71,7 +71,7 @@ impl OrbitRenderer {
         // let time = time / self.orbit.period;
         // let delta_time = delta_time / self.orbit.period;
 
-        canvas.set_line_width(self.body_radius / 10.0);
+        canvas.set_line_width(self.body_radius / 4.0);
         canvas.set_stroke_style_str(&self.trail_stroke);
 
         let trail_dt = self.trail_duration / self.trail_segments as f64;
@@ -88,6 +88,7 @@ impl OrbitRenderer {
             canvas.stroke();
         }
 
+        canvas.set_line_width(self.body_radius / 2.0);
         canvas.set_fill_style_str(&self.body_fill);
         canvas.set_stroke_style_str(&self.body_stroke);
 
