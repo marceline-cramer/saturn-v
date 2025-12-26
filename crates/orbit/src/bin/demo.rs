@@ -17,6 +17,14 @@
 use leptos::prelude::*;
 use saturn_v_orbit::leptos::Orbit;
 
+#[component]
+fn App() -> impl IntoView {
+    view! {
+        <Orbit/>
+    }
+}
+
 fn main() {
-    mount_to_body(Orbit);
+    console_error_panic_hook::set_once();
+    mount_to_body(App);
 }

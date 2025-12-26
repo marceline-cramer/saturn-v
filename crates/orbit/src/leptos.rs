@@ -19,16 +19,22 @@
 use leptos::{html::Canvas, prelude::*};
 use web_sys::{wasm_bindgen::JsCast, CanvasRenderingContext2d};
 
+use crate::canvas::OrbitRenderer;
+
 #[component]
 pub fn Orbit() -> impl IntoView {
     let canvas_ref = NodeRef::<Canvas>::new();
     let (time, set_time) = signal(0.0f64);
+
+    let orbit = crate::get_default_orbits().get(2).unwrap().clone();
+    let renderer = OrbitRenderer::new(orbit);
 
     let performance = window()
         .performance()
         .expect("performance is not available");
 
     let start = performance.now();
+    let mut last_frame = start;
 
     Effect::new(move || {
         let Some(canvas) = canvas_ref.get() else {
@@ -41,8 +47,8 @@ pub fn Orbit() -> impl IntoView {
             set_time.set(elapsed_ms / 1000.0);
         });
 
-        let width = canvas.offset_width();
-        let height = canvas.offset_height();
+        let width = canvas.offset_width() as f64;
+        let height = canvas.offset_height() as f64;
 
         let ctx = canvas
             .get_context("2d")
@@ -52,14 +58,19 @@ pub fn Orbit() -> impl IntoView {
             .unwrap();
 
         let time = time.get();
-        let x = 40.0 + (time * 4.0).sin() * 30.0;
+        let dt = time - last_frame;
+        last_frame = time;
 
-        ctx.clear_rect(0.0, 0.0, width as f64, height as f64);
-        ctx.set_fill_style_str("red");
-        ctx.fill_rect(x, 20.0, 30.0, 30.0);
+        ctx.reset();
+        ctx.clear_rect(0.0, 0.0, width, height);
+
+        let zoom = 300.0;
+        ctx.scale(zoom / 2.0, zoom / 2.0).unwrap();
+        ctx.translate(width / zoom, height / zoom).unwrap();
+        renderer.draw(&ctx, time, dt).unwrap();
     });
 
     view! {
-      <canvas node_ref=canvas_ref width="200px" height="200px" />
+      <canvas node_ref=canvas_ref width="600px" height="600px" />
     }
 }

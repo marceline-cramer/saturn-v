@@ -1,5 +1,5 @@
-{
-  "Broucke A 15": {
+[
+  {
     "name": "Broucke A 15",
     "period": 92.056119,
     "energy": -0.383678,
@@ -183,7 +183,7 @@
       }
     ]
   },
-  "Broucke A 2": {
+  {
     "name": "Broucke A 2",
     "period": 7.702408,
     "energy": -1.751113,
@@ -237,7 +237,7 @@
       }
     ]
   },
-  "Figure 8": {
+  {
     "name": "Figure 8",
     "period": 6.325897,
     "energy": -1.287144,
@@ -436,4 +436,4 @@
       }
     ]
   }
-}
+]

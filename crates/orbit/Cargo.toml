@@ -13,6 +13,7 @@ crate-type = ["rlib", "cdylib"]
 glam = { version = "0.30", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
+console_error_panic_hook.workspace = true
 
 [dependencies.leptos]
 workspace = true

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::path::PathBuf;
 
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use saturn_v_orbit::simulate::{bake, Config};
@@ -35,13 +35,14 @@ fn main() {
 
     let config: Config = toml::from_str(&config_src).expect("failed to parse orbit configuration");
 
-    let baked_orbits: BTreeMap<_, _> = config
+    let mut baked_orbits: Vec<_> = config
         .orbit
         .iter()
         .par_bridge()
         .map(|orbit| bake(&config.simulation, orbit))
-        .map(|baked| (baked.name.clone(), baked))
         .collect();
+
+    baked_orbits.sort_by_cached_key(|orbit| orbit.name.clone());
 
     let baked_json =
         serde_json::to_string_pretty(&baked_orbits).expect("failed to serialize orbits");

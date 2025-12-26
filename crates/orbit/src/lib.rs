@@ -14,8 +14,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::LazyLock;
+
 use glam::*;
 use serde::{Deserialize, Serialize};
+
+pub mod canvas;
 
 #[cfg(feature = "leptos")]
 pub mod leptos;
@@ -56,6 +60,11 @@ impl BakedBody {
         let new_length = self.position.len();
         eprintln!("optimized #freqs from {original_length} to {new_length}",);
     }
+
+    /// Calculates the position of this body at a given time.
+    pub fn position_at(&self, time: f64) -> DVec2 {
+        self.position.iter().map(|freq| freq.sample(time)).sum()
+    }
 }
 
 /// A single frequency component.
@@ -86,4 +95,12 @@ impl FrequencyComponent {
         let theta = std::f64::consts::TAU * at * self.freq + self.phase;
         DVec2::from_angle(-theta) * self.amplitude
     }
+}
+
+/// Gets the set of built-in baked orbits.
+pub fn get_default_orbits() -> Vec<BakedOrbit> {
+    static ORBITS: LazyLock<Vec<BakedOrbit>> =
+        LazyLock::new(|| serde_json::from_str(include_str!("../baked.json")).unwrap());
+
+    ORBITS.to_owned()
 }
