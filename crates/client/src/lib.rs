@@ -320,7 +320,12 @@ impl Output {
 /// A trait for relations whose contents can be directly queried.
 pub trait QueryRelation {
     /// Get the set of values currently in this relation.
-    fn get_all<T: FromValue + Send>(&self) -> impl Future<Output = Result<Vec<T>>>;
+    #[cfg(target_arch = "wasm32")]
+    fn get_all<T: FromValue>(&self) -> impl Future<Output = Result<Vec<T>>>;
+
+    /// Get the set of values currently in this relation.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_all<T: FromValue>(&self) -> impl Future<Output = Result<Vec<T>>> + Send;
 
     /// Subscribes to live updates on values in this output.
     #[allow(async_fn_in_trait)]
@@ -330,7 +335,7 @@ pub trait QueryRelation {
 }
 
 /// A utility trait to implement [QueryRelation].
-trait ImplQueryRelation: Deref<Target = RelationInfo> {
+trait ImplQueryRelation: Deref<Target = RelationInfo> + Send + Sync {
     /// The HTTP path of this relation's operations.
     const ENDPOINT: &'static str;
 
@@ -340,7 +345,7 @@ trait ImplQueryRelation: Deref<Target = RelationInfo> {
 
 impl<R: ImplQueryRelation> QueryRelation for R {
     /// Gets the set of values currently in this output.
-    async fn get_all<T: FromValue + Send>(&self) -> Result<Vec<T>> {
+    async fn get_all<T: FromValue>(&self) -> Result<Vec<T>> {
         T::check_ty(&self.ty)?;
 
         Ok(self
