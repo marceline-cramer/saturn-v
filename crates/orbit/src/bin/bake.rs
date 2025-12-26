@@ -29,7 +29,6 @@ fn main() {
 
     let fmt_layer = tracing_subscriber::fmt::layer()
         .compact()
-        .without_time()
         .with_span_events(FmtSpan::ACTIVE)
         .with_writer(std::io::stderr);
 
@@ -74,7 +73,7 @@ fn main() {
             std::fs::read_to_string(&baked_path).expect("failed to read existing baked JSON");
 
         if old_json == baked_json {
-            info!("baked orbits unchanged");
+            info!("baked orbits unchanged. skipping overwrite.");
             return;
         }
     }

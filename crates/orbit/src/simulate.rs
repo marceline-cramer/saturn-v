@@ -81,9 +81,8 @@ pub struct Orbit {
 }
 
 pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedOrbit {
-    let _span = info_span!("baking orbit", orbit_config.name);
-
-    debug!("baking orbit {}", orbit_config.name);
+    let span = info_span!("bake", orbit = orbit_config.name);
+    let _enter = span.enter();
 
     let orbit = orbit_config.to_orbit();
 
@@ -175,8 +174,19 @@ pub fn simulate_closed(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec
         body.velocity = -body.velocity;
     }
 
-    let (mut forwards, mut backwards) =
-        rayon::join(|| simulate(config, orbit), || simulate(config, &reversed));
+    let forward_span = info_span!("forward sim");
+    let reverse_span = info_span!("reverse sim");
+
+    let (mut forwards, mut backwards) = rayon::join(
+        || {
+            let _enter = forward_span.enter();
+            simulate(config, orbit)
+        },
+        || {
+            let _enter = reverse_span.enter();
+            simulate(config, &reversed)
+        },
+    );
 
     backwards.reverse();
 
@@ -217,13 +227,17 @@ pub fn simulate(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
     history.push(first.clone());
 
     let mut last = vec![];
-    for _ in 0..frame_num {
+    for frame_idx in 0..frame_num {
         for _ in 0..10000 {
             step(timestep / 10000.0, &mut bodies);
         }
 
         last = bodies.iter().map(|body| body.position).collect();
-        history.push(last.clone())
+        history.push(last.clone());
+
+        if frame_idx % (frame_num / 10) == 0 {
+            debug!("simulating frame #{frame_idx}");
+        }
     }
 
     debug!("start-end simulation drift: {}", rms_error(&first, &last));

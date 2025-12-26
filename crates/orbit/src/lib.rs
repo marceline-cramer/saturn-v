@@ -54,11 +54,12 @@ pub struct BakedBody {
 
 impl BakedBody {
     /// Discards all frequency components with amplitudes below the cutoff.
+    #[cfg(feature = "simulate")]
     pub fn optimize(&mut self, cutoff: f64) {
         let original_length = self.position.len();
         self.position.retain(|freq| freq.amplitude > cutoff);
         let new_length = self.position.len();
-        eprintln!("optimized #freqs from {original_length} to {new_length}",);
+        tracing::debug!("optimized #freqs from {original_length} to {new_length}");
     }
 
     /// Calculates the position of this body at a given time.
