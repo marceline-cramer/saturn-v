@@ -18,6 +18,7 @@ use glam::*;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use rustfft::{num_complex::Complex64, FftPlanner};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info_span};
 
 use crate::{BakedBody, BakedOrbit, FrequencyComponent};
 
@@ -80,6 +81,10 @@ pub struct Orbit {
 }
 
 pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedOrbit {
+    let _span = info_span!("baking orbit", orbit_config.name);
+
+    debug!("baking orbit {}", orbit_config.name);
+
     let orbit = orbit_config.to_orbit();
 
     let simulated = simulate_closed(sim_config, &orbit);
@@ -96,7 +101,7 @@ pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedO
     let mut compressed = Vec::new();
     for (body, baseline) in baked_bodies.iter().zip(by_body.iter()) {
         let positions = inverse_analyze(total_frames, body);
-        eprintln!("optimization error: {}", rms_error(&positions, baseline));
+        debug!("optimization error: {}", rms_error(&positions, baseline));
         compressed.push(positions);
     }
 
@@ -185,7 +190,7 @@ pub fn simulate_closed(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec
 
     for (forwards, backwards) in forwards_error.iter().zip(backwards_error.iter()) {
         let error = rms_error(forwards, backwards);
-        eprintln!("closed simulation RMS error: {error}",);
+        debug!("closed simulation RMS error: {error}",);
         assert!(error < 0.001);
     }
 
@@ -221,7 +226,7 @@ pub fn simulate(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
         history.push(last.clone())
     }
 
-    eprintln!("start-end simulation drift: {}", rms_error(&first, &last));
+    debug!("start-end simulation drift: {}", rms_error(&first, &last));
 
     history
 }

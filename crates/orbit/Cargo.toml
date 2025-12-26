@@ -31,13 +31,21 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.tracing]
+workspace = true
+optional = true
+
+[dependencies.tracing-subscriber]
+workspace = true
+optional = true
+
 [dependencies.web-sys]
 workspace = true
 features = ["CanvasRenderingContext2d", "Performance", "Window"]
 
 [features]
 leptos = ["dep:leptos"]
-simulate = ["dep:rayon", "dep:rustfft", "dep:toml"]
+simulate = ["dep:rayon", "dep:rustfft", "dep:toml", "dep:tracing", "dep:tracing-subscriber"]
 
 [[bin]]
 name = "bake"

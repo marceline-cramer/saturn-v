@@ -18,17 +18,39 @@ use std::path::PathBuf;
 
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use saturn_v_orbit::simulate::{bake, Config};
+use tracing::info;
+use tracing_subscriber::{fmt::format::FmtSpan, prelude::*};
 
 fn main() {
+    let env_filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive("debug".parse().unwrap())
+        .from_env()
+        .expect("failed to parse logging directives");
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .compact()
+        .without_time()
+        .with_span_events(FmtSpan::ACTIVE)
+        .with_writer(std::io::stderr);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .init();
+
     let config_path: PathBuf = std::env::args()
         .nth(1)
         .unwrap_or("orbits.toml".to_string())
         .into();
 
+    info!("reading config from {config_path:?}");
+
     let baked_path: PathBuf = std::env::args()
         .nth(2)
         .unwrap_or("baked.json".to_string())
         .into();
+
+    info!("writing baked orbits to {baked_path:?}");
 
     let config_src =
         std::fs::read_to_string(&config_path).expect("failed to read orbit configuration");
@@ -52,7 +74,7 @@ fn main() {
             std::fs::read_to_string(&baked_path).expect("failed to read existing baked JSON");
 
         if old_json == baked_json {
-            println!("baked orbits unchanged");
+            info!("baked orbits unchanged");
             return;
         }
     }
