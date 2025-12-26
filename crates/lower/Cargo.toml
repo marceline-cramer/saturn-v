@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 chumsky.workspace = true
-egglog = { version = "0.5", default-features = false }
+egglog = { version = "1.0", default-features = false }
 indexmap.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true

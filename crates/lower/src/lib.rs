@@ -40,7 +40,6 @@ pub fn init_lower_egraph() -> EGraph {
             graph
                 .parse_and_run_program(None, EGGLOG_LOWER_SRC)
                 .expect("failed to load check.egg");
-            graph.rebuild_nofail();
             graph
         })
         .clone()
@@ -55,7 +54,7 @@ pub fn extract_rule_body<R>(name: &str, rule: &RuleBody<R>) -> String {
 
     let run = Doc::text("(run 1000000)")
         .append(Doc::hardline())
-        .append(format!("(query-extract {name})"));
+        .append(format!("(extract {name})"));
 
     let mut out = String::new();
 
@@ -80,12 +79,16 @@ pub fn lower_rule_body<R>(rule: RuleBody<R>) -> RuleBody<R> {
     let msgs = egg.parse_and_run_program(None, &extract).unwrap();
     debug!("lowered rule body in {:?}", start.elapsed());
 
-    let output = &msgs[0];
-    trace!("output of egglog: {output}");
+    for (idx, msg) in msgs.iter().enumerate() {
+        trace!("egglog output #{idx}: {msg}");
+    }
+
+    // first message is empty, second is result
+    let output = &msgs[1];
 
     // lexing should never fail
     let tokens = Token::lexer()
-        .parse(output.as_str())
+        .parse(output.to_string())
         .expect("failed to lex");
 
     let stream = chumsky::Stream::from_iter(
