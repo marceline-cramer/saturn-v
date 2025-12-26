@@ -22,5 +22,13 @@ optional = true
 version = "6.4"
 optional = true
 
+[dependencies.toml]
+workspace = true
+optional = true
+
 [features]
-simulate = ["dep:rayon", "dep:rustfft"]
+simulate = ["dep:rayon", "dep:rustfft", "dep:toml"]
+
+[[bin]]
+name = "bake"
+required-features = ["simulate"]

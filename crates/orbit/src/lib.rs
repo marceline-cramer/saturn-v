@@ -22,7 +22,7 @@ pub mod simulate;
 
 /// A compressed orbit: random-access reconstruction at any timestep.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CompressedOrbit {
+pub struct BakedOrbit {
     /// The name of the orbit.
     pub name: String,
 
@@ -35,17 +35,17 @@ pub struct CompressedOrbit {
     pub energy: f64,
 
     /// Each [CompressedBody] in this orbit.
-    pub bodies: Vec<CompressedBody>,
+    pub bodies: Vec<BakedBody>,
 }
 
-/// A compressed body: compressed representation of its motion.
+/// A baked body: compressed representation of its motion.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CompressedBody {
+pub struct BakedBody {
     /// Every frequency component in this body's position.
     pub position: Vec<FrequencyComponent>,
 }
 
-impl CompressedBody {
+impl BakedBody {
     /// Discards all frequency components with amplitudes below the cutoff.
     pub fn optimize(&mut self, cutoff: f64) {
         let original_length = self.position.len();

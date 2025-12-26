@@ -15,7 +15,11 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use glam::*;
+use rayon::iter::{ParallelBridge, ParallelIterator};
+use rustfft::{num_complex::Complex64, FftPlanner};
 use serde::{Deserialize, Serialize};
+
+use crate::{BakedBody, BakedOrbit, FrequencyComponent};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -73,6 +77,90 @@ pub struct Orbit {
     pub name: String,
     pub initial_conds: Vec<Body>,
     pub period: f64,
+}
+
+pub fn bake(sim_config: &SimulationConfig, orbit_config: &OrbitConfig) -> BakedOrbit {
+    let orbit = orbit_config.to_orbit();
+
+    let simulated = simulate_closed(sim_config, &orbit);
+
+    let mut baked_bodies = analyze(&simulated);
+
+    baked_bodies
+        .iter_mut()
+        .for_each(|body| body.optimize(0.001));
+
+    let by_body = transpose(&simulated, Clone::clone);
+
+    let total_frames = simulated.len();
+    let mut compressed = Vec::new();
+    for (body, baseline) in baked_bodies.iter().zip(by_body.iter()) {
+        let positions = inverse_analyze(total_frames, body);
+        eprintln!("optimization error: {}", rms_error(&positions, baseline));
+        compressed.push(positions);
+    }
+
+    BakedOrbit {
+        name: orbit_config.name.clone(),
+        period: orbit_config.period,
+        energy: orbit_config.energy,
+        bodies: baked_bodies.clone(),
+    }
+}
+
+pub fn analyze(positions: &[Vec<DVec2>]) -> Vec<BakedBody> {
+    let mut planner = FftPlanner::new();
+    let frame_num = positions.len();
+    let fft = planner.plan_fft_forward(frame_num);
+
+    let mut freqs = transpose(positions, |pos| Complex64 {
+        re: pos.x,
+        im: pos.y,
+    });
+
+    freqs
+        .iter_mut()
+        .par_bridge()
+        .for_each(|body| fft.process(body));
+
+    freqs
+        .into_iter()
+        .map(|frames| {
+            frames
+                .into_iter()
+                .enumerate()
+                .map(|(idx, freq)| fft_to_freq(idx, freq, frame_num))
+                .collect()
+        })
+        .map(|position| BakedBody { position })
+        .collect()
+}
+
+pub fn fft_to_freq(idx: usize, fft: Complex64, frame_num: usize) -> FrequencyComponent {
+    let half = frame_num / 2;
+
+    let freq = if idx == 0 {
+        0.0
+    } else if idx < half {
+        -(idx as f64)
+    } else {
+        (frame_num as f64) - (idx as f64)
+    };
+
+    FrequencyComponent {
+        freq,
+        amplitude: (fft.im * fft.im + fft.re * fft.re).sqrt() / frame_num as f64,
+        phase: (-fft.im).atan2(fft.re),
+    }
+}
+
+pub fn inverse_analyze(frames: usize, body: &BakedBody) -> Vec<DVec2> {
+    (0..frames)
+        .map(|idx| {
+            let sample = (idx as f64) / (frames as f64);
+            body.position.iter().map(|freq| freq.sample(sample)).sum()
+        })
+        .collect()
 }
 
 pub fn simulate_closed(config: &SimulationConfig, orbit: &Orbit) -> Vec<Vec<DVec2>> {
