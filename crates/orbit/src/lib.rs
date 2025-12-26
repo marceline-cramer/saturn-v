@@ -17,6 +17,9 @@
 use glam::*;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "leptos")]
+pub mod leptos;
+
 #[cfg(feature = "simulate")]
 pub mod simulate;
 

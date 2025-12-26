@@ -14,6 +14,10 @@ glam = { version = "0.30", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 
+[dependencies.leptos]
+workspace = true
+optional = true
+
 [dependencies.rayon]
 version = "1.11"
 optional = true
@@ -26,9 +30,18 @@ optional = true
 workspace = true
 optional = true
 
+[dependencies.web-sys]
+workspace = true
+features = ["CanvasRenderingContext2d", "Performance", "Window"]
+
 [features]
+leptos = ["dep:leptos"]
 simulate = ["dep:rayon", "dep:rustfft", "dep:toml"]
 
 [[bin]]
 name = "bake"
 required-features = ["simulate"]
+
+[[bin]]
+name = "demo"
+required-features = ["leptos"]
