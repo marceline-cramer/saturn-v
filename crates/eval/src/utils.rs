@@ -28,7 +28,7 @@ use differential_dataflow::{
         implementations::{KeyBuilder, KeySpine},
         Cursor, TraceReader,
     },
-    Collection, Data, ExchangeData, Hashable,
+    Data, ExchangeData, Hashable, VecCollection,
 };
 use flume::{Receiver, RecvError, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
@@ -189,7 +189,7 @@ pub struct InputSink<T: Data> {
 }
 
 impl<T: Data> InputSink<T> {
-    pub fn to_collection<G>(&mut self, scope: &mut G) -> Collection<G, T, Diff>
+    pub fn to_collection<G>(&mut self, scope: &mut G) -> VecCollection<G, T, Diff>
     where
         G: Scope<Timestamp = Time>,
     {
@@ -346,7 +346,7 @@ impl<T> Default for OutputRouter<T> {
 impl<T: ExchangeData + Hashable> OutputRouter<T> {
     /// Adds an [OutputSource] to pump the outputs of some collection to an
     /// external system.
-    pub fn add_source<G>(&self, collection: &Collection<G, T>) -> OutputSource<T>
+    pub fn add_source<G>(&self, collection: &VecCollection<G, T>) -> OutputSource<T>
     where
         G: Scope<Timestamp = Time>,
     {
