@@ -33,6 +33,9 @@ pub struct OrbitRenderer {
     /// The stroke style of each body.
     pub body_stroke: String,
 
+    /// The width of each body's stroke.
+    pub body_stroke_width: f64,
+
     /// The number of motion blur frames to render.
     pub motion_blur: u16,
 
@@ -44,6 +47,9 @@ pub struct OrbitRenderer {
 
     /// The stroke style of the trail.
     pub trail_stroke: String,
+
+    /// The width of the trail stroke.
+    pub trail_width: f64,
 
     /// Speed scaling factor, in units per second per second.
     ///
@@ -59,10 +65,12 @@ impl OrbitRenderer {
             body_radius: 0.1,
             body_fill: "white".to_string(),
             body_stroke: "black".to_string(),
+            body_stroke_width: 0.05,
             motion_blur: 10,
             trail_segments: 20,
             trail_duration: 0.1,
             trail_stroke: "black".to_string(),
+            trail_width: 0.025,
             speed: 0.5,
         }
     }
@@ -87,7 +95,7 @@ impl OrbitRenderer {
         let time = time * speed_factor;
         let delta_time = delta_time * speed_factor;
 
-        canvas.set_line_width(self.body_radius / 4.0);
+        canvas.set_line_width(self.trail_width);
         canvas.set_stroke_style_str(&self.trail_stroke);
 
         let trail_dt = self.trail_duration / self.trail_segments as f64;
@@ -104,7 +112,7 @@ impl OrbitRenderer {
             canvas.stroke();
         }
 
-        canvas.set_line_width(self.body_radius / 2.0);
+        canvas.set_line_width(self.body_stroke_width);
         canvas.set_fill_style_str(&self.body_fill);
         canvas.set_stroke_style_str(&self.body_stroke);
 

@@ -69,7 +69,7 @@ pub fn Orbit(#[prop(optional)] name: Option<String>) -> impl IntoView {
         ctx.reset();
         ctx.clear_rect(0.0, 0.0, width, height);
 
-        let margin = renderer.body_radius;
+        let margin = renderer.body_radius + renderer.body_stroke_width;
         let margin_offset = margin + 1.0;
         ctx.scale(width / margin_offset / 2.0, height / margin_offset / 2.0)
             .unwrap();
