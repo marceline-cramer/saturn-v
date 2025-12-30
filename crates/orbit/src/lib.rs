@@ -50,6 +50,9 @@ pub struct BakedOrbit {
 pub struct BakedBody {
     /// Every frequency component in this body's position.
     pub position: Vec<FrequencyComponent>,
+
+    /// This body's average speed over its orbit.
+    pub average_speed: f64,
 }
 
 impl BakedBody {

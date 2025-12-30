@@ -44,6 +44,11 @@ pub struct OrbitRenderer {
 
     /// The stroke style of the trail.
     pub trail_stroke: String,
+
+    /// Speed scaling factor, in units per second per second.
+    ///
+    /// Used to normalize by the average speed of the orbit's body.
+    pub speed: f64,
 }
 
 impl OrbitRenderer {
@@ -56,8 +61,9 @@ impl OrbitRenderer {
             body_stroke: "black".to_string(),
             motion_blur: 10,
             trail_segments: 20,
-            trail_duration: 0.2,
+            trail_duration: 0.1,
             trail_stroke: "black".to_string(),
+            speed: 0.5,
         }
     }
 
@@ -68,8 +74,18 @@ impl OrbitRenderer {
         time: f64,
         delta_time: f64,
     ) -> Result<(), JsValue> {
-        // let time = time / self.orbit.period;
-        // let delta_time = delta_time / self.orbit.period;
+        let average_speed = self
+            .orbit
+            .bodies
+            .iter()
+            .map(|body| body.average_speed)
+            .reduce(|a, b| a.max(b))
+            .unwrap();
+
+        let speed_factor = self.speed / average_speed;
+
+        let time = time * speed_factor;
+        let delta_time = delta_time * speed_factor;
 
         canvas.set_line_width(self.body_radius / 4.0);
         canvas.set_stroke_style_str(&self.trail_stroke);

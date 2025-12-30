@@ -278,6 +278,19 @@ impl Simulation {
         let frame_num = self.positions.len();
         let fft = planner.plan_fft_forward(frame_num);
 
+        let average_speeds = self.positions.iter().map(|body| {
+            let loop_dist = body.first().unwrap() - body.last().unwrap();
+
+            let total_dist: f64 = body
+                .windows(2)
+                .map(|pair| pair[1] - pair[0])
+                .chain(std::iter::once(loop_dist))
+                .map(|v| v.length())
+                .sum();
+
+            total_dist / body.len() as f64
+        });
+
         let mut freqs = transpose(&self.positions, |pos| Complex64 {
             re: pos.x,
             im: pos.y,
@@ -297,7 +310,11 @@ impl Simulation {
                     .map(|(idx, freq)| fft_to_freq(idx, freq, frame_num))
                     .collect()
             })
-            .map(|position| BakedBody { position })
+            .zip(average_speeds)
+            .map(|(position, average_speed)| BakedBody {
+                position,
+                average_speed,
+            })
             .collect()
     }
 }
