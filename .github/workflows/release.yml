@@ -146,6 +146,31 @@ jobs:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.package.outputs.artifact }}
 
+  bsd:
+    name: BSD builds
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: openbsd
+            architecture: x86-64
+            version: '7.8'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: ${{ matrix.os }}
+          architecture: ${{ matrix.architecture }}
+          version: ${{ matrix.version }}
+          sync_files: true
+          run: |
+            pkg_add rust
+            cargo build --release
+
   wasm:
     name: WebAssembly packages
     uses: ./.github/workflows/wasm.yml
