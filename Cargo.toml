@@ -18,10 +18,12 @@ arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
 anyhow = "1"
 chumsky = "0.9"
+console_error_panic_hook = "0.1"
 differential-dataflow = "0.18"
 flume = "0.11"
 futures-util = "0.3"
 indexmap = "2.8"
+leptos = { version = "0.8", features = ["csr"] }
 ordered-float = { version = "4", features = ["serde"] }
 parking_lot = "0.12"
 pretty = "0.12"
@@ -38,8 +40,10 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tree-sitter = "^0.26.3"
+toml = "0.9"
 tower-lsp = "0.20"
 url = "2.5"
+web-sys = "0.3"
 
 # wasm bindings
 wasm-bindgen = "0.2"
