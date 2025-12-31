@@ -22,9 +22,13 @@ tempfile = "3.22"
 timely.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tokio-stream.workspace = true
-tower = "0.4"
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+tower-http = { version = "0.6", features = ["cors"] }
+rand = "0.8"
+sha2 = "0.10"
+base64 = "0.22"
 
 [dependencies.fjall]
 version = "2.11"
@@ -33,3 +37,4 @@ features = ["ssi_tx", "lz4"]
 
 [dev-dependencies]
 saturn-v-client = { workspace = true, features = ["invalid-requests"] }
+reqwest = { version = "0.12", features = ["json"] }

@@ -20,7 +20,7 @@
 
 use ordered_float::OrderedFloat;
 pub use saturn_v_ir::{self as ir, StructuredType};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 
@@ -58,6 +58,12 @@ pub enum ServerError {
 
     #[error("the server side event stream has lagged")]
     Lagged,
+
+    #[error("unauthorized")]
+    Unauthorized,
+
+    #[error("forbidden")]
+    Forbidden,
 }
 
 /// An individual tuple update within a relation.
@@ -304,6 +310,34 @@ macro_rules! typed_tuple {
 
 typed_tuple!(A, B, C, D, E, F, G, H);
 
+/// Request body for authenticating via password.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct LoginRequest {
+    /// The administrator password.
+    pub password: String,
+}
+
+/// Response payload for successful session creation.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct LoginResponse {
+    /// CSRF token that must accompany state-changing requests when using cookies.
+    pub csrf: String,
+}
+
+/// Request body for minting bearer tokens.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TokenRequest {
+    /// Optional administrator password. When omitted, other auth methods must be used.
+    pub password: Option<String>,
+}
+
+/// Response payload for freshly minted bearer tokens.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct TokenResponse {
+    /// The newly issued bearer token.
+    pub token: String,
+}
+
 /// Type alias for IR programs that can be loaded on the server.
 pub type Program = ir::Program<String>;
 
@@ -339,4 +373,24 @@ impl<T: IntoValue> From<TupleUpdate<T>> for JsValue {
     fn from(value: TupleUpdate<T>) -> Self {
         serde_wasm_bindgen::to_value(&value.map(T::into_value)).unwrap()
     }
+}
+
+/// A trait for RPC methods on the server.
+pub trait Method {
+    /// The unique name of this method.
+    ///
+    /// Compatible with HTTP paths.
+    const ROUTE: &'static str;
+
+    /// The type of this method's request.
+    type Request: DeserializeOwned + Serialize;
+
+    /// The type of this method's response.
+    type Response: DeserializeOwned + Serialize;
+}
+
+/// A trait for RPC subscription methods on the server.
+pub trait Subscription: Method {
+    /// The type of this subscription's returned events.
+    type Event: DeserializeOwned + Serialize;
 }

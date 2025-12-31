@@ -22,6 +22,7 @@ use salsa::Setter;
 use saturn_v_client::Client;
 use saturn_v_frontend::{diagnostic::ReportCache, toplevel::Workspace};
 use saturn_v_lsp::{Editor, LspBackend};
+use saturn_v_server::auth::CookieSameSite;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tower_lsp::{LspService, Server};
@@ -69,6 +70,34 @@ pub enum Command {
         /// The path to the database to use
         #[clap(long)]
         db: PathBuf,
+
+        /// Optional administrator password enabling authentication.
+        #[clap(long)]
+        admin_password: Option<String>,
+
+        /// Lifetime of session cookies, in seconds.
+        #[clap(long, default_value_t = 60 * 60 * 24 * 30)]
+        session_ttl_secs: u64,
+
+        /// Lifetime of bearer tokens, in seconds.
+        #[clap(long, default_value_t = 60 * 60 * 24 * 365)]
+        token_ttl_secs: u64,
+
+        /// Whether to mark the auth cookie as Secure.
+        #[clap(long, default_value_t = true)]
+        cookie_secure: bool,
+
+        /// SameSite attribute for the auth cookie (lax, strict, none).
+        #[clap(long, default_value = "lax")]
+        cookie_samesite: CookieSameSite,
+
+        /// Allow any origin for cross-site requests. Disable to enforce credentials.
+        #[clap(long, default_value_t = true)]
+        cors_allow_any_origin: bool,
+
+        /// Allow browsers to send credentials (cookies) for cross-site requests.
+        #[clap(long, default_value_t = false)]
+        cors_allow_credentials: bool,
     },
 
     /// Commands that interact with a Saturn V server.
@@ -162,13 +191,35 @@ async fn main() -> anyhow::Result<()> {
             saturn_v_eval::run(loader).await;
             Ok(())
         }
-        Command::Server { host, db } => {
-            use saturn_v_server::{api::*, db::Database};
+        Command::Server {
+            host,
+            db,
+            admin_password,
+            session_ttl_secs,
+            token_ttl_secs,
+            cookie_secure,
+            cookie_samesite,
+            cors_allow_any_origin,
+            cors_allow_credentials,
+        } => {
+            use saturn_v_server::{api::*, auth::AuthConfig, db::Database};
 
             let db = Database::new(&db).context("failed to open database")?;
 
+            let api_config = ApiConfig {
+                auth: AuthConfig {
+                    admin_password,
+                    session_ttl_secs,
+                    token_ttl_secs,
+                    cookie_secure,
+                    cookie_samesite,
+                },
+                cors_allow_any_origin,
+                cors_allow_credentials,
+            };
+
             let state = start_server(db).await.context("failed to start server")?;
-            let router = route(state).layer(TraceLayer::new_for_http());
+            let router = route(state, api_config).layer(TraceLayer::new_for_http());
 
             let listener = TcpListener::bind(host.as_slice())
                 .await

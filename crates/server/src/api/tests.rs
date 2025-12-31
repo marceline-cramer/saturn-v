@@ -32,7 +32,7 @@ async fn local_client() -> Result<Client> {
     let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let database = Database::temporary().unwrap();
     let state = start_server(database).await?;
-    let router = route(state).into_make_service();
+    let router = route(state, ApiConfig::default()).into_make_service();
     let host = format!("localhost:{port}");
     let listener = tokio::net::TcpListener::bind(&host).await?;
 
@@ -312,6 +312,63 @@ async fn test_subscription_no_output() -> Result<()> {
     let mut rx = output.subscribe::<String>().await?;
     let response = rx.next().await.unwrap();
     assert_eq!(server_error(response)?, ServerError::NoSuchOutput(name));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_auth_bearer_token() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    static PASSWORD: &str = "test-password";
+
+    // Start server with auth enabled.
+    static PORT: AtomicU32 = AtomicU32::new(6000);
+    let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let database = Database::temporary().unwrap();
+
+    let mut api_config = ApiConfig::default();
+    api_config.auth.admin_password = Some(PASSWORD.to_string());
+    api_config.auth.cookie_secure = false;
+
+    let state = start_server(database).await?;
+    let router = route(state, api_config).into_make_service();
+
+    let host = format!("localhost:{port}");
+    let listener = tokio::net::TcpListener::bind(&host).await?;
+
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    let base = format!("http://{host}");
+    let http = reqwest::Client::new();
+
+    // Unauthed requests are rejected.
+    let res = http.get(format!("{base}/inputs/list")).send().await?;
+    assert_eq!(res.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let body: ServerResult<Vec<RelationInfo>> = res.json().await?;
+    assert_eq!(body, Err(ServerError::Unauthorized));
+
+    // Mint a bearer token via password.
+    let res = http
+        .post(format!("{base}/auth/token"))
+        .json(&serde_json::json!({"password": PASSWORD}))
+        .send()
+        .await?;
+    assert!(res.status().is_success());
+    let body: ServerResult<TokenResponse> = res.json().await?;
+    let token = body?.token;
+
+    // Authed requests work.
+    let res = http
+        .get(format!("{base}/inputs/list"))
+        .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"))
+        .send()
+        .await?;
+    assert!(res.status().is_success());
+    let body: ServerResult<Vec<RelationInfo>> = res.json().await?;
+    body?;
+
     Ok(())
 }
 

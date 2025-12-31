@@ -24,31 +24,78 @@ use std::{
 
 use anyhow::Context;
 use axum::{
+    body::Body,
     extract::Path,
-    response::{sse::Event, Sse},
+    http::{
+        header::{self, HeaderName},
+        HeaderMap, HeaderValue, Method, Request, StatusCode,
+    },
+    middleware::{from_fn, Next},
+    response::{sse::Event, IntoResponse, Response, Sse},
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
 use saturn_v_eval::{
     solve::Solver,
     types::{Fact, Relation},
-    utils::{Key, Update},
+    utils::{Key as DataflowKey, Update},
     DataflowInputs, InputEvent, InputEventKind,
 };
 use saturn_v_protocol::{ir::RelationIO, *};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::BroadcastStream;
+use tower_http::cors::{Any, CorsLayer};
 
-use crate::db::*;
+use crate::{auth, db::*};
 
 pub use axum;
 
 #[cfg(test)]
 pub mod tests;
 
-pub fn route(server: State) -> Router {
-    Router::new()
+#[derive(Clone, Debug)]
+pub struct ApiConfig {
+    pub auth: auth::AuthConfig,
+    pub cors_allow_any_origin: bool,
+    pub cors_allow_credentials: bool,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            auth: auth::AuthConfig::default(),
+            cors_allow_any_origin: true,
+            cors_allow_credentials: false,
+        }
+    }
+}
+
+pub fn route(server: State, config: ApiConfig) -> Router {
+    let csrf_header = HeaderName::from_static(auth::CSRF_HEADER);
+
+    // Note: when allowing any origin, browsers won't send cookies.
+    // Cross-site deployments should primarily rely on bearer tokens.
+    let mut cors = CorsLayer::new().allow_methods(Any).allow_headers([
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        csrf_header,
+    ]);
+
+    if config.cors_allow_any_origin {
+        cors = cors.allow_origin(Any);
+    }
+
+    if config.cors_allow_credentials && !config.cors_allow_any_origin {
+        cors = cors.allow_credentials(true);
+    }
+
+    let guard = AuthGuard {
+        server: server.clone(),
+        config: config.auth.clone(),
+    };
+
+    let protected = Router::new()
         .route("/program", get(get_program).post(post_program))
         .route("/inputs/list", get(inputs_list))
         .route("/input/{input}", get(get_input))
@@ -57,7 +104,252 @@ pub fn route(server: State) -> Router {
         .route("/outputs/list", get(outputs_list))
         .route("/output/{output}", get(get_output))
         .route("/output/{output}/subscribe", get(subscribe_to_output))
+        .route_layer(from_fn(move |req, next| {
+            let guard = guard.clone();
+            async move { ensure_authenticated(guard, req, next).await }
+        }));
+
+    let auth_routes = Router::new()
+        .route("/auth/login", post(auth_login))
+        .route("/auth/token", post(auth_token))
+        .route("/auth/logout", post(auth_logout));
+
+    Router::new()
+        .merge(auth_routes)
+        .merge(protected)
+        .layer(Extension(config.clone()))
         .with_state(server)
+        .layer(cors)
+}
+
+#[derive(Clone)]
+struct AuthGuard {
+    server: State,
+    config: auth::AuthConfig,
+}
+
+async fn ensure_authenticated(guard: AuthGuard, req: Request<Body>, next: Next) -> Response {
+    if !guard.config.enabled() {
+        return next.run(req).await;
+    }
+
+    let require_csrf = is_unsafe_method(req.method());
+    let bearer = bearer_token(req.headers());
+    let session = cookie_value(req.headers(), auth::SESSION_COOKIE);
+    let csrf = req
+        .headers()
+        .get(HeaderName::from_static(auth::CSRF_HEADER))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let result = Server::make_transaction(guard.server.clone(), |tx| {
+        auth::authorize(
+            tx,
+            &guard.config,
+            auth::AuthRequest {
+                bearer: bearer.as_deref(),
+                session: session.as_deref(),
+                csrf: csrf.as_deref(),
+                require_csrf,
+            },
+        )
+    })
+    .await;
+
+    match result {
+        Ok(()) => next.run(req).await,
+        Err(err) => {
+            let status = status_for_error(&err);
+            (status, Json::<ServerResult<()>>(Err(err))).into_response()
+        }
+    }
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
+
+    cookie.split(';').map(str::trim).find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        if k.trim() == name {
+            Some(v.trim().to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn status_for_error(err: &ServerError) -> StatusCode {
+    match err {
+        ServerError::Forbidden => StatusCode::FORBIDDEN,
+        ServerError::Unauthorized => StatusCode::UNAUTHORIZED,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn is_unsafe_method(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
+}
+
+async fn auth_login(
+    Extension(config): Extension<ApiConfig>,
+
+    server: ExtractState,
+    Json(req): Json<LoginRequest>,
+) -> impl IntoResponse {
+    if !config.auth.enabled() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json::<ServerResult<LoginResponse>>(Err(ServerError::Unauthorized)),
+        )
+            .into_response();
+    }
+
+    let result = Server::make_transaction(server.0.clone(), |tx| {
+        auth::login(tx, &config.auth, &req.password)
+    })
+    .await;
+
+    match result {
+        Ok((cookie, csrf)) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::SET_COOKIE,
+                HeaderValue::from_str(&cookie).expect("cookie header must be valid"),
+            );
+
+            (
+                StatusCode::OK,
+                headers,
+                Json::<ServerResult<LoginResponse>>(Ok(LoginResponse { csrf })),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            let status = status_for_error(&err);
+            (status, Json::<ServerResult<LoginResponse>>(Err(err))).into_response()
+        }
+    }
+}
+
+async fn auth_token(
+    Extension(config): Extension<ApiConfig>,
+    server: ExtractState,
+    headers: HeaderMap,
+    Json(req): Json<TokenRequest>,
+) -> impl IntoResponse {
+    if !config.auth.enabled() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json::<ServerResult<TokenResponse>>(Err(ServerError::Unauthorized)),
+        )
+            .into_response();
+    }
+
+    let bearer = bearer_token(&headers);
+    let session = cookie_value(&headers, auth::SESSION_COOKIE);
+    let csrf = headers
+        .get(HeaderName::from_static(auth::CSRF_HEADER))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let result = Server::make_transaction(server.0.clone(), |tx| {
+        auth::issue_token(
+            tx,
+            &config.auth,
+            auth::TokenGrant {
+                password: req.password.as_deref(),
+                bearer: bearer.as_deref(),
+                session: session.as_deref(),
+                csrf: csrf.as_deref(),
+            },
+        )
+    })
+    .await;
+
+    match result {
+        Ok(token) => (
+            StatusCode::OK,
+            Json::<ServerResult<TokenResponse>>(Ok(TokenResponse { token })),
+        )
+            .into_response(),
+        Err(err) => {
+            let status = status_for_error(&err);
+            (status, Json::<ServerResult<TokenResponse>>(Err(err))).into_response()
+        }
+    }
+}
+
+async fn auth_logout(
+    Extension(config): Extension<ApiConfig>,
+    server: ExtractState,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !config.auth.enabled() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json::<ServerResult<()>>(Err(ServerError::Unauthorized)),
+        )
+            .into_response();
+    }
+
+    let Some(session_id) = cookie_value(&headers, auth::SESSION_COOKIE) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json::<ServerResult<()>>(Err(ServerError::Unauthorized)),
+        )
+            .into_response();
+    };
+
+    let csrf = headers
+        .get(HeaderName::from_static(auth::CSRF_HEADER))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let result = Server::make_transaction(server.0.clone(), |tx| {
+        auth::logout(
+            tx,
+            &config.auth,
+            auth::LogoutRequest {
+                session: &session_id,
+                csrf: csrf.as_deref(),
+            },
+        )
+    })
+    .await;
+
+    match result {
+        Ok(cookie) => {
+            let mut out_headers = HeaderMap::new();
+            out_headers.insert(
+                header::SET_COOKIE,
+                HeaderValue::from_str(&cookie).expect("cookie header must be valid"),
+            );
+
+            (
+                StatusCode::OK,
+                out_headers,
+                Json::<ServerResult<()>>(Ok(())),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            let status = status_for_error(&err);
+            (status, Json::<ServerResult<()>>(Err(err))).into_response()
+        }
+    }
 }
 
 async fn get_program(server: ExtractState) -> ServerResponse<Program> {
@@ -205,6 +497,11 @@ impl CommitDataflow for State {
     async fn commit(&mut self, program_map: ProgramMap, events: Vec<InputEvent>) -> SequenceId {
         // acquire lock
         let mut server = self.lock().await;
+
+        // if no events were produced, just return current sequence ID
+        if events.is_empty() {
+            return SequenceId(server.sequence);
+        }
 
         // dereference server mutex to permit split mutable borrow
         let server = server.deref_mut();
@@ -396,7 +693,7 @@ pub struct RelationBag {
     pub ty: StructuredType,
 
     /// The dataflow key of this relation.
-    pub rel: Key<Relation>,
+    pub rel: DataflowKey<Relation>,
 
     /// The IO of this relation.
     pub io: RelationIO,
