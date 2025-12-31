@@ -5,7 +5,7 @@ on:
 
 name: Build and deploy GitHub Pages
 jobs:
-  build:
+  site-build:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:

@@ -10,7 +10,7 @@ env:
   PACKAGE_NAME: "saturn-v"
 
 jobs:
-  build:
+  release-build:
     name: Build and package
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -171,25 +171,25 @@ jobs:
             pkg_add rust
             cargo build --release
 
-  wasm:
+  release-wasm:
     name: WebAssembly packages
     uses: ./.github/workflows/wasm.yml
     with:
       version: ${{ github.ref_name }}
 
-  vscode:
+  release-vscode:
     name: VSCode extension
     uses: ./.github/workflows/vscode.yml
     with:
       version: ${{ github.ref_name }}
 
-  publish_release:
+  release-publish:
     name: Create draft release and upload assets
     needs:
-      - build
-      - vscode
-      - python
-      - wasm
+      - release-build
+      - release-vscode
+      - release-python
+      - release-wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

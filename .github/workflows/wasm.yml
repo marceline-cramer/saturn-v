@@ -7,7 +7,7 @@ on:
         type: string
 
 jobs:
-  build:
+  wasm-build:
     name: Build WebAssembly
     runs-on: ubuntu-latest
     strategy:
