@@ -146,7 +146,7 @@ jobs:
           name: ${{ steps.package.outputs.artifact_name }}
           path: ${{ steps.package.outputs.artifact }}
 
-  bsd:
+  release-bsd:
     name: BSD builds
     runs-on: ubuntu-latest
     strategy:
@@ -160,7 +160,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Build
         uses: cross-platform-actions/action@v0.32.0
         with:
           operating_system: ${{ matrix.os }}
@@ -168,7 +168,12 @@ jobs:
           version: ${{ matrix.version }}
           sync_files: true
           run: |
-            pkg_add rust
+            uname -a
+            echo $SHELL
+            pwd
+            ls -lah
+            whoami
+            sudo pkg_add rust
             cargo build --release
 
   release-wasm:
@@ -187,6 +192,7 @@ jobs:
     name: Create draft release and upload assets
     needs:
       - release-build
+      - release-bsd
       - release-vscode
       - release-wasm
     runs-on: ubuntu-latest
