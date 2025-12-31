@@ -188,7 +188,6 @@ jobs:
     needs:
       - release-build
       - release-vscode
-      - release-python
       - release-wasm
     runs-on: ubuntu-latest
     steps:
