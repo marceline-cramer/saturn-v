@@ -620,8 +620,20 @@ pub enum Key {
     Program,
     Loader,
     ProgramMap,
-    Input { input: u16 },
-    Bucket { input: u16, key: u16 },
+
+    /// Stores all active sessions.
+    AuthSessions,
+
+    /// Stores all active bearer tokens.
+    AuthTokens,
+
+    Input {
+        input: u16,
+    },
+    Bucket {
+        input: u16,
+        key: u16,
+    },
 }
 
 impl Key {
@@ -643,6 +655,8 @@ impl Key {
             Key::Program => b"p".into(),
             Key::ProgramMap => b"m".into(),
             Key::Loader => b"l".into(),
+            Key::AuthSessions => b"as".into(),
+            Key::AuthTokens => b"at".into(),
             Key::Input { input } => {
                 buf.clear();
                 buf.push(b'i'); // input contents prefix
