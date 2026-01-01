@@ -22,7 +22,7 @@ use rustsat::{
     encodings::{
         am1::{Commander, Encode, Pairwise},
         card::{totalizer::Totalizer, BoundBoth},
-        pb::{BoundUpper, BoundUpperIncremental, GeneralizedTotalizer},
+        pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
         CollectClauses,
     },
     instances::ManageVars,
@@ -125,7 +125,6 @@ pub struct Model {
     total_cost: u32,
     conditionals: HashMap<Key<Fact>, EncodedGate>,
     constraints: HashMap<ConstraintGroup, EncodedConstraint>,
-    cost_totalizer: GeneralizedTotalizer,
     outputs: BTreeMap<Fact, (bool, Option<Var>)>,
 }
 
@@ -180,6 +179,16 @@ impl Model {
             SolverResult::Interrupted => return None,
         }
 
+        // create a cost totalizer for the current soft constraints
+        let mut cost_totalizer: DynamicPolyWatchdog = self
+            .constraints
+            .values()
+            .flat_map(|cons| {
+                cons.weight
+                    .map(|weight| (cons.guard.pos_lit(), weight as usize))
+            })
+            .collect();
+
         // run MaxSAT with progressively lower cost upper bounds
         log_time("optimizing cost upper bound", || {
             let mut cost = self.total_cost as usize;
@@ -197,13 +206,13 @@ impl Model {
                     .collect();
 
                 // update totalizer encodings for this upper bound
-                self.cost_totalizer
+                cost_totalizer
                     .encode_ub_change(cost..=cost, &mut self.oracle, &mut self.vars)
                     .unwrap();
 
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
-                let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
+                let cost_assumps = cost_totalizer.enforce_ub(cost).unwrap();
                 trace!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
@@ -423,8 +432,6 @@ impl Model {
                 let weight = match constraint.weight {
                     ConstraintWeight::Hard => None,
                     ConstraintWeight::Soft(weight) => {
-                        let lit = (guard.pos_lit(), weight as usize);
-                        self.cost_totalizer.extend([lit]);
                         self.total_cost += weight;
                         Some(weight)
                     }
