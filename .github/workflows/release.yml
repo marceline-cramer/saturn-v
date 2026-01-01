@@ -80,7 +80,7 @@ jobs:
 
   release-bsd:
     name: BSD builds
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     env:
       CARGO_HOME: ${{ github.workspace }}/.cargo
       RUSTUP_HOME: ${{ github.workspace }}/.rustup
