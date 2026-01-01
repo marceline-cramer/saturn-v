@@ -132,8 +132,9 @@ pub struct Model {
     oracle: Oracle,
     vars: VariablePool,
     gates: HashMap<Key<Gate>, EncodedGate>,
+    total_cost: u32,
     conditionals: HashMap<Key<Fact>, EncodedGate>,
-    constraints: HashMap<ConstraintGroup, (Var, bool)>,
+    constraints: HashMap<ConstraintGroup, EncodedConstraint>,
     cost_totalizer: GeneralizedTotalizer,
     outputs: BTreeMap<Fact, (bool, Option<Var>)>,
 }
@@ -144,8 +145,8 @@ impl Model {
         let hard_constraints = self
             .constraints
             .values()
-            .filter(|(_guard, is_hard)| *is_hard)
-            .map(|(guard, _is_hard)| guard.neg_lit());
+            .filter(|cons| cons.weight.is_none())
+            .map(|cons| cons.guard.neg_lit());
 
         // assume all condition guards
         let condition_guards = self
@@ -388,12 +389,16 @@ impl Model {
         // don't recycle guards because they have been forced
         log_time("removing constraint groups", || {
             for constraint in constraints_remove.iter() {
-                let Some((guard, _weight)) = self.constraints.remove(constraint) else {
+                let Some(cons) = self.constraints.remove(constraint) else {
                     error!("could not remove constraint {constraint:?}");
                     continue;
                 };
 
-                self.oracle.add_unit(guard.pos_lit()).unwrap();
+                self.oracle.add_unit(cons.guard.pos_lit()).unwrap();
+
+                if let Some(weight) = cons.weight {
+                    self.total_cost -= weight;
+                }
             }
         });
 
@@ -403,17 +408,18 @@ impl Model {
                 let guard = self.vars.new_var();
                 self.encode_constraint_group(guard, constraint);
 
-                let is_hard = match constraint.weight {
-                    ConstraintWeight::Hard => true,
+                let weight = match constraint.weight {
+                    ConstraintWeight::Hard => None,
                     ConstraintWeight::Soft(weight) => {
                         let lit = (guard.pos_lit(), weight as usize);
                         self.cost_totalizer.extend([lit]);
-                        false
+                        self.total_cost += weight;
+                        Some(weight)
                     }
                 };
 
                 self.constraints
-                    .insert(constraint.clone(), (guard, is_hard));
+                    .insert(constraint.clone(), EncodedConstraint { guard, weight });
             }
         });
     }
@@ -524,6 +530,16 @@ pub struct EncodedGate {
 
     /// The output variable for this gate.
     pub output: Var,
+}
+
+/// Tracks an encoded constraint.
+#[derive(Copy, Clone, Debug)]
+pub struct EncodedConstraint {
+    /// The guard variable for this constraint.
+    pub guard: Var,
+
+    /// This constraint's weight, if set.
+    pub weight: Option<u32>,
 }
 
 /// Helper struct to add clauses with a guard literal.
