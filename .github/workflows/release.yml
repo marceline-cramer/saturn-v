@@ -17,28 +17,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
-            runner: self-hosted
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
             build_tool: cargo
 
-          - target: aarch64-unknown-linux-gnu
-            runner: self-hosted
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
             build_tool: cross
 
-          - target: x86_64-unknown-linux-musl
-            runner: self-hosted
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             build_tool: cargo
 
-          - target: aarch64-unknown-linux-musl
-            runner: self-hosted
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
             build_tool: cross
 
-          - target: x86_64-apple-darwin
-            runner: macos-latest
+          - runner: macos-latest
+            target: x86_64-apple-darwin
             build_tool: cargo
 
-          - target: x86_64-pc-windows-msvc
-            runner: windows-latest
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
             build_tool: cargo
 
     steps:
