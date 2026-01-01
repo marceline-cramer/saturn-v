@@ -67,6 +67,7 @@ jobs:
           tool: cross
 
       - name: Build
+        id: build
         shell: bash
         run: |
           set -euo pipefail
@@ -77,8 +78,8 @@ jobs:
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.artifact }}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
 
   release-bsd:
     name: BSD builds
