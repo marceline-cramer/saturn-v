@@ -47,7 +47,7 @@ wasm crate target:
 
 release-cli:
     mkdir -p artifacts
-    {{cargo}} build --release --target {{target}}
+    {{cargo}} build --locked --release --target {{target}}
     {{package_tool}} {{package_args}} artifacts/{{package_name}}.{{package_ext}} {{src}}
     echo artifact=artifacts/{{package_name}}.{{package_ext}} >> {{env('GITHUB_OUTPUT')}}
     echo artifact_name={{package_name}}.{{package_ext}} >> {{env('GITHUB_OUTPUT')}}
