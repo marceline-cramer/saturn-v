@@ -82,56 +82,25 @@ jobs:
           name: ${{ steps.build.outputs.artifact_name }}
           path: ${{ steps.build.outputs.artifact }}
 
-  release-bsd:
-    name: BSD builds
+  release-openbsd:
+    name: OpenBSD build
     runs-on: ubuntu-latest
-    env:
-      CARGO_HOME: ${{ github.workspace }}/.cargo
-    strategy:
-      matrix:
-        include:
-          - os: openbsd
-            architecture: x86-64
-            version: '7.8'
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Rust build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.CARGO_HOME }}/registry
-            ${{ env.CARGO_HOME }}/git
-            ${{ github.workspace }}/target
-          key: bsd-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            bsd-${{ runner.os }}-
-
       - name: Build
-        uses: cross-platform-actions/action@v0.32.0
+        id: build
+        uses: vmactions/openbsd-vm@v1
         with:
-          operating_system: ${{ matrix.os }}
-          architecture: ${{ matrix.architecture }}
-          version: ${{ matrix.version }}
-          memory: 16G # differential dataflow
-          sync_files: true
-          env: CARGO_HOME
-          run: |
-            uname -a
-            echo $SHELL
-            pwd
-            ls -lah
-            whoami
-            sudo pkg_add git just rust
-            just release-cli
+          prepare: pkg_add git just rust
+          run: just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.artifact }}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
 
   release-wasm:
     name: WebAssembly packages
@@ -149,7 +118,7 @@ jobs:
     name: Create draft release and upload assets
     needs:
       - release-build
-      - release-bsd
+      - release-openbsd
       - release-vscode
       - release-wasm
     runs-on: ubuntu-latest
