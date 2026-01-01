@@ -96,6 +96,7 @@ jobs:
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
+          memory: 12288
           prepare: pkg_add bash git just rust
           run: just release-cli
 
