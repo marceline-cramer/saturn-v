@@ -19,126 +19,60 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            build_tool: cargo
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-aarch64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
             build_tool: cross
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            use_cross: true
-            archive: linux-x86_64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            build_tool: cargo
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            use_cross: true
-            archive: linux-aarch64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
             build_tool: cross
 
           - runner: macos-latest
             target: x86_64-apple-darwin
-            use_cross: false
-            archive: macos-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: ":"
             build_tool: cargo
 
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            use_cross: false
-            archive: windows-x86_64
-            binary_suffix: .exe
-            package_tool: zip
-            package_args: -j
-            package_extension: zip
-            source_suffix: .exe
-            content_type: application/zip
-            install: choco install zip -y
             build_tool: cargo
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           profile: minimal
+          target: ${{ matrix.target }}
 
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Setup Just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
-      - name: Add target
-        shell: bash
-        run: rustup target add ${{ matrix.target }}
-
-      - name: Install extras
-        shell: bash
-        run: ${{ matrix.install }}
+      - name: Setup Cross
+        uses: taiki-e/install-action@v2
+        if: ${{ matrix.build_tool == 'cross' }}
+        with:
+          tool: cross
 
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
-          ${{ matrix.build_tool }} build --release --target ${{ matrix.target }} -p ${PACKAGE_NAME}
-
-      - name: Package artifact
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          OUT="${PACKAGE_NAME}-${TAG}-${{ matrix.archive }}"
-          SRC="target/${{ matrix.target }}/release/${PACKAGE_NAME}${{ matrix.binary_suffix }}"
-          mkdir -p artifacts
-          cp "$SRC" "artifacts/${OUT}${{ matrix.binary_suffix }}"
-          (
-            cd artifacts
-            ${{ matrix.package_tool }} ${{ matrix.package_args }} "${OUT}.${{ matrix.package_extension }}" "${OUT}${{ matrix.source_suffix }}"
-          )
-          echo "artifact=artifacts/${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_type=${{ matrix.content_type }}" >> "$GITHUB_OUTPUT"
+          export TARGET=${{ matrix.target }}
+          export CARGO=${{ matrix.build_tool }}
+          just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
@@ -174,8 +108,14 @@ jobs:
             pwd
             ls -lah
             whoami
-            sudo pkg_add rust
-            cargo build --release
+            sudo pkg_add just rust
+            just release-cli
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: ${{ steps.package.outputs.artifact }}
 
   release-wasm:
     name: WebAssembly packages
