@@ -7,30 +7,26 @@ on:
         type: string
 
 jobs:
-  build:
+  vscode-build:
     name: Build VSCode Extension
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Setup Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Setup Just and wasm-pack
+        uses: taiki-e/install-action@v2
         with:
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          override: true
-
-      - name: Install wasm-pack
-        run: npm install -g wasm-pack
-
-      - name: Install just
-        run: sudo apt-get update && sudo apt-get install -y just
+          tool: just,wasm-pack
 
       - name: Build LSP Wasm package
         run: just wasm lsp bundler
@@ -47,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           path: vscode-ext/*.vsix
-          name: kerolox-${{ inputs.version }}.vsix
+          name: vscode-${{ inputs.version }}

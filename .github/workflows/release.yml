@@ -10,89 +10,35 @@ env:
   PACKAGE_NAME: "saturn-v"
 
 jobs:
-  build:
+  release-build:
     name: Build and package
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            build_tool: cargo
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-aarch64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
             build_tool: cross
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            use_cross: true
-            archive: linux-x86_64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            build_tool: cargo
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            use_cross: true
-            archive: linux-aarch64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
             build_tool: cross
 
           - runner: macos-latest
             target: x86_64-apple-darwin
-            use_cross: false
-            archive: macos-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: ":"
             build_tool: cargo
 
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            use_cross: false
-            archive: windows-x86_64
-            binary_suffix: .exe
-            package_tool: zip
-            package_args: -j
-            package_extension: zip
-            source_suffix: .exe
-            content_type: application/zip
-            install: choco install zip -y
             build_tool: cargo
 
     steps:
@@ -100,71 +46,87 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
-          profile: minimal
+          target: ${{ matrix.target }}
 
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Install musl-tools
+        if: ${{ contains(matrix.target, 'musl') }}
+        run: sudo apt-get install -y musl-tools
 
-      - name: Add target
-        shell: bash
-        run: rustup target add ${{ matrix.target }}
+      - name: Install zip
+        if: ${{ contains(matrix.target, 'windows') }}
+        run: choco install zip -y
 
-      - name: Install extras
-        shell: bash
-        run: ${{ matrix.install }}
+      - name: Setup Just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: Setup Cross
+        uses: taiki-e/install-action@v2
+        if: ${{ matrix.build_tool == 'cross' }}
+        with:
+          tool: cross
 
       - name: Build
-        shell: bash
-        run: |
-          set -euo pipefail
-          ${{ matrix.build_tool }} build --release --target ${{ matrix.target }} -p ${PACKAGE_NAME}
-
-      - name: Package artifact
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          OUT="${PACKAGE_NAME}-${TAG}-${{ matrix.archive }}"
-          SRC="target/${{ matrix.target }}/release/${PACKAGE_NAME}${{ matrix.binary_suffix }}"
-          mkdir -p artifacts
-          cp "$SRC" "artifacts/${OUT}${{ matrix.binary_suffix }}"
-          (
-            cd artifacts
-            ${{ matrix.package_tool }} ${{ matrix.package_args }} "${OUT}.${{ matrix.package_extension }}" "${OUT}${{ matrix.source_suffix }}"
-          )
-          echo "artifact=artifacts/${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_type=${{ matrix.content_type }}" >> "$GITHUB_OUTPUT"
+        id: build
+        run: just release-cli
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO: ${{ matrix.build_tool }}
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.artifact }}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
 
-  wasm:
+  release-openbsd:
+    name: OpenBSD build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build
+        id: build
+        uses: vmactions/openbsd-vm@v1
+        with:
+          mem: 12288
+          prepare: pkg_add bash git just rust
+          run: just release-cli
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
+
+  release-wasm:
     name: WebAssembly packages
     uses: ./.github/workflows/wasm.yml
     with:
       version: ${{ github.ref_name }}
 
-  vscode:
+  release-vscode:
     name: VSCode extension
     uses: ./.github/workflows/vscode.yml
     with:
       version: ${{ github.ref_name }}
 
-  publish_release:
+  release-publish:
     name: Create draft release and upload assets
     needs:
-      - build
-      - vscode
-      - python
-      - wasm
+      - release-build
+      - release-openbsd
+      - release-vscode
+      - release-wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -174,6 +136,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Create draft release and upload assets
         id: ghrel
