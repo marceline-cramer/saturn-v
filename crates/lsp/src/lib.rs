@@ -297,7 +297,7 @@ impl LanguageServer for LspBackend {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        let ed = self.get_file_params(&params.text_document_position).await?;
+        let _ed = self.get_file_params(&params.text_document_position).await?;
         Ok(None)
     }
 
