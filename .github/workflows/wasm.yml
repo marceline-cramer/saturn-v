@@ -35,11 +35,10 @@ jobs:
         target: wasm32-unknown-unknown
         override: true
 
-    - name: Install wasm-pack
-      run: npm install -g wasm-pack
-
-    - name: Install just
-      run: sudo apt-get update && sudo apt-get install -y just
+    - name: Setup Just and wasm-pack
+      uses: taiki-e/install-action@v2
+      with:
+        tool: just,wasm-pack
 
     - name: Run wasm-pack via Justfile
       run: just wasm ${{ matrix.crate }} ${{ matrix.target }}
