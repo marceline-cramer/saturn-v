@@ -16,7 +16,6 @@
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
-use batsat::{Callbacks, SolverInterface};
 use flume::Sender;
 use rustsat::{
     encodings::{
@@ -32,12 +31,7 @@ use rustsat::{
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 use tracing::{debug, error, span, trace, Level};
 
-pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
-
-#[derive(Default)]
-pub struct SolverCallbacks;
-
-impl Callbacks for SolverCallbacks {}
+pub type Oracle = rustsat_cadical::CaDiCaL<'static, 'static>;
 
 use crate::{
     types::{Condition, ConditionalLink, ConstraintGroup, Fact, Gate},
@@ -149,7 +143,7 @@ impl Model {
 
         // simplify internal solver state
         log_time("simplify solver state", || {
-            self.oracle.batsat_mut().simplify();
+            let _ = self.oracle.simplify(1);
         });
 
         // display statistics
