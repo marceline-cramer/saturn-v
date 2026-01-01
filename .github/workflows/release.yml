@@ -81,6 +81,9 @@ jobs:
   release-bsd:
     name: BSD builds
     runs-on: ubuntu-latest
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cargo
+      RUSTUP_HOME: ${{ github.workspace }}/.rustup
     strategy:
       matrix:
         include:
@@ -94,6 +97,10 @@ jobs:
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: |
+            ${{ env.CARGO_HOME }}
+            ${{ github.workspace }}/target
 
       - name: Build
         uses: cross-platform-actions/action@v0.32.0
