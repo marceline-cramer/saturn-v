@@ -100,7 +100,7 @@ jobs:
           operating_system: ${{ matrix.os }}
           architecture: ${{ matrix.architecture }}
           version: ${{ matrix.version }}
-          memory: 12G # differential dataflow
+          memory: 16G # differential dataflow
           sync_files: true
           run: |
             uname -a
