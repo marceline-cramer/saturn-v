@@ -29,7 +29,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
 use url::Url;
 
+/// The Saturn V command-line executable.
 #[derive(Parser)]
+#[command(author, version, about, long_about = None)]
 pub struct Args {
     #[command(subcommand)]
     pub command: Command,
