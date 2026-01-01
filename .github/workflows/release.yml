@@ -54,6 +54,10 @@ jobs:
         if: ${{ contains(matrix.target, 'musl') }}
         run: sudo apt-get install -y musl-tools
 
+      - name: Install zip
+        if: ${{ contains(matrix.target, 'windows') }}
+        run: choco install zip -y
+
       - name: Setup Just
         uses: taiki-e/install-action@v2
         with:
