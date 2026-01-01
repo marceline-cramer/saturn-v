@@ -107,7 +107,7 @@ jobs:
             pwd
             ls -lah
             whoami
-            sudo pkg_add just rust
+            sudo pkg_add git just rust
             just release-cli
 
       - name: Upload packaged artifact
