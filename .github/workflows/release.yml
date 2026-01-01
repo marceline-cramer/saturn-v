@@ -87,8 +87,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_HOME: ${{ github.workspace }}/.cargo
-      RUSTUP_HOME: ${{ github.workspace }}/.rustup
-      CARGO_PROFILE_RELEASE_LTO: off
     strategy:
       matrix:
         include:
@@ -119,6 +117,7 @@ jobs:
           version: ${{ matrix.version }}
           memory: 16G # differential dataflow
           sync_files: true
+          env: CARGO_HOME
           run: |
             uname -a
             echo $SHELL
