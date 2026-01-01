@@ -1,6 +1,7 @@
 set shell := ['bash', '-eu', '-o', 'pipefail', '-c']
 
-target := env('TARGET', `rustc --print host-tuple`)
+rustc := require('rustc')
+target := env('TARGET', shell(rustc + ' --print host-tuple'))
 cargo := require(env('CARGO', 'cargo'))
 
 default_package_tool := if replace(target, 'windows', '') == target {
