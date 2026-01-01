@@ -89,33 +89,23 @@ impl Solver {
         }
 
         // solve
-        let sat = self.model.solve()?;
+        let mut assignments = Default::default();
+        let sat = self.model.solve(&mut assignments)?;
 
         // update outputs
-        self.update_outputs(sat);
+        self.update_outputs(&assignments);
 
         // done
         Some(sat)
     }
 
-    pub fn update_outputs(&mut self, sat: bool) {
+    pub fn update_outputs(&mut self, assignments: &HashMap<Fact, bool>) {
         // make sure that when we update outputs, we default to all outputs
         // being false if the SAT solver returned unknown or unsat
-        for (output, (state, var)) in self.model.outputs.iter_mut() {
+        for (output, (state, _var)) in self.model.outputs.iter_mut() {
             // find what state this output should be in
-            let value = match var {
-                // look up value of conditional varaible
-                Some(var) => {
-                    sat && self
-                        .model
-                        .oracle
-                        .var_val(*var)
-                        .unwrap()
-                        .to_bool_with_def(false)
-                }
-                // unconditional variables are forced to true
-                None => true,
-            };
+            // unconditional variables are forced to true
+            let value = assignments.get(output).copied().unwrap_or(true);
 
             if *state != value {
                 let _ = self.output_tx.send(Update::Push(output.clone(), value));
@@ -140,7 +130,7 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn solve(&mut self) -> Option<bool> {
+    pub fn solve(&mut self, assignments: &mut HashMap<Fact, bool>) -> Option<bool> {
         // split up soft and hard constraints
         let hard_constraints = self
             .constraints
@@ -190,10 +180,22 @@ impl Model {
             SolverResult::Interrupted => return None,
         }
 
-        // run MaxSAT with progressively higher cost upper bounds
-        log_time("optimizing lower cost bound", || {
-            let mut cost = 0;
+        // run MaxSAT with progressively lower cost upper bounds
+        log_time("optimizing cost upper bound", || {
+            let mut cost = self.total_cost as usize;
+
             loop {
+                // back up current output assignments
+                *assignments = self
+                    .outputs
+                    .iter()
+                    .flat_map(|(output, (_state, var))| var.map(|var| (output, var)))
+                    .map(|(output, var)| {
+                        let value = self.oracle.var_val(var).unwrap().to_bool_with_def(false);
+                        (output.clone(), value)
+                    })
+                    .collect();
+
                 // update totalizer encodings for this upper bound
                 self.cost_totalizer
                     .encode_ub_change(cost..=cost, &mut self.oracle, &mut self.vars)
@@ -209,15 +211,25 @@ impl Model {
                 let msg = format!("running SAT for cost {cost}");
                 let result = log_time(&msg, || self.oracle.solve_assumps(&assumptions).unwrap());
 
-                // increase cost lower bound for next iteration
-                cost += 1;
-
-                // return result
+                // return result on search termination
                 match result {
-                    SolverResult::Sat => return Some(true),
-                    SolverResult::Unsat => continue,
+                    SolverResult::Sat => {}
+                    SolverResult::Unsat => return Some(true),
                     SolverResult::Interrupted => return None,
                 }
+
+                // if cost has hit zero, this is the best solution
+                if cost == 0 {
+                    return Some(true);
+                }
+
+                // assign new cost upper bound based on assigned cost
+                cost = self
+                    .constraints
+                    .values()
+                    .map(|cons| cons.cost(&self.oracle))
+                    .sum::<usize>()
+                    - 1;
             }
         })
     }
@@ -540,6 +552,23 @@ pub struct EncodedConstraint {
 
     /// This constraint's weight, if set.
     pub weight: Option<u32>,
+}
+
+impl EncodedConstraint {
+    /// Calculates the contributed cost of this constraint in an assignment.
+    pub fn cost(&self, oracle: &Oracle) -> usize {
+        let Some(weight) = self.weight else {
+            return 0;
+        };
+
+        let value = oracle.var_val(self.guard).unwrap().to_bool_with_def(false);
+
+        if value {
+            weight as usize
+        } else {
+            0
+        }
+    }
 }
 
 /// Helper struct to add clauses with a guard literal.
