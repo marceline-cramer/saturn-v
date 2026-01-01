@@ -227,18 +227,20 @@ impl Model {
                     SolverResult::Interrupted => return None,
                 }
 
-                // if cost has hit zero, this is the best solution
-                if cost == 0 {
-                    return Some(true);
-                }
-
                 // assign new cost upper bound based on assigned cost
                 cost = self
                     .constraints
                     .values()
                     .map(|cons| cons.cost(&self.oracle))
-                    .sum::<usize>()
-                    - 1;
+                    .sum();
+
+                // if cost has hit zero, this is the best solution
+                if cost == 0 {
+                    return Some(true);
+                }
+
+                // otherwise, decrement cost and continue
+                cost -= 1;
             }
         })
     }
