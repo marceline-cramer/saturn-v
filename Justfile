@@ -1,7 +1,7 @@
 set shell := ['bash', '-eu', '-o', 'pipefail', '-c']
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-rustc := require('rustc')
-target := env('TARGET', shell(rustc + ' --print host-tuple'))
+target := env('TARGET', `rustc --print host-tuple`)
 cargo := require(env('CARGO', 'cargo'))
 
 default_package_tool := if replace(target, 'windows', '') == target {
