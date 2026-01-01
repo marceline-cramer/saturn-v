@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
-use batsat::Callbacks;
+use batsat::{Callbacks, SolverInterface};
 use flume::Sender;
 use rustsat::{
     encodings::{
@@ -156,6 +156,11 @@ impl Model {
 
         // assume conditions and hard constraint guards
         let assumptions: Vec<_> = hard_constraints.chain(condition_guards).collect();
+
+        // simplify internal solver state
+        log_time("simplify solver state", || {
+            self.oracle.batsat_mut().simplify();
+        });
 
         // display statistics
         debug!(
