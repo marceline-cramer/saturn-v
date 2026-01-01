@@ -1,2 +1,0 @@
-[target.'cfg(target_os = "openbsd")']
-rustflags = ["-C", "codegen-units=1", "-C", "lto=off"]
