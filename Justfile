@@ -35,8 +35,8 @@ binary_ext := if replace(target, 'windows', '') == target {
 }
 
 github_ref_name := env('GITHUB_REF_NAME', `git branch --show-current`)
-src := f'target/{{target}}/release/saturn-v{{binary_ext}}'
-package_name := f'saturn-v-{{github_ref_name}}-{{target}}'
+src := 'target/' + target + '/release/saturn-v' + binary_ext
+package_name := 'saturn-v-' + github_ref_name + '-' + target
 
 wasm crate target:
     RUSTFLAGS="-C opt-level=z -C codegen-units=1 -C panic=abort" wasm-pack build crates/{{crate}} --release --target {{target}}
