@@ -16,13 +16,12 @@
 
 use std::collections::{BTreeMap, BinaryHeap, HashMap};
 
-use batsat::Callbacks;
 use flume::Sender;
 use rustsat::{
     encodings::{
         am1::{Commander, Encode, Pairwise},
         card::{totalizer::Totalizer, BoundBoth},
-        pb::{BoundUpper, BoundUpperIncremental, GeneralizedTotalizer},
+        pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
         CollectClauses,
     },
     instances::ManageVars,
@@ -32,12 +31,7 @@ use rustsat::{
 use saturn_v_ir::{CardinalityConstraintKind, ConstraintKind, ConstraintWeight};
 use tracing::{debug, error, span, trace, Level};
 
-pub type Oracle = rustsat_batsat::Solver<SolverCallbacks>;
-
-#[derive(Default)]
-pub struct SolverCallbacks;
-
-impl Callbacks for SolverCallbacks {}
+pub type Oracle = rustsat_cadical::CaDiCaL<'static, 'static>;
 
 use crate::{
     types::{Condition, ConditionalLink, ConstraintGroup, Fact, Gate},
@@ -89,33 +83,23 @@ impl Solver {
         }
 
         // solve
-        let sat = self.model.solve()?;
+        let mut assignments = Default::default();
+        let sat = self.model.solve(&mut assignments)?;
 
         // update outputs
-        self.update_outputs(sat);
+        self.update_outputs(&assignments);
 
         // done
         Some(sat)
     }
 
-    pub fn update_outputs(&mut self, sat: bool) {
+    pub fn update_outputs(&mut self, assignments: &HashMap<Fact, bool>) {
         // make sure that when we update outputs, we default to all outputs
         // being false if the SAT solver returned unknown or unsat
-        for (output, (state, var)) in self.model.outputs.iter_mut() {
+        for (output, (state, _var)) in self.model.outputs.iter_mut() {
             // find what state this output should be in
-            let value = match var {
-                // look up value of conditional varaible
-                Some(var) => {
-                    sat && self
-                        .model
-                        .oracle
-                        .var_val(*var)
-                        .unwrap()
-                        .to_bool_with_def(false)
-                }
-                // unconditional variables are forced to true
-                None => true,
-            };
+            // unconditional variables are forced to true
+            let value = assignments.get(output).copied().unwrap_or(true);
 
             if *state != value {
                 let _ = self.output_tx.send(Update::Push(output.clone(), value));
@@ -132,20 +116,20 @@ pub struct Model {
     oracle: Oracle,
     vars: VariablePool,
     gates: HashMap<Key<Gate>, EncodedGate>,
+    total_cost: u32,
     conditionals: HashMap<Key<Fact>, EncodedGate>,
-    constraints: HashMap<ConstraintGroup, (Var, bool)>,
-    cost_totalizer: GeneralizedTotalizer,
+    constraints: HashMap<ConstraintGroup, EncodedConstraint>,
     outputs: BTreeMap<Fact, (bool, Option<Var>)>,
 }
 
 impl Model {
-    pub fn solve(&mut self) -> Option<bool> {
+    pub fn solve(&mut self, assignments: &mut HashMap<Fact, bool>) -> Option<bool> {
         // split up soft and hard constraints
         let hard_constraints = self
             .constraints
             .values()
-            .filter(|(_guard, is_hard)| *is_hard)
-            .map(|(guard, _is_hard)| guard.neg_lit());
+            .filter(|cons| cons.weight.is_none())
+            .map(|cons| cons.guard.neg_lit());
 
         // assume all condition guards
         let condition_guards = self
@@ -156,6 +140,11 @@ impl Model {
 
         // assume conditions and hard constraint guards
         let assumptions: Vec<_> = hard_constraints.chain(condition_guards).collect();
+
+        // simplify internal solver state
+        log_time("simplify solver state", || {
+            let _ = self.oracle.simplify(1);
+        });
 
         // display statistics
         debug!(
@@ -184,18 +173,40 @@ impl Model {
             SolverResult::Interrupted => return None,
         }
 
-        // run MaxSAT with progressively higher cost upper bounds
-        log_time("optimizing lower cost bound", || {
-            let mut cost = 0;
+        // create a cost totalizer for the current soft constraints
+        let mut cost_totalizer: DynamicPolyWatchdog = self
+            .constraints
+            .values()
+            .flat_map(|cons| {
+                cons.weight
+                    .map(|weight| (cons.guard.pos_lit(), weight as usize))
+            })
+            .collect();
+
+        // run MaxSAT with progressively lower cost upper bounds
+        log_time("optimizing cost upper bound", || {
+            let mut cost = self.total_cost as usize;
+
             loop {
+                // back up current output assignments
+                *assignments = self
+                    .outputs
+                    .iter()
+                    .flat_map(|(output, (_state, var))| var.map(|var| (output, var)))
+                    .map(|(output, var)| {
+                        let value = self.oracle.var_val(var).unwrap().to_bool_with_def(false);
+                        (output.clone(), value)
+                    })
+                    .collect();
+
                 // update totalizer encodings for this upper bound
-                self.cost_totalizer
+                cost_totalizer
                     .encode_ub_change(cost..=cost, &mut self.oracle, &mut self.vars)
                     .unwrap();
 
                 // add assumptions to check cost upper bound
                 let mut assumptions = assumptions.clone();
-                let cost_assumps = self.cost_totalizer.enforce_ub(cost).unwrap();
+                let cost_assumps = cost_totalizer.enforce_ub(cost).unwrap();
                 trace!("cost assumptions: {cost_assumps:?}");
                 assumptions.extend(cost_assumps);
 
@@ -203,15 +214,27 @@ impl Model {
                 let msg = format!("running SAT for cost {cost}");
                 let result = log_time(&msg, || self.oracle.solve_assumps(&assumptions).unwrap());
 
-                // increase cost lower bound for next iteration
-                cost += 1;
-
-                // return result
+                // return result on search termination
                 match result {
-                    SolverResult::Sat => return Some(true),
-                    SolverResult::Unsat => continue,
+                    SolverResult::Sat => {}
+                    SolverResult::Unsat => return Some(true),
                     SolverResult::Interrupted => return None,
                 }
+
+                // assign new cost upper bound based on assigned cost
+                cost = self
+                    .constraints
+                    .values()
+                    .map(|cons| cons.cost(&self.oracle))
+                    .sum();
+
+                // if cost has hit zero, this is the best solution
+                if cost == 0 {
+                    return Some(true);
+                }
+
+                // otherwise, decrement cost and continue
+                cost -= 1;
             }
         })
     }
@@ -383,12 +406,16 @@ impl Model {
         // don't recycle guards because they have been forced
         log_time("removing constraint groups", || {
             for constraint in constraints_remove.iter() {
-                let Some((guard, _weight)) = self.constraints.remove(constraint) else {
+                let Some(cons) = self.constraints.remove(constraint) else {
                     error!("could not remove constraint {constraint:?}");
                     continue;
                 };
 
-                self.oracle.add_unit(guard.pos_lit()).unwrap();
+                self.oracle.add_unit(cons.guard.pos_lit()).unwrap();
+
+                if let Some(weight) = cons.weight {
+                    self.total_cost -= weight;
+                }
             }
         });
 
@@ -398,17 +425,16 @@ impl Model {
                 let guard = self.vars.new_var();
                 self.encode_constraint_group(guard, constraint);
 
-                let is_hard = match constraint.weight {
-                    ConstraintWeight::Hard => true,
+                let weight = match constraint.weight {
+                    ConstraintWeight::Hard => None,
                     ConstraintWeight::Soft(weight) => {
-                        let lit = (guard.pos_lit(), weight as usize);
-                        self.cost_totalizer.extend([lit]);
-                        false
+                        self.total_cost += weight;
+                        Some(weight)
                     }
                 };
 
                 self.constraints
-                    .insert(constraint.clone(), (guard, is_hard));
+                    .insert(constraint.clone(), EncodedConstraint { guard, weight });
             }
         });
     }
@@ -519,6 +545,33 @@ pub struct EncodedGate {
 
     /// The output variable for this gate.
     pub output: Var,
+}
+
+/// Tracks an encoded constraint.
+#[derive(Copy, Clone, Debug)]
+pub struct EncodedConstraint {
+    /// The guard variable for this constraint.
+    pub guard: Var,
+
+    /// This constraint's weight, if set.
+    pub weight: Option<u32>,
+}
+
+impl EncodedConstraint {
+    /// Calculates the contributed cost of this constraint in an assignment.
+    pub fn cost(&self, oracle: &Oracle) -> usize {
+        let Some(weight) = self.weight else {
+            return 0;
+        };
+
+        let value = oracle.var_val(self.guard).unwrap().to_bool_with_def(false);
+
+        if value {
+            weight as usize
+        } else {
+            0
+        }
+    }
 }
 
 /// Helper struct to add clauses with a guard literal.
