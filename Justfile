@@ -2,7 +2,7 @@ set shell := ['bash', '-eu', '-o', 'pipefail', '-c']
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 target := env('TARGET', `rustc --print host-tuple`)
-cargo := require(env('CARGO', 'cargo'))
+cargo := env('CARGO', 'cargo')
 
 default_package_tool := if replace(target, 'windows', '') == target {
     'tar'
@@ -10,7 +10,7 @@ default_package_tool := if replace(target, 'windows', '') == target {
     'zip'
 }
 
-package_tool := require(env('PACKAGE_TOOL', default_package_tool))
+package_tool := env('PACKAGE_TOOL', default_package_tool)
 package_tool_name := file_stem(package_tool)
 
 package_ext := if package_tool_name == 'tar' {
