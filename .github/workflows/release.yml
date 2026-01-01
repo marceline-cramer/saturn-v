@@ -67,12 +67,10 @@ jobs:
 
       - name: Build
         id: build
-        shell: bash
-        run: |
-          set -euo pipefail
-          export TARGET=${{ matrix.target }}
-          export CARGO=${{ matrix.build_tool }}
-          just release-cli
+        run: just release-cli
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO: ${{ matrix.build_tool }}
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
