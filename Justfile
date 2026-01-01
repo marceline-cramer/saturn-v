@@ -35,7 +35,7 @@ binary_ext := if replace(target, 'windows', '') == target {
     '.exe'
 }
 
-github_ref_name := env('GITHUB_REF_NAME', `git branch --show-current`)
+github_ref_name := env('GITHUB_REF_NAME', 'HEAD')
 src := 'target/' + target + '/release/saturn-v' + binary_ext
 package_name := 'saturn-v-' + github_ref_name + '-' + target
 
