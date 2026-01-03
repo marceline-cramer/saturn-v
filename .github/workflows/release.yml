@@ -62,6 +62,7 @@ jobs:
           tool: cross
       
       - name: Install Clang
+        if: ${{ !contains(matrix.runner, 'macos') }}
         uses: egor-tensin/setup-clang@v2
 
       - name: Build
