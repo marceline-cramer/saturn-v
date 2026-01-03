@@ -1,2 +1,2 @@
-[build.aarch64-unknown-linux-gnu]
+[target.aarch64-unknown-linux-gnu]
 zig = true
