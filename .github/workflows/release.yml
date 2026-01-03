@@ -83,8 +83,6 @@ jobs:
   release-openbsd:
     name: OpenBSD build
     runs-on: ubuntu-latest
-    env:
-      LIBCLANG_PATH: /usr/local/lib
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,8 +98,7 @@ jobs:
         with:
           mem: 12288
           prepare: pkg_add llvm-20.1.8p1 bash git just rust
-          envs: 'LIBCLANG_PATH'
-          run: just release-cli
+          run: LIBCLANG_PATH=/usr/local/lib just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
