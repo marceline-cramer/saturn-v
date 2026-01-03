@@ -71,7 +71,7 @@ jobs:
 
       - name: Install aarch64 cross libraries
         if: ${{ contains(matrix.target, 'aarch64' )}}
-        run: sudo apt-get install libc6-dev-arm64-cross
+        run: sudo apt-get install libc6-dev-arm64-cross linux-libc-dev-arm64-cross
 
       - name: Install Clang for Windows
         if: ${{ contains(matrix.runner, 'windows') }}
