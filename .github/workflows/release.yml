@@ -77,6 +77,7 @@ jobs:
           CARGO: ${{ matrix.build_tool }}
           CC: clang
           CXX: clang++
+          RUSTFLAGS: "-C linker=clang"
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
