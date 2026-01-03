@@ -67,6 +67,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           CARGO: ${{ matrix.build_tool }}
+          CROSS_BUILD_ZIG: '1'
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
