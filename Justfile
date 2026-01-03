@@ -1,8 +1,7 @@
-set shell := ['bash', '-eu', '-o', 'pipefail', '-c']
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 target := env('TARGET', `rustc --print host-tuple`)
-cargo := env('CARGO', 'cargo')
+cargo_build := env('CARGO_BUILD', 'cargo build')
 
 default_package_tool := if replace(target, 'windows', '') == target {
     'tar'
@@ -46,8 +45,9 @@ wasm crate target:
     mv crates/{{crate}}/pkg/*.tgz pkg/{{crate}}-{{target}}.tgz
 
 release-cli:
+    env
     mkdir -p artifacts
-    {{cargo}} build --locked --release --target {{target}}
+    {{cargo_build}} --locked --keep-going --release --target {{target}}
     {{package_tool}} {{package_args}} artifacts/{{package_name}}.{{package_ext}} {{src}}
     echo artifact=artifacts/{{package_name}}.{{package_ext}} >> {{env('GITHUB_OUTPUT')}}
     echo artifact_name={{package_name}} >> {{env('GITHUB_OUTPUT')}}

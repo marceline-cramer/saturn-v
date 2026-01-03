@@ -19,27 +19,27 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            build_tool: cargo
+            cargo_build: cargo build
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            build_tool: cross
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build_tool: cargo
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build_tool: cross
+            cargo_build: cargo zigbuild
 
           - runner: macos-latest
             target: x86_64-apple-darwin
-            build_tool: cargo
+            cargo_build: cargo build
 
-          - runner: windows-latest
-            target: x86_64-pc-windows-msvc
-            build_tool: cargo
+          - runner: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            cargo_build: cargo zigbuild
 
     steps:
       - name: Checkout
@@ -50,14 +50,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Install musl-tools
-        if: ${{ contains(matrix.target, 'musl') }}
-        run: sudo apt-get install -y musl-tools
-
-      - name: Install zip
-        if: ${{ contains(matrix.target, 'windows') }}
-        run: choco install zip -y
-
       - name: Setup Just
         uses: taiki-e/install-action@v2
         with:
@@ -65,16 +57,48 @@ jobs:
 
       - name: Setup Cross
         uses: taiki-e/install-action@v2
-        if: ${{ matrix.build_tool == 'cross' }}
+        if: ${{ matrix.cargo_build == 'cross build' }}
         with:
           tool: cross
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
+
+      - name: Setup cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install Clang for Ubuntu
+        if: ${{ contains(matrix.runner, 'ubuntu' )}}
+        run: sudo apt-get install clang
+
+      - name: Install musl-tools
+        if: ${{ contains(matrix.target, 'musl' )}}
+        run: sudo apt-get install musl-tools
+
+      - name: Install aarch64 cross libraries
+        if: ${{ contains(matrix.target, 'aarch64' )}}
+        run: sudo apt-get install g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+
+      - name: Install Windows GNU cross libraries
+        if: ${{ contains(matrix.target, 'windows-gnu' ) && matrix.runner == 'ubuntu-latest' }}
+        run: sudo apt-get install g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: Install Clang for Windows
+        if: ${{ contains(matrix.runner, 'windows') }}
+        uses: egor-tensin/setup-clang@v2
 
       - name: Build
         id: build
         run: just release-cli
         env:
           TARGET: ${{ matrix.target }}
-          CARGO: ${{ matrix.build_tool }}
+          CARGO_BUILD: ${{ matrix.cargo_build }}
+          CC: clang
+          CXX: clang++
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
@@ -99,8 +123,8 @@ jobs:
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
-          prepare: pkg_add bash git just rust
-          run: just release-cli
+          prepare: pkg_add llvm-19.1.7p9 git just rust
+          run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
