@@ -23,7 +23,7 @@ jobs:
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
@@ -31,15 +31,15 @@ jobs:
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
           - runner: macos-latest
             target: x86_64-apple-darwin
             cargo_build: cargo build
 
-          - runner: ubuntu-latest
+          - runner: windows-latest
             target: x86_64-pc-windows-gnu
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
     steps:
       - name: Checkout
@@ -99,7 +99,6 @@ jobs:
           CARGO_BUILD: ${{ matrix.cargo_build }}
           CC: clang
           CXX: clang++
-          RUSTFLAGS: "-C linker=clang"
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
