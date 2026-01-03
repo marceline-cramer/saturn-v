@@ -19,27 +19,27 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            build_tool: cargo
+            cargo_build: cargo build
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            build_tool: cargo
+            cargo_build: cargo build
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build_tool: cargo zigbuild
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build_tool: cargo
+            cargo_build: cargo build
 
           - runner: macos-latest
             target: x86_64-apple-darwin
-            build_tool: cargo
+            cargo_build: cargo build
 
           - runner: windows-latest
             target: x86_64-pc-windows-gnu
-            build_tool: cargo
+            cargo_build: cargo build
 
     steps:
       - name: Checkout
@@ -57,7 +57,7 @@ jobs:
 
       - name: Setup Cross
         uses: taiki-e/install-action@v2
-        if: ${{ matrix.build_tool == 'cross' }}
+        if: ${{ matrix.build_tool == 'cross build' }}
         with:
           tool: cross
 
@@ -88,7 +88,7 @@ jobs:
         run: just release-cli
         env:
           TARGET: ${{ matrix.target }}
-          CARGO: ${{ matrix.build_tool }}
+          CARGO_BUILD: ${{ matrix.cargo_build }}
           CC: clang
           CXX: clang++
 
