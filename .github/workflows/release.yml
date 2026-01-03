@@ -37,8 +37,8 @@ jobs:
             target: x86_64-apple-darwin
             build_tool: cargo
 
-          - runner: windows-latest
-            target: x86_64-pc-windows-msvc
+          - runner: ubuntu-latest
+            target: x86_64-pc-windows-gnu
             build_tool: cross
 
     steps:
