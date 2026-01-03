@@ -1,8 +1,2 @@
 [target.aarch64-unknown-linux-gnu]
 zig = true
-
-[target.x86_64-unknown-linux-musl]
-zig = true
-
-[target.aarch64-unknown-linux-musl]
-zig = true

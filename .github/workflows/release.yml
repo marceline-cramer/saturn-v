@@ -27,7 +27,7 @@ jobs:
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build_tool: cargo
+            build_tool: cross
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
