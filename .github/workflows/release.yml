@@ -64,7 +64,7 @@ jobs:
       - name: Install Clang
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: '21'
+          version: '21.1.3'
           env: true
 
       - name: Build
