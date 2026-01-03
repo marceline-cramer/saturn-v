@@ -62,7 +62,7 @@ jobs:
           tool: cross
 
       - name: Install Zig
-        uses: https://codeberg.org/mlugg/setup-zig@v2
+        uses: mlugg/setup-zig@v2
         if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
 
       - name: Setup cargo-zigbuild
