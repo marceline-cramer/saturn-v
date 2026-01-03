@@ -94,7 +94,7 @@ jobs:
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
-          prepare: pkg_add llvm bash git just rust
+          prepare: pkg_add llvm-20.1.8p1 bash git just rust
           envs: 'LIBCLANG_PATH'
           run: just release-cli
 
