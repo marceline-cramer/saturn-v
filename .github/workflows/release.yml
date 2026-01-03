@@ -85,7 +85,7 @@ jobs:
 
       - name: Install Windows GNU cross libraries
         if: ${{ contains(matrix.target, 'windows-gnu' ) && matrix.runner == 'ubuntu-latest' }}
-        run: sudo apt-get install g++-mingw-w64-x86 binutils-mingw-w64
+        run: sudo apt-get install g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
 
       - name: Install Clang for Windows
         if: ${{ contains(matrix.runner, 'windows') }}
