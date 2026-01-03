@@ -23,7 +23,7 @@ jobs:
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
@@ -31,15 +31,15 @@ jobs:
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
           - runner: macos-latest
             target: x86_64-apple-darwin
             cargo_build: cargo build
 
-          - runner: windows-latest
+          - runner: ubuntu-latest
             target: x86_64-pc-windows-gnu
-            cargo_build: cargo build
+            cargo_build: cargo zigbuild
 
     steps:
       - name: Checkout
@@ -77,7 +77,11 @@ jobs:
 
       - name: Install aarch64 cross libraries
         if: ${{ contains(matrix.target, 'aarch64' )}}
-        run: sudo apt-get install gcc-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+        run: sudo apt-get install g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+
+      - name: Install Windows GNU cross libraries
+        if: ${{ contains(matrix.target, 'windows-gnu' ) && matrix.runner == 'ubuntu-latest' }}
+        run: sudo apt-get install g++-mingw-w64-x86
 
       - name: Install Clang for Windows
         if: ${{ contains(matrix.runner, 'windows') }}
