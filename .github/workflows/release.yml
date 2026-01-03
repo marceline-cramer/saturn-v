@@ -99,7 +99,7 @@ jobs:
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
-          prepare: pkg_add bash git just rust
+          prepare: pkg_add devel/llvm/21 bash git just rust
           run: just release-cli
 
       - name: Upload packaged artifact
