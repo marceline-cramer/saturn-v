@@ -38,7 +38,7 @@ jobs:
             build_tool: cargo
 
           - runner: windows-latest
-            target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-gnu
             build_tool: cargo
 
     steps:
