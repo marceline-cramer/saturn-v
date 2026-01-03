@@ -37,9 +37,9 @@ jobs:
             target: x86_64-apple-darwin
             build_tool: cargo
 
-          - runner: ubuntu-latest
-            target: x86_64-pc-windows-gnu
-            build_tool: cross
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            build_tool: cargo
 
     steps:
       - name: Checkout
@@ -61,13 +61,18 @@ jobs:
         with:
           tool: cross
 
+      - name: Install Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "21.0"
+          env: true
+
       - name: Build
         id: build
         run: just release-cli
         env:
           TARGET: ${{ matrix.target }}
           CARGO: ${{ matrix.build_tool }}
-          CROSS_BUILD_ZIG: '1'
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
