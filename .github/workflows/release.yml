@@ -57,8 +57,12 @@ jobs:
           repository: cross-tools/musl-cross
           tag: '20250929'
           fileName: '${{ matrix.target }}.tar.xz'
-          out-file-path: musl-cross
-          extract: true
+
+      - name: Extract musl-cross
+        if: ${{ contains(matrix.target, 'musl') }}
+        uses: ihiroky/extract-action@v1
+        with:
+          file_path: '${{ matrix.target }}.tar.xz'
 
       - name: Install zip
         if: ${{ contains(matrix.target, 'windows') }}
@@ -105,7 +109,7 @@ jobs:
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
-          prepare: pkg_add llvm bash git just rust
+          prepare: pkg_add llvm-21.1.2p0 bash git just rust
           run: just release-cli
 
       - name: Upload packaged artifact
