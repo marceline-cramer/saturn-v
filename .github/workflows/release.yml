@@ -56,7 +56,7 @@ jobs:
         with:
           repository: cross-tools/musl-cross
           tag: '20250929'
-          fileName: '${{ matrix.target }}-musl.tar.xz'
+          fileName: '${{ matrix.target }}.tar.xz'
           out-file-path: musl-cross
           extract: true
 
