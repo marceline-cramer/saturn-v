@@ -27,11 +27,11 @@ jobs:
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            build_tool: cross
+            build_tool: cargo
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            build_tool: cross
+            build_tool: cargo
 
           - runner: macos-latest
             target: x86_64-apple-darwin
@@ -64,6 +64,14 @@ jobs:
       - name: Install Clang for Ubuntu
         if: ${{ contains(matrix.runner, 'ubuntu' )}}
         run: sudo apt-get install clang
+
+      - name: Install musl-tools
+        if: ${{ contains(matrix.target, 'musl' )}}
+        run: sudo apt-get install musl-tools
+
+      - name: Install aarch64 cross libraries
+        if: ${{ contains(matrix.target, 'aarch64' )}}
+        run: sudo apt-get install libc6-dev-arm64-cross
 
       - name: Install Clang for Windows
         if: ${{ contains(matrix.runner, 'windows') }}
