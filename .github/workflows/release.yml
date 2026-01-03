@@ -50,9 +50,15 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Install musl-tools
+      - name: Download musl-cross
         if: ${{ contains(matrix.target, 'musl') }}
-        run: sudo apt-get install -y musl-tools
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: cross-tools/musl-cross
+          tag: '20250929'
+          fileName: '${{ matrix.target }}-musl.tar.xz'
+          out-file-path: musl-cross
+          extract: true
 
       - name: Install zip
         if: ${{ contains(matrix.target, 'windows') }}
