@@ -37,7 +37,7 @@ jobs:
             target: x86_64-apple-darwin
             cargo_build: cargo build
 
-          - runner: windows-latest
+          - runner: ubuntu-latest
             target: x86_64-pc-windows-gnu
             cargo_build: cargo zigbuild
 
