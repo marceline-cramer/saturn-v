@@ -57,13 +57,13 @@ jobs:
 
       - name: Setup Cross
         uses: taiki-e/install-action@v2
-        if: ${{ matrix.build_tool == 'cross build' }}
+        if: ${{ matrix.cargo_build == 'cross build' }}
         with:
           tool: cross
 
       - name: Setup cargo-zigbuild
         uses: taiki-e/install-action@v2
-        if: ${{ matrix.build_tool == 'cargo zigbuild' }}
+        if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
         with:
           tool: cargo-zigbuild
 
