@@ -1,4 +1,3 @@
-set shell := ['bash', '-eu', '-o', 'pipefail', '-c']
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
 target := env('TARGET', `rustc --print host-tuple`)
@@ -46,6 +45,7 @@ wasm crate target:
     mv crates/{{crate}}/pkg/*.tgz pkg/{{crate}}-{{target}}.tgz
 
 release-cli:
+    env
     mkdir -p artifacts
     {{cargo}} build --locked --release --target {{target}}
     {{package_tool}} {{package_args}} artifacts/{{package_name}}.{{package_ext}} {{src}}
