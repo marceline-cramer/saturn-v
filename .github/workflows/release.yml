@@ -50,20 +50,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Download musl-cross
-        if: ${{ contains(matrix.target, 'musl') }}
-        uses: robinraju/release-downloader@v1
-        with:
-          repository: cross-tools/musl-cross
-          tag: '20250929'
-          fileName: '${{ matrix.target }}.tar.xz'
-
-      - name: Extract musl-cross
-        if: ${{ contains(matrix.target, 'musl') }}
-        uses: ihiroky/extract-action@v1
-        with:
-          file_path: '${{ matrix.target }}.tar.xz'
-
       - name: Install zip
         if: ${{ contains(matrix.target, 'windows') }}
         run: choco install zip -y
