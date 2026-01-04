@@ -9,6 +9,7 @@ on:
 
 env:
   PACKAGE_NAME: "saturn-v"
+  CARGO_HOME: ${{ github.workspace }}/.cargo # caches inside OpenBSD VMs
 
 jobs:
   release-build:
@@ -124,7 +125,9 @@ jobs:
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
-          prepare: pkg_add gcc-libs-11.2.0p19 llvm-19.1.7p9 git just rust
+          envs: 'CARGO_HOME'
+          sync: nfs
+          prepare: pkg_add 'gcc%11' llvm-19.1.7p9 git just rust
           run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
       - name: Upload packaged artifact
