@@ -1,2 +1,2 @@
-import initSync from "/orbit-demo/orbit-demo.js";
+import initSync from "/wasm/orbit-demo/orbit-demo.js";
 initSync();
