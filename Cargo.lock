@@ -3140,7 +3140,7 @@ dependencies = [
 [[package]]
 name = "rustsat"
 version = "0.7.4"
-source = "git+https://github.com/marceline-cramer/rustsat?branch=main#522a4f6c5e52b36ce9b308277d990d0e3f766aa7"
+source = "git+https://github.com/marceline-cramer/rustsat?branch=main#3a6328135160ce3da580e34e48853ee33b18df9b"
 dependencies = [
  "anyhow",
  "cpu-time",
@@ -3155,7 +3155,7 @@ dependencies = [
 [[package]]
 name = "rustsat-cadical"
 version = "0.7.4"
-source = "git+https://github.com/marceline-cramer/rustsat?branch=main#522a4f6c5e52b36ce9b308277d990d0e3f766aa7"
+source = "git+https://github.com/marceline-cramer/rustsat?branch=main#3a6328135160ce3da580e34e48853ee33b18df9b"
 dependencies = [
  "anyhow",
  "bindgen 0.72.1",
