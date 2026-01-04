@@ -8,6 +8,7 @@ on:
 
 env:
   PACKAGE_NAME: "saturn-v"
+  CARGO_HOME: ${{ github.workspace }}/.cargo # caches inside OpenBSD VMs
 
 jobs:
   release-build:
@@ -109,8 +110,6 @@ jobs:
   release-openbsd:
     name: OpenBSD build
     runs-on: ubuntu-latest
-    env:
-      CARGO_HOME: ${{ github.workspace }}/.cargo
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -119,7 +118,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-          cache-directories: ${{ env.CARGO_HOME }}
 
       - name: Build
         id: build
