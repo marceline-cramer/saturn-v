@@ -3231,7 +3231,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "ariadne",
@@ -3255,7 +3255,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-check"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "saturn-v-ir",
  "z3",
@@ -3274,7 +3274,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-client"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -3293,7 +3293,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-eval"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bitvec",
  "differential-dataflow",
@@ -3311,7 +3311,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-frontend"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ariadne",
  "indexmap",
@@ -3327,7 +3327,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-ir"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arbitrary",
  "chumsky",
@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-lower"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chumsky",
  "egglog",
@@ -3355,7 +3355,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "ropey",
@@ -3374,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-orbit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
  "glam",
@@ -3391,7 +3391,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-protocol"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ordered-float 4.6.0",
  "saturn-v-ir",
@@ -3403,7 +3403,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-py"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ordered-float 4.6.0",
  "pyo3",
@@ -3415,7 +3415,7 @@ dependencies = [
 
 [[package]]
 name = "saturn-v-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4331,7 +4331,7 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-kerolox"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
  "tree-sitter",
