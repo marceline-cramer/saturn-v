@@ -1,0 +1,45 @@
+name: WebAssembly Builds
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  wasm-build:
+    name: Build WebAssembly
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        crate:
+          - client
+          - lsp
+          - orbit
+        target:
+          - nodejs
+          - bundler
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup Just and wasm-pack
+      uses: taiki-e/install-action@v2
+      with:
+        tool: just,wasm-pack
+
+    - name: Run wasm-pack via Justfile
+      run: just wasm ${{ matrix.crate }} ${{ matrix.target }}
+
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v6
+      with:
+        path: pkg/*.tgz
+        name: saturn-v-${{ matrix.crate }}-${{ matrix.target }}-${{ inputs.version }}

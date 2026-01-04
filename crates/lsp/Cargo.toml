@@ -1,14 +1,29 @@
 [package]
 name = "saturn-v-lsp"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+futures-util.workspace = true
 ropey.workspace = true
 salsa.workspace = true
 saturn-v-frontend.workspace = true
+sluice = "0.6"
 tower-lsp.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 tree-sitter.workspace = true
 tree-sitter-kerolox.workspace = true
+wasm-bindgen.workspace = true
+wasm-streams.workspace = true
+wasm-bindgen-futures.workspace = true
+
+[dependencies.tokio-util]
+version = "0.7.0"
+default-features = false
+features = ["compat"]

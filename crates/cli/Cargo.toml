@@ -1,7 +1,10 @@
 [package]
 name = "saturn-v"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -21,3 +24,7 @@ tracing-subscriber.workspace = true
 tree-sitter.workspace = true
 tree-sitter-kerolox.workspace = true
 url.workspace = true
+
+[dependencies.tower-http]
+version = "0.6"
+features = ["trace"]

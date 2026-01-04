@@ -15,7 +15,7 @@ const parenListComma = (el) => seq("(", listComma(el), ")");
 const expr_prec = (expr, precedence, op) => prec.left(precedence,
   seq(field("lhs", expr), field("op", op), field("rhs", expr)))
 
-module.exports = grammar({
+export default grammar({
   name: "kerolox",
 
   extras: $ => [$._whitespace, $.comment],

@@ -1,199 +1,161 @@
-name: Release binaries
+name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+  pull_request:
+    branches: [ 'release-*' ]
+  push:
+    tags: [ 'v*' ]
 
 env:
   PACKAGE_NAME: "saturn-v"
+  CARGO_HOME: ${{ github.workspace }}/.cargo # caches inside OpenBSD VMs
 
 jobs:
-  build:
+  release-build:
     name: Build and package
     runs-on: ${{ matrix.runner }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            cargo_build: cargo build
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            use_cross: true
-            archive: linux-aarch64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            use_cross: true
-            archive: linux-x86_64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            cargo_build: cargo zigbuild
 
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            use_cross: true
-            archive: linux-aarch64-musl
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: cargo install cross --locked
-            build_tool: cross
+            cargo_build: cargo zigbuild
 
           - runner: macos-latest
             target: x86_64-apple-darwin
-            use_cross: false
-            archive: macos-x86_64
-            binary_suffix: ""
-            package_tool: tar
-            package_args: -czf
-            package_extension: tar.gz
-            source_suffix: ""
-            content_type: application/gzip
-            install: ":"
-            build_tool: cargo
+            cargo_build: cargo build
 
-          - runner: windows-latest
-            target: x86_64-pc-windows-msvc
-            use_cross: false
-            archive: windows-x86_64
-            binary_suffix: .exe
-            package_tool: zip
-            package_args: -j
-            package_extension: zip
-            source_suffix: .exe
-            content_type: application/zip
-            install: choco install zip -y
-            build_tool: cargo
+          - runner: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            cargo_build: cargo zigbuild
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
-          profile: minimal
+          target: ${{ matrix.target }}
 
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
+      - name: Setup Just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
 
-      - name: Add target
-        shell: bash
-        run: rustup target add ${{ matrix.target }}
+      - name: Setup Cross
+        uses: taiki-e/install-action@v2
+        if: ${{ matrix.cargo_build == 'cross build' }}
+        with:
+          tool: cross
 
-      - name: Install extras
-        shell: bash
-        run: ${{ matrix.install }}
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
+
+      - name: Setup cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        if: ${{ matrix.cargo_build == 'cargo zigbuild' }}
+        with:
+          tool: cargo-zigbuild
+
+      - name: Install Clang for Ubuntu
+        if: ${{ contains(matrix.runner, 'ubuntu' )}}
+        run: sudo apt-get install clang
+
+      - name: Install musl-tools
+        if: ${{ contains(matrix.target, 'musl' )}}
+        run: sudo apt-get install musl-tools
+
+      - name: Install aarch64 cross libraries
+        if: ${{ contains(matrix.target, 'aarch64' )}}
+        run: sudo apt-get install g++-aarch64-linux-gnu libc6-dev-arm64-cross linux-libc-dev-arm64-cross
+
+      - name: Install Windows GNU cross libraries
+        if: ${{ contains(matrix.target, 'windows-gnu' ) && matrix.runner == 'ubuntu-latest' }}
+        run: sudo apt-get install g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+      - name: Install Clang for Windows
+        if: ${{ contains(matrix.runner, 'windows') }}
+        uses: egor-tensin/setup-clang@v2
 
       - name: Build
-        shell: bash
-        run: |
-          set -euo pipefail
-          ${{ matrix.build_tool }} build --release --target ${{ matrix.target }} -p ${PACKAGE_NAME}
-
-      - name: Package artifact
-        id: package
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          OUT="${PACKAGE_NAME}-${TAG}-${{ matrix.archive }}"
-          SRC="target/${{ matrix.target }}/release/${PACKAGE_NAME}${{ matrix.binary_suffix }}"
-          mkdir -p artifacts
-          cp "$SRC" "artifacts/${OUT}${{ matrix.binary_suffix }}"
-          (
-            cd artifacts
-            ${{ matrix.package_tool }} ${{ matrix.package_args }} "${OUT}.${{ matrix.package_extension }}" "${OUT}${{ matrix.source_suffix }}"
-          )
-          echo "artifact=artifacts/${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${OUT}.${{ matrix.package_extension }}" >> "$GITHUB_OUTPUT"
-          echo "artifact_type=${{ matrix.content_type }}" >> "$GITHUB_OUTPUT"
+        id: build
+        run: just release-cli
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO_BUILD: ${{ matrix.cargo_build }}
+          CC: clang
+          CXX: clang++
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.artifact_name }}
-          path: ${{ steps.package.outputs.artifact }}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
 
-  vscode:
-    name: Build VS Code extension
+  release-openbsd:
+    name: OpenBSD build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          node-version: "20"
+          cache-on-failure: true
 
-      - name: Install dependencies
-        working-directory: vscode-ext
-        run: npm install
+      - name: Build
+        id: build
+        uses: vmactions/openbsd-vm@v1
+        with:
+          mem: 12288
+          envs: 'CARGO_HOME'
+          sync: nfs
+          prepare: pkg_add 'gcc%11' llvm-19.1.7p9 git just rust
+          run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
-      - name: Compile extension
-        working-directory: vscode-ext
-        run: npm run compile
-
-      - name: Package extension
-        id: package-vscode-ext
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME:-manual}"
-          OUT="kerolox-vscode-ext-${TAG}"
-          ARTIFACT_DIR="artifacts"
-          mkdir -p "$ARTIFACT_DIR"
-          (
-            cd vscode-ext
-            zip -r "../${ARTIFACT_DIR}/${OUT}.zip" . -x "node_modules/**"
-          )
-          echo "artifact=${ARTIFACT_DIR}/${OUT}.zip" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${OUT}.zip" >> "$GITHUB_OUTPUT"
-          echo "artifact_type=application/zip" >> "$GITHUB_OUTPUT"
-
-      - name: Upload VS Code artifact
+      - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package-vscode-ext.outputs.artifact_name }}
-          path: ${{ steps.package-vscode-ext.outputs.artifact }}
+          name: ${{ steps.build.outputs.artifact_name }}
+          path: ${{ steps.build.outputs.artifact }}
 
-  publish_release:
+  release-wasm:
+    name: WebAssembly packages
+    uses: ./.github/workflows/wasm.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  release-vscode:
+    name: VSCode extension
+    uses: ./.github/workflows/vscode.yml
+    with:
+      version: ${{ github.ref_name }}
+
+  release-publish:
     name: Create draft release and upload assets
+    if: ${{ github.event_name == 'push' }} 
     needs:
-      - build
-      - vscode
+      - release-build
+      - release-openbsd
+      - release-vscode
+      - release-wasm
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -203,6 +165,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Create draft release and upload assets
         id: ghrel

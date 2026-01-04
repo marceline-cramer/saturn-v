@@ -24,7 +24,7 @@ use differential_dataflow::{
         Join, JoinCore, Reduce, Threshold,
     },
     trace::TraceReader,
-    Collection, Data, ExchangeData,
+    Data, ExchangeData, VecCollection,
 };
 use saturn_v_ir::*;
 use serde::{Deserialize, Serialize};
@@ -278,8 +278,8 @@ pub fn load_source<G, T, O, TupleTr, LoadMaskTr, RelationTr>(
     load_mask: &Arranged<G, LoadMaskTr>,
     relations: &Arranged<G, RelationTr>,
     map: fn(&T, Tuple) -> O,
-    source: &Collection<G, (NodeSource, T), Diff>,
-) -> Collection<G, O, Diff>
+    source: &VecCollection<G, (NodeSource, T)>,
+) -> VecCollection<G, O>
 where
     G: Scope,
     G::Timestamp: Lattice,
@@ -694,10 +694,10 @@ pub fn constraint_clause(
 }
 
 pub fn antijoin<G>(
-    antijoins: &Collection<G, (Fact, (Key<Node>, Tuple))>,
-    facts: &Collection<G, Fact>,
-    relations: &Collection<G, (Key<Relation>, Relation)>,
-) -> (Collection<G, Gate>, Collection<G, (Key<Node>, Tuple)>)
+    antijoins: &VecCollection<G, (Fact, (Key<Node>, Tuple))>,
+    facts: &VecCollection<G, Fact>,
+    relations: &VecCollection<G, (Key<Relation>, Relation)>,
+) -> (VecCollection<G, Gate>, VecCollection<G, (Key<Node>, Tuple)>)
 where
     G: Scope<Timestamp: Lattice>,
 {

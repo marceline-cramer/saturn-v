@@ -1,11 +1,15 @@
 [package]
 name = "saturn-v-protocol"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 ordered-float.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+wasm-bindgen.workspace = true
+serde-wasm-bindgen.workspace = true

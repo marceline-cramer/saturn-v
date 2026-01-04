@@ -1,21 +1,30 @@
 [package]
 name = "saturn-v-eval"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
-batsat = "0.6.0"
 bitvec = { version = "1", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
 indexmap.workspace = true
-rustsat = "0.7.1"
-# rustsat-cadical = { version = "0.7.1", features = ["v2-1-3"] }
-rustsat-batsat = "0.7.1"
 saturn-v-ir.workspace = true
 serde.workspace = true
 timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
+
+# batsat = "0.6.0"
+# rustsat-batsat = "0.7.4"
+
+[dependencies.rustsat]
+git = "https://github.com/marceline-cramer/rustsat"
+branch = "saturn-v"
+
+[dependencies.rustsat-cadical]
+git = "https://github.com/marceline-cramer/rustsat"
+branch = "saturn-v"

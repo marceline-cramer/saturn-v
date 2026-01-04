@@ -28,7 +28,7 @@ use differential_dataflow::{
         implementations::{KeyBuilder, KeySpine},
         Cursor, TraceReader,
     },
-    Collection, Data, ExchangeData, Hashable,
+    Data, ExchangeData, Hashable, VecCollection,
 };
 use flume::{Receiver, RecvError, Sender, TryRecvError};
 use serde::{Deserialize, Serialize};
@@ -189,7 +189,7 @@ pub struct InputSink<T: Data> {
 }
 
 impl<T: Data> InputSink<T> {
-    pub fn to_collection<G>(&mut self, scope: &mut G) -> Collection<G, T, Diff>
+    pub fn to_collection<G>(&mut self, scope: &mut G) -> VecCollection<G, T, Diff>
     where
         G: Scope<Timestamp = Time>,
     {
@@ -346,7 +346,7 @@ impl<T> Default for OutputRouter<T> {
 impl<T: ExchangeData + Hashable> OutputRouter<T> {
     /// Adds an [OutputSource] to pump the outputs of some collection to an
     /// external system.
-    pub fn add_source<G>(&self, collection: &Collection<G, T>) -> OutputSource<T>
+    pub fn add_source<G>(&self, collection: &VecCollection<G, T>) -> OutputSource<T>
     where
         G: Scope<Timestamp = Time>,
     {
@@ -360,6 +360,7 @@ impl<T: ExchangeData + Hashable> OutputRouter<T> {
 
         OutputSource {
             tx: self.tx.clone(),
+            time: 0,
             probe: arranged.stream.probe(),
             trace: Box::new(TraceWrapper(arranged.trace, PhantomData)),
         }
@@ -415,6 +416,7 @@ where
 
 pub struct OutputSource<T> {
     tx: Sender<Update<T>>,
+    time: Time,
     probe: ProbeHandle<Time>,
     trace: Box<dyn DynTrace<T>>,
 }
@@ -422,6 +424,7 @@ pub struct OutputSource<T> {
 impl<T: std::fmt::Debug> PumpOutput for OutputSource<T> {
     fn advance_to(&mut self, time: Time) {
         self.trace.advance_to(time);
+        self.time = time;
     }
 
     fn is_pending(&self, time: &Time) -> bool {
@@ -430,7 +433,16 @@ impl<T: std::fmt::Debug> PumpOutput for OutputSource<T> {
 
     fn flush(&mut self) {
         for ((item, ()), sums) in self.trace.updates() {
-            let delta: isize = sums.iter().map(|(_time, sum)| *sum).sum();
+            let delta: isize = sums
+                .iter()
+                .filter(|(time, _sum)| *time >= self.time)
+                .map(|(_time, sum)| *sum)
+                .sum();
+
+            if delta == 0 {
+                continue;
+            }
+
             let add = delta > 0;
             let update = Update::Push(item, add);
             let _ = self.tx.send(update);

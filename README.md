@@ -1,10 +1,17 @@
 # Saturn V
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/marceline-cramer/saturn-v)
+
 Saturn V is an implementation of a general-purpose decision engine (see [What's a decision engine?](https://marceline-cramer.github.io/saturn-v/blog/whats-a-decision-engine/)).
 
 It is named after the [Saturn V](https://en.wikipedia.org/wiki/Saturn_V) rocket engine because it is my fifth iteration on a general-purpose decision engine design. The name can also be interpreted as an homage to Japan's [Fifth Generation Computer Systems](https://en.wikipedia.org/wiki/Fifth_Generation_Computer_Systems) project.
 
 At the moment, Saturn V is incomplete, but its early code and documentation is available on this repository.
+
+To run from source:
+```
+cargo run -- --help
+```
 
 # Architecture
 
