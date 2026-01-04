@@ -18,7 +18,7 @@ jobs:
       - name: Install tools
         uses: taiki-e/install-action@v2
         with:
-          tool: just,trunk
+          tool: just,wasm-bindgen
 
       - name: Prepare site
         run: just prepare-site
