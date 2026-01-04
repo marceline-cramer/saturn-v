@@ -29,6 +29,14 @@ invert_previous_next_article_links = true
 mermaid = true
 footnote_backlinks = true
 
+allowed_domains = [
+    { directive = "font-src", domains = ["'self'", "data:"] },
+    { directive = "img-src", domains = ["'self'", "https://*", "data:"] },
+    { directive = "script-src", domains = ["'self' 'wasm-unsafe-eval'"] },
+    { directive = "style-src", domains = ["'self'"] },
+    { directive = "frame-src", domains = ["player.vimeo.com", "https://www.youtube-nocookie.com"] },
+]
+
 [[extra.menu]]
 name = "Docs"
 url = "docs"

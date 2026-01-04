@@ -1,19 +1,32 @@
 on:
   push:
-    paths: [ "site/**" ]
-    branches: [ "main" ]
+    branches: [ 'main', 'site-*' ]
 
 name: Build and deploy GitHub Pages
 jobs:
   site-build:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v4
-      - name: build_and_deploy
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just,wasm-bindgen
+
+      - name: Prepare site
+        run: just prepare-site
+
+      - name: Build and deploy
         uses: shalzz/zola-deploy-action@master
         env:
           PAGES_BRANCH: gh-pages
           BUILD_DIR: site
+          BUILD_ONLY: ${{ github.ref != 'refs/heads/main' }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
