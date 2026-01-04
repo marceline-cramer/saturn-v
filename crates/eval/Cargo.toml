@@ -23,8 +23,8 @@ tracing.workspace = true
 
 [dependencies.rustsat]
 git = "https://github.com/marceline-cramer/rustsat"
-branch = "main"
+branch = "saturn-v"
 
 [dependencies.rustsat-cadical]
 git = "https://github.com/marceline-cramer/rustsat"
-branch = "main"
+branch = "saturn-v"
