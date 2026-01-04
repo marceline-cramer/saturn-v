@@ -133,9 +133,9 @@ jobs:
           release: ${{ matrix.release }}
           mem: 12288
           envs: 'CARGO_HOME'
-          sync: nfs
+          sync: rsync
           prepare: |
-            pkg_add 'gcc%11' 'llvm%19' git just rust
+            pkg_add 'gcc%11' 'llvm%19' git rust
             cargo install just
           run: PACKAGE_POSTFIX='-${{ matrix.arch }}-openbsd-${{ matrix.release }}' LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
