@@ -53,5 +53,6 @@ release-cli:
     echo artifact_name={{package_name}} >> {{env('GITHUB_OUTPUT')}}
 
 prepare-site:
-    cd crates/orbit && RUSTFLAGS="-C opt-level=z" trunk build --locked true --minify true --release true
-    cp -r crates/orbit/dist site/static/orbit-demo
+    cargo build -p saturn-v-orbit --release --bin orbit-demo --features leptos --target wasm32-unknown-unknown
+    rm -rf site/static/orbit-demo
+    wasm-bindgen --out-dir site/static/orbit-demo --out-name orbit-demo --no-typescript --target web target/wasm32-unknown-unknown/release/orbit-demo.wasm
