@@ -54,5 +54,4 @@ release-cli:
 
 prepare-site:
     cargo build -p saturn-v-orbit --release --bin orbit-demo --features leptos --target wasm32-unknown-unknown
-    rm -rf site/static/wasm
-    wasm-bindgen --out-dir site/static/wasm/orbit-demo --out-name orbit-demo --no-typescript --target web target/wasm32-unknown-unknown/release/orbit-demo.wasm
+    wasm-bindgen --out-dir site/static/js/orbit-demo --out-name orbit-demo --no-typescript --target web target/wasm32-unknown-unknown/release/orbit-demo.wasm
