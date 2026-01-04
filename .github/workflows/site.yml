@@ -10,6 +10,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just,trunk
+
+      - name: Prepare site
+        run: just prepare-site
+
       - name: Build and deploy
         uses: shalzz/zola-deploy-action@master
         env:
