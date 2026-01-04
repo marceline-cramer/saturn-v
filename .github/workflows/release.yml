@@ -97,6 +97,7 @@ jobs:
         run: just release-cli
         env:
           TARGET: ${{ matrix.target }}
+          PACKAGE_POSTFIX: -${{ matrix.target }}
           CARGO_BUILD: ${{ matrix.cargo_build }}
           CC: clang
           CXX: clang++
@@ -133,8 +134,8 @@ jobs:
           mem: 12288
           envs: 'CARGO_HOME'
           sync: nfs
-          prepare: pkg_add 'gcc%11' llvm-19.1.7p9 git just rust
-          run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
+          prepare: pkg_add 'gcc%11' 'llvm%11' git just rust
+          run: PACKAGE_POSTFIX='-${{ matrix.arch }}-openbsd-${{ matrix.release }}' LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4

@@ -43,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           path: vscode-ext/*.vsix
-          name: vscode-${{ inputs.version }}
+          name: vscode-ext
