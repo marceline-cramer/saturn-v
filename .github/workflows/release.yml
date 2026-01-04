@@ -2,10 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [ 'release-*' ]
   push:
     tags: [ 'v*' ]
+    branches: [ 'release-*' ]
 
 env:
   PACKAGE_NAME: "saturn-v"
@@ -150,7 +149,7 @@ jobs:
 
   release-publish:
     name: Create draft release and upload assets
-    if: ${{ github.event_name == 'push' }} 
+    if: ${{ github.ref_type == 'tag' }}
     needs:
       - release-build
       - release-openbsd
