@@ -110,6 +110,11 @@ jobs:
   release-openbsd:
     name: OpenBSD build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['7.7', '7.8']
+        arch: [x86_64, aarch64, riscv64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,6 +128,8 @@ jobs:
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
+          arch: ${{ matrix.arch }}
+          release: ${{ matrix.release }}
           mem: 12288
           envs: 'CARGO_HOME'
           sync: nfs
