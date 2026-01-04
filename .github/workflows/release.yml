@@ -137,7 +137,7 @@ jobs:
           prepare: |
             pkg_add 'gcc%11' 'llvm%19' git rust
             cargo install just
-          run: PACKAGE_POSTFIX='-${{ matrix.arch }}-openbsd-${{ matrix.release }}' LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
+          run: PACKAGE_POSTFIX='-${{ matrix.arch }}-openbsd-${{ matrix.release }}' LIBCLANG_PATH=/usr/local/llvm19/lib ./.cargo/bin/just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
