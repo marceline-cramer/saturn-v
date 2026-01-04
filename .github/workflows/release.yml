@@ -109,6 +109,8 @@ jobs:
   release-openbsd:
     name: OpenBSD build
     runs-on: ubuntu-latest
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cargo
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -117,12 +119,15 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+          cache-directories: ${{ env.CARGO_HOME }}
 
       - name: Build
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
           mem: 12288
+          envs: 'CARGO_HOME'
+          sync: nfs
           prepare: pkg_add gcc-11.2.0p19 llvm-19.1.7p9 git just rust
           run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
 
