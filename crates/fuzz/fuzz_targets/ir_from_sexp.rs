@@ -20,7 +20,7 @@ use chumsky::Parser;
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
     sexp::{Sexp, Token},
-    Instruction,
+    Program,
 };
 
 fuzz_target!(|src: Vec<Token>| {
@@ -32,7 +32,7 @@ fuzz_target!(|src: Vec<Token>| {
             .map(|(idx, tok)| (tok, idx..idx)),
     );
 
-    let parser = Instruction::parser().then_ignore(chumsky::primitive::end());
+    let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
     let Ok(ir) = parser.parse(stream) else {
         return;
     };

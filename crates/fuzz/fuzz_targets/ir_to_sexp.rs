@@ -20,10 +20,10 @@ use chumsky::Parser;
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
     sexp::{Sexp, Token},
-    Instruction,
+    Program,
 };
 
-fuzz_target!(|src: Instruction| {
+fuzz_target!(|src: Program<String>| {
     let mut output = String::new();
     src.to_doc().render_fmt(80, &mut output).unwrap();
 
@@ -37,7 +37,7 @@ fuzz_target!(|src: Instruction| {
             .map(|(idx, tok)| (tok, idx..idx)),
     );
 
-    let parser = Instruction::parser().then_ignore(chumsky::primitive::end());
+    let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
     let Ok(got) = parser.parse(stream) else {
         return;
     };

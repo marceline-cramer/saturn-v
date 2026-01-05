@@ -3331,6 +3331,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "chumsky",
+ "either",
  "ordered-float 4.6.0",
  "pretty",
  "serde",

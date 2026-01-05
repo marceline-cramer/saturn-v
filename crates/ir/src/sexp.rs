@@ -14,27 +14,140 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{str::FromStr, sync::Arc};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
 
 use chumsky::prelude::*;
+use either::Either;
 
 use crate::*;
 
-pub type Doc = RcDoc<'static, ()>;
-
-pub trait Sexp: Sized {
-    fn to_doc(&self) -> Doc;
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
-}
-
-impl Sexp for BTreeSet<u32> {
+impl Sexp for Program<String> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
-        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+        let relations = self.relations.values().map(|rel| rel.to_doc());
+        let constraints = self.constraints.iter().map(|cons| cons.to_doc());
+        Doc::intersperse(relations.chain(constraints), Doc::hardline())
     }
 
     fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
+        let relation = Relation::<String>::parser().map(|rel| {
+            let mut p = Program::default();
+            p.insert_relation(rel);
+            p
+        });
+
+        let constraint = Constraint::<String>::parser().map(|rel| {
+            let mut p = Program::default();
+            p.constraints.insert(rel);
+            p
+        });
+
+        relation.or(constraint).repeated().map(|els| {
+            els.into_iter()
+                .reduce(|l, r| l.merge(r))
+                .unwrap_or_default()
+        })
+    }
+}
+
+impl Sexp for Relation<String> {
+    fn to_doc(&self) -> Doc {
+        let store = Doc::text(self.store.clone());
+        let ty = self.ty.to_doc();
+        let kind = self.kind.to_doc();
+        let io = self.io.to_doc();
+
+        let facts = self.facts.iter().map(Vec::as_slice).map(doc_fact);
+        let rules = self.rules.iter().map(Sexp::to_doc);
+
+        doc_indent_many(
+            Doc::text("relation"),
+            [store, ty, kind, io].into_iter().chain(facts).chain(rules),
+        )
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        let store = Token::item();
+        let ty = StructuredType::parser();
+        let kind = RelationKind::parser();
+        let io = RelationIO::parser();
+
+        let base = store
+            .then(ty)
+            .then(kind)
+            .then(io)
+            .map(|(((store, ty), kind), io)| Relation {
+                store,
+                kind,
+                ty,
+                io,
+                facts: vec![],
+                rules: vec![],
+            });
+
+        let fact = parse_fact().map(Either::Left);
+        let rule = Rule::<String>::parser().map(Either::Right);
+
+        let fields = fact.or(rule).repeated().map(|fields| {
+            fields
+                .into_iter()
+                .fold((Vec::new(), Vec::new()), |(mut facts, mut rules), field| {
+                    match field {
+                        Either::Left(fact) => facts.push(fact),
+                        Either::Right(rule) => rules.push(rule),
+                    };
+
+                    (facts, rules)
+                })
+        });
+
+        let body = base.then(fields).map(|(mut base, (facts, rules))| {
+            base.facts = facts;
+            base.rules = rules;
+            base
+        });
+
+        parse_list("relation", body)
+    }
+}
+
+impl Sexp for Constraint<String> {
+    fn to_doc(&self) -> Doc {
+        todo!()
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        todo!()
+    }
+}
+
+impl Sexp for Rule<String> {
+    fn to_doc(&self) -> Doc {
+        todo!()
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        todo!()
+    }
+}
+
+impl Sexp for StructuredType {
+    fn to_doc(&self) -> Doc {
+        match self {
+            StructuredType::Primitive(ty) => ty.to_doc(),
+            StructuredType::Tuple(els) => {
+                doc_indent_many(Doc::text("Tuple"), els.iter().map(Sexp::to_doc))
+            }
+        }
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        recursive(|structured_ty| {
+            let tuple = Token::expect_item("Tuple")
+                .ignore_then(structured_ty.repeated())
+                .map(StructuredType::Tuple);
+
+            Type::parser().map(StructuredType::Primitive).or(tuple)
+        })
     }
 }
 
@@ -180,45 +293,6 @@ impl Sexp for Expr {
 
             variable.or(value).or(load).or(unary_op).or(binary_op)
         })
-    }
-}
-
-impl Sexp for BinaryOpKind {
-    fn to_doc(&self) -> Doc {
-        use BinaryOpKind::*;
-        let kind = match self {
-            Add => "Add",
-            Mul => "Mul",
-            Div => "Div",
-            Concat => "Concat",
-            And => "And",
-            Or => "Or",
-            Eq => "Eq",
-            Lt => "Lt",
-            Le => "Le",
-        };
-
-        doc_list(Doc::text(kind))
-    }
-
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_tag_variant()
-    }
-}
-
-impl Sexp for UnaryOpKind {
-    fn to_doc(&self) -> Doc {
-        use UnaryOpKind::*;
-        let kind = match self {
-            Not => "Not",
-            Negate => "Negate",
-        };
-
-        doc_list(Doc::text(kind))
-    }
-
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_tag_variant()
     }
 }
 
@@ -385,6 +459,18 @@ impl Token {
     }
 }
 
+/// Creates a fact document.
+pub fn doc_fact(fact: &[Value]) -> Doc {
+    doc_indent_many(Doc::text("fact"), fact.iter().map(|fact| fact.to_doc()))
+}
+
+/// Parses a fact.
+pub fn parse_fact() -> impl Parser<Token, Vec<Value>, Error = Simple<Token>> {
+    Token::expect_item("fact")
+        .ignore_then(Value::parser().repeated())
+        .delimited_by(just(Token::LParen), just(Token::RParen))
+}
+
 /// Creates a paren-surrounded list with two children with smart indentation.
 pub fn doc_indent_two(head: Doc, item1: Doc, item2: Doc) -> Doc {
     doc_indent_many(head, [item1, item2])
@@ -396,7 +482,7 @@ pub fn doc_indent(head: Doc, item: Doc) -> Doc {
 }
 
 /// Creates a paren-surrounded list with any number of children and smart indentation.
-pub fn doc_indent_many<const N: usize>(head: Doc, children: [Doc; N]) -> Doc {
+pub fn doc_indent_many(head: Doc, children: impl IntoIterator<Item = Doc>) -> Doc {
     doc_list(
         head.append(
             Doc::line()
@@ -444,12 +530,43 @@ pub fn parse_tag(tag: &'static str) -> impl Parser<Token, (), Error = Simple<Tok
         .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
-/// Parse the tag in a unit-length tagged list.
-pub fn parse_tag_variant<T: FromStr>() -> impl Parser<Token, T, Error = Simple<Token>> {
-    Token::item()
-        .try_map(|item, span| match item.parse() {
-            Ok(op) => Ok(op),
-            Err(_) => Err(Simple::custom(span, "unrecognized variant")),
-        })
-        .delimited_by(just(Token::LParen), just(Token::RParen))
+pub trait SexpVariant: FromStr + Debug + Sized {}
+
+impl SexpVariant for RelationIO {}
+impl SexpVariant for RelationKind {}
+impl SexpVariant for BinaryOpKind {}
+impl SexpVariant for UnaryOpKind {}
+impl SexpVariant for Type {}
+
+impl<T: SexpVariant> Sexp for T {
+    fn to_doc(&self) -> Doc {
+        doc_list(Doc::text(format!("{self:?}")))
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        Token::item()
+            .try_map(|item, span| match item.parse() {
+                Ok(op) => Ok(op),
+                Err(_) => Err(Simple::custom(span, "unrecognized variant")),
+            })
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+    }
+}
+
+pub type Doc = RcDoc<'static, ()>;
+
+pub trait Sexp: Sized {
+    fn to_doc(&self) -> Doc;
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
+}
+
+impl Sexp for BTreeSet<u32> {
+    fn to_doc(&self) -> Doc {
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
+        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+    }
+
+    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+        parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
+    }
 }
