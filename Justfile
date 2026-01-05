@@ -9,6 +9,7 @@ default_package_tool := if replace(target, 'windows', '') == target {
     'zip'
 }
 
+package_postfix := env('PACKAGE_POSTFIX', '')
 package_tool := env('PACKAGE_TOOL', default_package_tool)
 package_tool_name := file_stem(package_tool)
 
@@ -36,7 +37,7 @@ binary_ext := if replace(target, 'windows', '') == target {
 
 github_ref_name := env('GITHUB_REF_NAME', 'HEAD')
 src := 'target/' + target + '/release/saturn-v' + binary_ext
-package_name := 'saturn-v-' + github_ref_name + '-' + target
+package_name := 'saturn-v-' + github_ref_name + package_postfix
 
 wasm crate target:
     RUSTFLAGS="-C opt-level=z -C codegen-units=1 -C panic=abort" wasm-pack build crates/{{crate}} --release --target {{target}}

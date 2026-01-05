@@ -2,10 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [ 'release-*' ]
   push:
     tags: [ 'v*' ]
+    branches: [ 'release-*' ]
 
 env:
   PACKAGE_NAME: "saturn-v"
@@ -98,6 +97,7 @@ jobs:
         run: just release-cli
         env:
           TARGET: ${{ matrix.target }}
+          PACKAGE_POSTFIX: -${{ matrix.target }}
           CARGO_BUILD: ${{ matrix.cargo_build }}
           CC: clang
           CXX: clang++
@@ -111,6 +111,11 @@ jobs:
   release-openbsd:
     name: OpenBSD build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ['7.8']
+        arch: [x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -124,11 +129,15 @@ jobs:
         id: build
         uses: vmactions/openbsd-vm@v1
         with:
+          arch: ${{ matrix.arch }}
+          release: ${{ matrix.release }}
           mem: 12288
           envs: 'CARGO_HOME'
-          sync: nfs
-          prepare: pkg_add 'gcc%11' llvm-19.1.7p9 git just rust
-          run: LIBCLANG_PATH=/usr/local/llvm19/lib just release-cli
+          sync: rsync
+          prepare: |
+            pkg_add 'gcc%11' 'llvm%19' git rust
+            cargo install just
+          run: PACKAGE_POSTFIX='-${{ matrix.arch }}-openbsd-${{ matrix.release }}' LIBCLANG_PATH=/usr/local/llvm19/lib ./.cargo/bin/just release-cli
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
@@ -150,7 +159,7 @@ jobs:
 
   release-publish:
     name: Create draft release and upload assets
-    if: ${{ github.event_name == 'push' }} 
+    if: ${{ github.ref_type == 'tag' }}
     needs:
       - release-build
       - release-openbsd
