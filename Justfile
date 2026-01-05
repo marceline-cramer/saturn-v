@@ -52,3 +52,7 @@ release-cli:
     {{package_tool}} {{package_args}} artifacts/{{package_name}}.{{package_ext}} {{src}}
     echo artifact=artifacts/{{package_name}}.{{package_ext}} >> {{env('GITHUB_OUTPUT')}}
     echo artifact_name={{package_name}} >> {{env('GITHUB_OUTPUT')}}
+
+prepare-site:
+    cargo build -p saturn-v-orbit --release --bin orbit-demo --features leptos --target wasm32-unknown-unknown
+    wasm-bindgen --out-dir site/static/js/orbit-demo --out-name orbit-demo --no-typescript --target web target/wasm32-unknown-unknown/release/orbit-demo.wasm
