@@ -29,7 +29,7 @@ pub use salsa::DatabaseImpl as Db;
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
-    parse::{RelationDefinition, TypeAlias},
+    parse::{AbstractTypeAlias, RelationDefinition},
     types::WithAst,
 };
 
@@ -52,7 +52,7 @@ pub enum NamespaceItem<'db> {
     File(File),
     Namespace(Namespace<'db>),
     Relation(RelationDefinition<'db>),
-    TypeAlias(TypeAlias<'db>),
+    TypeAlias(AbstractTypeAlias<'db>),
     Unknown,
 }
 

@@ -20,17 +20,17 @@ use salsa::{Database, Update};
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, BasicDiagnostic, DiagnosticKind},
-    parse::{self, AbstractImport, AbstractType, ItemKind, RelationDefinition, TypeAlias},
+    parse::{self, AbstractImport, AbstractType, AbstractTypeAlias, ItemKind, RelationDefinition},
     toplevel::{AstNode, File, Namespace, NamespaceItem, Workspace},
     types::{PrimitiveType, WithAst},
 };
 
 /// Resolves the type of a relation definition.
 #[salsa::tracked]
-pub fn resolve_relation_type<'a>(
-    db: &'a dyn Database,
-    def: RelationDefinition<'a>,
-) -> ResolvedRelationType<'a> {
+pub fn resolve_relation_type<'db>(
+    db: &'db dyn Database,
+    def: RelationDefinition<'db>,
+) -> ResolvedRelationType<'db> {
     // recursively resolve the abstract type
     let mut in_progress = HashSet::new();
     in_progress.insert(Unresolved::Relation(def));
@@ -38,6 +38,21 @@ pub fn resolve_relation_type<'a>(
 
     // build the resolved relation type
     ResolvedRelationType::new(db, def, kind)
+}
+
+/// Resolves the type of a type alias.
+#[salsa::tracked]
+pub fn resolve_type_alias<'db>(
+    db: &'db dyn Database,
+    def: AbstractTypeAlias<'db>,
+) -> ResolvedTypeAlias<'db> {
+    // recursively resolve the abstract type
+    let mut in_progress = HashSet::new();
+    in_progress.insert(Unresolved::TypeAlias(def));
+    let kind = resolve_abstract_type(db, &in_progress, def.ty(db));
+
+    // build the resolved type alias
+    ResolvedTypeAlias::new(db, def, kind)
 }
 
 /// Helper function to recursively resolve an abstract relation type.
@@ -86,9 +101,15 @@ fn resolve_abstract_type<'db>(
             // resolve the specific kind of item
             match unresolved {
                 Unresolved::Relation(def) => {
-                    resolve_abstract_type(db, &new_in_progress, def.ty(db))
+                    let kind = resolve_abstract_type(db, &new_in_progress, def.ty(db));
+                    let resolved = ResolvedRelationType::new(db, *def, kind);
+                    ty.with(ResolvedType::Relation(resolved))
                 }
-                _ => unimplemented!(),
+                Unresolved::TypeAlias(alias) => {
+                    let kind = resolve_abstract_type(db, &new_in_progress, &(*alias).ty(db));
+                    let resolved = ResolvedTypeAlias::new(db, *alias, kind);
+                    ty.with(ResolvedType::Alias(resolved))
+                }
             }
         }
     }
@@ -104,7 +125,7 @@ pub fn file_unresolved_types<'a>(
         .into_iter()
         .flat_map(|(name, item)| match item.inner {
             NamespaceItem::Relation(rel) => Some((name, Unresolved::Relation(rel))),
-            NamespaceItem::TypeAlias(alias) => Some((name, Unresolved::Alias(alias))),
+            NamespaceItem::TypeAlias(alias) => Some((name, Unresolved::TypeAlias(alias))),
             _ => None,
         })
         .collect()
@@ -126,7 +147,7 @@ pub struct ResolvedRelationType<'db> {
 #[derive(Debug)]
 pub struct ResolvedTypeAlias<'db> {
     /// The type alias definition this resolved alias corresponds to.
-    pub def: TypeAlias<'db>,
+    pub def: AbstractTypeAlias<'db>,
 
     /// The inner resolved type.
     pub kind: WithAst<ResolvedType<'db>>,
@@ -148,7 +169,7 @@ pub enum ResolvedType<'db> {
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Update)]
 pub enum Unresolved<'db> {
     Relation(RelationDefinition<'db>),
-    Alias(TypeAlias<'db>),
+    TypeAlias(AbstractTypeAlias<'db>),
 }
 
 /// Resolves a file's exported namespace.

@@ -379,6 +379,10 @@
         {
           "type": "rule",
           "named": true
+        },
+        {
+          "type": "type_alias",
+          "named": true
         }
       ]
     }
@@ -540,6 +544,32 @@
       "tuple": {
         "multiple": true,
         "required": false,
+        "types": [
+          {
+            "type": "type",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "type_alias",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "symbol",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
         "types": [
           {
             "type": "type",
@@ -750,6 +780,10 @@
   {
     "type": "symbol",
     "named": true
+  },
+  {
+    "type": "type",
+    "named": false
   },
   {
     "type": "variable",
