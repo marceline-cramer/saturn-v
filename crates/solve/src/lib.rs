@@ -23,10 +23,56 @@ pub mod sat;
 pub mod z3;
 
 // TODO: state concurrency wrappers
-// TODO: hash-consing memoization wrappers
+// TODO: consider a lazy encoding wrapper to minimize cost of large aggregates
+// TODO: hash-consing memoization wrappers?
 
-/// A solver for a given [Model].
-pub trait Solver<M: Model> {}
+/// A solver.
+///
+/// The solver owns the model so that it may track incremental updates to it
+/// idiomatically.
+pub trait Solver {
+    /// The type of [Model] this solver works with.
+    type Model: Model;
+
+    /// Solves the internal model with the given [SolveOptions].
+    fn solve(&mut self, opts: SolveOptions<Self::Model>) -> SolveResult;
+
+    /// Accesses the model in the solver.
+    fn as_model(&mut self) -> &mut Self::Model;
+
+    /// Destroys this solver and returns the internal model.
+    fn into_model(self) -> Self::Model;
+}
+
+/// Parameters for a [Solver] run.
+pub struct SolveOptions<'a, M: Model> {
+    /// The hard assumptions.
+    pub hard: &'a [M::Bool],
+
+    /// The soft assumptions to use.
+    pub soft: &'a [(M::Bool, u32)],
+
+    /// The Boolean values to evaluate after solving.
+    pub bool_eval: &'a [M::Bool],
+}
+
+/// The result of a solve.
+pub enum SolveResult {
+    /// A solution could not be found.
+    Unknown,
+
+    /// There is no solution.
+    Unsat,
+
+    /// The solve was successful.
+    Sat {
+        /// The total cost of this solution.
+        cost: u32,
+
+        /// Each Boolean value's evaluation in the solution.
+        bool_values: Vec<bool>,
+    },
+}
 
 /// A logic model for encoding problems within.
 pub trait Model {
@@ -54,13 +100,13 @@ impl<S: ?Sized, T> Bool<S> for T where
 /// Convert a value from a Rust value.
 pub trait FromRust<S: ?Sized, T> {
     /// Creates a value of this type from a Rust value.
-    fn from_const(state: S, value: T) -> Self;
+    fn from_const(state: &mut S, value: T) -> Self;
 }
 
 /// Convert a value to a Rust value.
 pub trait ToRust<S: ?Sized, T> {
     /// Attempts to convert a value of this type to a Rust value.
-    fn to_const(&self, state: S) -> Option<T>;
+    fn to_const(&self, state: &mut S) -> Option<T>;
 }
 
 /// Create a unique, unconstrained value.
@@ -69,7 +115,7 @@ pub trait ToRust<S: ?Sized, T> {
 /// same fresh value.
 pub trait Fresh<S: ?Sized>: Eq {
     /// Create an unconstrained value.
-    fn fresh(state: S) -> Self;
+    fn fresh(state: &mut S) -> Self;
 }
 
 /// Operations on values with the given state as context.
@@ -78,7 +124,7 @@ pub trait Value<S: ?Sized>: BinaryOp<S, Self> {
     type UnaryOp;
 
     /// Performs a unary operation on this value.
-    fn unary_op(self, state: S, op: Self::UnaryOp) -> Self;
+    fn unary_op(self, state: &mut S, op: Self::UnaryOp) -> Self;
 }
 
 /// Implements binary operations with a specific right-hand operand type.
@@ -87,7 +133,7 @@ pub trait BinaryOp<S: ?Sized, Rhs: ?Sized> {
     type BinaryOp;
 
     /// Performs a binary operation on this value.
-    fn binary_op(self, state: S, op: Self::BinaryOp, rhs: Rhs) -> Self;
+    fn binary_op(self, state: &mut S, op: Self::BinaryOp, rhs: Rhs) -> Self;
 }
 
 /// Binary operations that can be performed on a Boolean value.

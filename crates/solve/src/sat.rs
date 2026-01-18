@@ -22,9 +22,27 @@ use std::{
 use prehash::Passthru;
 use smallvec::{smallvec, SmallVec};
 
-use crate::*;
+use crate::{partial::PartialValue, *};
 
-pub struct SatSolver {}
+pub struct SatSolver {
+    model: SatModel,
+}
+
+impl Solver for SatSolver {
+    type Model = SatModel;
+
+    fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
+        todo!()
+    }
+
+    fn as_model(&mut self) -> &mut Self::Model {
+        &mut self.model
+    }
+
+    fn into_model(self) -> Self::Model {
+        self.model
+    }
+}
 
 // TODO: garbage collection
 pub struct SatModel {
@@ -32,6 +50,13 @@ pub struct SatModel {
     ///
     /// If a variable ID does not have a gate, it is considered unconstrained.
     gates: HashMap<u64, Gate, BuildHasherDefault<Passthru>>,
+
+    /// The ID of the next fresh variable.
+    next_var: u64,
+}
+
+impl Model for SatModel {
+    type Bool = PartialValue<bool, Lit>;
 }
 
 impl SatModel {
@@ -53,6 +78,13 @@ impl SatModel {
 
         // return the variable ID
         var
+    }
+
+    /// Creates a new unbound variable identifier.
+    pub fn add_var(&mut self) -> u64 {
+        let id = self.next_var;
+        self.next_var += 1;
+        id
     }
 }
 
@@ -145,20 +177,29 @@ pub struct Lit {
     pub polarity: bool,
 }
 
-impl<'a> Value<&'a mut SatModel> for Lit {
+impl Fresh<SatModel> for Lit {
+    fn fresh(state: &mut SatModel) -> Self {
+        Lit {
+            variable: state.add_var(),
+            polarity: true,
+        }
+    }
+}
+
+impl Value<SatModel> for Lit {
     type UnaryOp = BoolUnaryOp;
 
-    fn unary_op(self, _state: &'a mut SatModel, op: Self::UnaryOp) -> Self {
+    fn unary_op(self, _state: &mut SatModel, op: Self::UnaryOp) -> Self {
         match op {
             BoolUnaryOp::Not => self.not(),
         }
     }
 }
 
-impl<'a> BinaryOp<&'a mut SatModel, Lit> for Lit {
+impl BinaryOp<SatModel, Lit> for Lit {
     type BinaryOp = BoolBinaryOp;
 
-    fn binary_op(self, state: &'a mut SatModel, op: Self::BinaryOp, rhs: Self) -> Self {
+    fn binary_op(self, state: &mut SatModel, op: Self::BinaryOp, rhs: Self) -> Self {
         // choose Tseitin encoding depending on operation
         let clauses = match op {
             BoolBinaryOp::And => smallvec![
@@ -184,6 +225,21 @@ impl<'a> BinaryOp<&'a mut SatModel, Lit> for Lit {
             variable: state.add_gate(gate),
             polarity: true,
         }
+    }
+}
+
+impl BinaryOp<SatModel, bool> for Lit {
+    type BinaryOp = BoolBinaryOp;
+
+    fn binary_op(self, _state: &mut SatModel, op: Self::BinaryOp, rhs: bool) -> Self {
+        todo!()
+    }
+}
+
+impl<S> ToRust<S, bool> for Lit {
+    fn to_const(&self, _state: &mut S) -> Option<bool> {
+        // CNF variables are never known before solve
+        None
     }
 }
 

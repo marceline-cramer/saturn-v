@@ -20,7 +20,21 @@ pub struct Z3Solver {
     inner: ::z3::Solver,
 }
 
-impl Solver<Z3Model> for Z3Solver {}
+impl Solver for Z3Solver {
+    type Model = Z3Model;
+
+    fn solve(&mut self, opts: SolveOptions<Self::Model>) -> SolveResult {
+        todo!()
+    }
+
+    fn as_model(&mut self) -> &mut Self::Model {
+        todo!()
+    }
+
+    fn into_model(self) -> Self::Model {
+        todo!()
+    }
+}
 
 pub struct Z3Model;
 
@@ -28,16 +42,23 @@ impl Model for Z3Model {
     type Bool = Z3Bool;
 }
 
+#[derive(PartialEq, Eq)]
 pub struct Z3Bool;
 
+impl<S> Fresh<S> for Z3Bool {
+    fn fresh(state: &mut S) -> Self {
+        todo!()
+    }
+}
+
 impl<S> FromRust<S, bool> for Z3Bool {
-    fn from_const(state: S, value: bool) -> Self {
+    fn from_const(state: &mut S, value: bool) -> Self {
         todo!()
     }
 }
 
 impl<S> ToRust<S, bool> for Z3Bool {
-    fn to_const(&self, state: S) -> Option<bool> {
+    fn to_const(&self, state: &mut S) -> Option<bool> {
         todo!()
     }
 }
@@ -45,7 +66,7 @@ impl<S> ToRust<S, bool> for Z3Bool {
 impl<S> Value<S> for Z3Bool {
     type UnaryOp = BoolUnaryOp;
 
-    fn unary_op(self, _state: S, op: Self::UnaryOp) -> Self {
+    fn unary_op(self, _state: &mut S, op: Self::UnaryOp) -> Self {
         todo!()
     }
 }
@@ -53,7 +74,7 @@ impl<S> Value<S> for Z3Bool {
 impl<S> BinaryOp<S, Z3Bool> for Z3Bool {
     type BinaryOp = BoolBinaryOp;
 
-    fn binary_op(self, _state: S, op: Self::BinaryOp, rhs: Self) -> Self {
+    fn binary_op(self, _state: &mut S, op: Self::BinaryOp, rhs: Self) -> Self {
         todo!()
     }
 }
