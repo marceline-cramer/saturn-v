@@ -56,7 +56,18 @@ pub struct SolveOptions<'a, M: Model> {
     pub bool_eval: &'a [M::Bool],
 }
 
+impl<'a, M: Model> Default for SolveOptions<'a, M> {
+    fn default() -> Self {
+        Self {
+            hard: &[],
+            soft: &[],
+            bool_eval: &[],
+        }
+    }
+}
+
 /// The result of a solve.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SolveResult {
     /// A solution could not be found.
     Unknown,
@@ -72,6 +83,18 @@ pub enum SolveResult {
         /// Each Boolean value's evaluation in the solution.
         bool_values: Vec<bool>,
     },
+}
+
+impl SolveResult {
+    /// Tests if the result is [SolveResult::Sat].
+    pub fn is_sat(&self) -> bool {
+        matches!(self, SolveResult::Sat { .. })
+    }
+
+    /// Tests if the result is [SolveResult::Unsat].
+    pub fn is_unsat(&self) -> bool {
+        matches!(self, SolveResult::Unsat { .. })
+    }
 }
 
 /// A logic model for encoding problems within.
