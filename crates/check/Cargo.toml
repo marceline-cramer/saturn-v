@@ -8,5 +8,4 @@ repository.workspace = true
 
 [dependencies]
 saturn-v-ir.workspace = true
-z3 = "0.12"
-z3-sys = "0.8"
+z3.workspace = true

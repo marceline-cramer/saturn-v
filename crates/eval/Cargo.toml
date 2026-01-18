@@ -12,19 +12,10 @@ differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
 indexmap.workspace = true
+rustsat.workspace = true
+rustsat-cadical.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
 timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
-
-# batsat = "0.6.0"
-# rustsat-batsat = "0.7.4"
-
-[dependencies.rustsat]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
-
-[dependencies.rustsat-cadical]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
