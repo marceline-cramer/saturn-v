@@ -44,6 +44,7 @@ toml = "0.9"
 tower-lsp = "0.20"
 url = "2.5"
 web-sys = "0.3"
+z3 = "0.19"
 
 # wasm bindings
 wasm-bindgen = "0.2"
@@ -61,7 +62,19 @@ saturn-v-lower.path = "crates/lower"
 saturn-v-lsp.path = "crates/lsp"
 saturn-v-protocol.path = "crates/protocol"
 saturn-v-server.path = "crates/server"
+saturn-v-solve.path = "crates/solve"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
+
+# batsat = "0.6.0"
+# rustsat-batsat = "0.7.4"
+
+[workspace.dependencies.rustsat]
+git = "https://github.com/marceline-cramer/rustsat"
+branch = "saturn-v"
+
+[workspace.dependencies.rustsat-cadical]
+git = "https://github.com/marceline-cramer/rustsat"
+branch = "saturn-v"
 
 [profile.release]
 lto = "thin"
