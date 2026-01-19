@@ -44,15 +44,13 @@ impl<S, C: Clone, V: ToRust<S, C>> ToRust<S, C> for PartialValue<C, V> {
     }
 }
 
-impl<S, V> Value<S> for PartialValue<bool, V>
+impl<S, V> UnaryOp<S> for PartialValue<bool, V>
 where
-    V: Value<S, UnaryOp = BoolUnaryOp, BinaryOp = BoolBinaryOp>
-        + BinaryOp<S, V, BinaryOp = BoolBinaryOp>
-        + BinaryOp<S, bool, BinaryOp = BoolBinaryOp>,
+    V: UnaryOp<S, Op = BoolUnaryOp>,
 {
-    type UnaryOp = V::UnaryOp;
+    type Op = BoolUnaryOp;
 
-    fn unary_op(self, state: &mut S, op: Self::UnaryOp) -> Self {
+    fn unary_op(self, state: &mut S, op: Self::Op) -> Self {
         let value = match self {
             PartialValue::Const(value) => value,
             PartialValue::Variable(var) => return PartialValue::Variable(var.unary_op(state, op)),
@@ -64,31 +62,31 @@ where
     }
 }
 
-impl<S, V> BinaryOp<S, Self> for PartialValue<bool, V>
+impl<S, C, V, Op> BinaryOp<S> for PartialValue<C, V>
 where
-    V: BinaryOp<S, V, BinaryOp = BoolBinaryOp> + BinaryOp<S, bool, BinaryOp = BoolBinaryOp>,
+    V: BinaryOp<S, Op = Op>,
+    PartialValue<C, V>: BinaryOp<S, C, Op = Op>,
+    Op: Commutative,
 {
-    type BinaryOp = BoolBinaryOp;
+    type Op = Op;
 
-    fn binary_op(self, state: &mut S, op: Self::BinaryOp, rhs: Self) -> Self {
+    fn binary_op(self, state: &mut S, op: Self::Op, rhs: Self) -> Self {
         use PartialValue::*;
+        match (self, rhs) {
+            (Variable(lhs), Variable(rhs)) => Variable(lhs.binary_op(state, op, rhs)),
+            (partial, Const(rhs)) | (Const(rhs), partial) => partial.binary_op(state, op, rhs),
+        }
+    }
+}
 
-        // all Boolean operations are commutative, so matching is straightforward
-        let (lhs, rhs) = match (self, rhs) {
-            (Variable(lhs), Variable(rhs)) => return Variable(lhs.binary_op(state, op, rhs)),
-            (Const(lhs), rhs) | (rhs, Const(lhs)) => (lhs, rhs),
-        };
+impl<S> BinaryOp<S> for bool {
+    type Op = BoolBinaryOp;
 
-        // handle constant-variable arithmetic
-        let rhs = match rhs {
-            Const(value) => value,
-            Variable(var) => return Variable(var.binary_op(state, op, lhs)),
-        };
-
-        // implement constant-constant arithmetic
-        Const(match op {
-            BoolBinaryOp::And => lhs && rhs,
-            BoolBinaryOp::Or => lhs || rhs,
-        })
+    fn binary_op(self, _state: &mut S, op: Self::Op, rhs: Self) -> Self {
+        use BoolBinaryOp::*;
+        match op {
+            And => self && rhs,
+            Or => self || rhs,
+        }
     }
 }

@@ -110,10 +110,10 @@ impl<S> ToRust<S, bool> for Z3Bool {
     }
 }
 
-impl<S> Value<S> for Z3Bool {
-    type UnaryOp = BoolUnaryOp;
+impl<S> UnaryOp<S> for Z3Bool {
+    type Op = BoolUnaryOp;
 
-    fn unary_op(self, _state: &mut S, op: Self::UnaryOp) -> Self {
+    fn unary_op(self, _state: &mut S, op: Self::Op) -> Self {
         match op {
             BoolUnaryOp::Not => self.not(),
         }
@@ -121,9 +121,9 @@ impl<S> Value<S> for Z3Bool {
 }
 
 impl<S> BinaryOp<S, Z3Bool> for Z3Bool {
-    type BinaryOp = BoolBinaryOp;
+    type Op = BoolBinaryOp;
 
-    fn binary_op(self, _state: &mut S, op: Self::BinaryOp, rhs: Self) -> Self {
+    fn binary_op(self, _state: &mut S, op: Self::Op, rhs: Self) -> Self {
         match op {
             BoolBinaryOp::And => Z3Bool::and(&[self, rhs]),
             BoolBinaryOp::Or => Z3Bool::or(&[self, rhs]),

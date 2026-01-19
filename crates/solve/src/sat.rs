@@ -186,20 +186,20 @@ impl Fresh<SatModel> for Lit {
     }
 }
 
-impl Value<SatModel> for Lit {
-    type UnaryOp = BoolUnaryOp;
+impl<S> UnaryOp<S> for Lit {
+    type Op = BoolUnaryOp;
 
-    fn unary_op(self, _state: &mut SatModel, op: Self::UnaryOp) -> Self {
+    fn unary_op(self, _state: &mut S, op: Self::Op) -> Self {
         match op {
             BoolUnaryOp::Not => self.not(),
         }
     }
 }
 
-impl BinaryOp<SatModel, Lit> for Lit {
-    type BinaryOp = BoolBinaryOp;
+impl BinaryOp<SatModel> for Lit {
+    type Op = BoolBinaryOp;
 
-    fn binary_op(self, state: &mut SatModel, op: Self::BinaryOp, rhs: Self) -> Self {
+    fn binary_op(self, state: &mut SatModel, op: Self::Op, rhs: Self) -> Self {
         // choose Tseitin encoding depending on operation
         let clauses = match op {
             BoolBinaryOp::And => smallvec![
@@ -228,11 +228,18 @@ impl BinaryOp<SatModel, Lit> for Lit {
     }
 }
 
-impl BinaryOp<SatModel, bool> for Lit {
-    type BinaryOp = BoolBinaryOp;
+impl BinaryOp<SatModel, bool> for PartialValue<bool, Lit> {
+    type Op = BoolBinaryOp;
 
-    fn binary_op(self, _state: &mut SatModel, op: Self::BinaryOp, rhs: bool) -> Self {
-        todo!()
+    fn binary_op(self, _state: &mut SatModel, op: Self::Op, rhs: bool) -> Self {
+        use BoolBinaryOp::*;
+        use PartialValue::*;
+        match (op, rhs) {
+            (And, false) => Const(false),
+            (And, true) => self,
+            (Or, true) => Const(true),
+            (Or, false) => self,
+        }
     }
 }
 

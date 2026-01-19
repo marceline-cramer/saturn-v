@@ -108,7 +108,8 @@ pub trait Bool<S: ?Sized>:
     Fresh<S>
     + FromRust<S, bool>
     + ToRust<S, bool>
-    + Value<S, UnaryOp = BoolUnaryOp, BinaryOp = BoolBinaryOp>
+    + UnaryOp<S, Op = BoolUnaryOp>
+    + BinaryOp<S, Op = BoolBinaryOp>
 {
 }
 
@@ -116,7 +117,8 @@ impl<S: ?Sized, T> Bool<S> for T where
     T: Fresh<S>
         + FromRust<S, bool>
         + ToRust<S, bool>
-        + Value<S, UnaryOp = BoolUnaryOp, BinaryOp = BoolBinaryOp>
+        + UnaryOp<S, Op = BoolUnaryOp>
+        + BinaryOp<S, Op = BoolBinaryOp>
 {
 }
 
@@ -141,22 +143,22 @@ pub trait Fresh<S: ?Sized>: Eq {
     fn fresh(state: &mut S) -> Self;
 }
 
-/// Operations on values with the given state as context.
-pub trait Value<S: ?Sized>: BinaryOp<S, Self> {
+/// Implements unary operations.
+pub trait UnaryOp<S: ?Sized> {
     /// The type of unary operations on this value.
-    type UnaryOp;
+    type Op;
 
     /// Performs a unary operation on this value.
-    fn unary_op(self, state: &mut S, op: Self::UnaryOp) -> Self;
+    fn unary_op(self, state: &mut S, op: Self::Op) -> Self;
 }
 
 /// Implements binary operations with a specific right-hand operand type.
-pub trait BinaryOp<S: ?Sized, Rhs: ?Sized> {
+pub trait BinaryOp<S: ?Sized, Rhs: ?Sized = Self> {
     /// The type of binary operations on this value.
-    type BinaryOp;
+    type Op;
 
     /// Performs a binary operation on this value.
-    fn binary_op(self, state: &mut S, op: Self::BinaryOp, rhs: Rhs) -> Self;
+    fn binary_op(self, state: &mut S, op: Self::Op, rhs: Rhs) -> Self;
 }
 
 /// Binary operations that can be performed on a Boolean value.
@@ -165,7 +167,12 @@ pub enum BoolBinaryOp {
     Or,
 }
 
+impl Commutative for BoolBinaryOp {}
+
 /// Unary operations that can be performed on a Boolean value.
 pub enum BoolUnaryOp {
     Not,
 }
+
+/// A marker trait for binary operations that are always commutative.
+pub trait Commutative {}
