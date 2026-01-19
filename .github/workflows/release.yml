@@ -43,11 +43,11 @@ jobs:
             cargo_build: cargo zigbuild
 
           - runner: windows-latest
-            target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-gnu
             cargo_build: cargo build
 
           - runner: windows-latest
-            target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-gnu
             cargo_build: cargo zigbuild
 
     steps:
