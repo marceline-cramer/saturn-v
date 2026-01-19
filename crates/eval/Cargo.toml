@@ -22,9 +22,9 @@ tracing.workspace = true
 # rustsat-batsat = "0.7.4"
 
 [dependencies.rustsat]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
+git = "https://github.com/chrjabs/rustsat"
+branch = "push-myroyvpuuwmv"
 
 [dependencies.rustsat-cadical]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
+git = "https://github.com/chrjabs/rustsat"
+branch = "push-myroyvpuuwmv"
