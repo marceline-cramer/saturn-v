@@ -87,43 +87,49 @@ impl Solver for Z3Solver {
 pub struct Z3Model {}
 
 impl Model for Z3Model {
+    /// Z3 doesn't require any global encoding logic because it works in a
+    /// global context, so the encoder type is empty.
+    type Encoder = ();
+
+    fn encode(&self) -> Self::Encoder {}
+
     type Bool = Z3Bool;
 }
 
 pub type Z3Bool = ast::Bool;
 
-impl<S> Fresh<S> for Z3Bool {
-    fn fresh(_state: &mut S) -> Self {
+impl<E> Fresh<E> for Z3Bool {
+    fn fresh(_encoder: &mut E) -> Self {
         Z3Bool::fresh_const("Z3Bool")
     }
 }
 
-impl<S> FromRust<S, bool> for Z3Bool {
-    fn from_const(_state: &mut S, value: bool) -> Self {
+impl<E> FromRust<E, bool> for Z3Bool {
+    fn from_const(_encoder: &mut E, value: bool) -> Self {
         Z3Bool::from_bool(value)
     }
 }
 
-impl<S> ToRust<S, bool> for Z3Bool {
-    fn to_const(&self, _state: &mut S) -> Option<bool> {
+impl<E> ToRust<E, bool> for Z3Bool {
+    fn to_const(&self, _encoder: &mut E) -> Option<bool> {
         self.as_bool()
     }
 }
 
-impl<S> UnaryOp<S> for Z3Bool {
+impl<E> UnaryOp<E> for Z3Bool {
     type Op = BoolUnaryOp;
 
-    fn unary_op(self, _state: &mut S, op: Self::Op) -> Self {
+    fn unary_op(self, _encoder: &mut E, op: Self::Op) -> Self {
         match op {
             BoolUnaryOp::Not => self.not(),
         }
     }
 }
 
-impl<S> BinaryOp<S, Z3Bool> for Z3Bool {
+impl<E> BinaryOp<E, Z3Bool> for Z3Bool {
     type Op = BoolBinaryOp;
 
-    fn binary_op(self, _state: &mut S, op: Self::Op, rhs: Self) -> Self {
+    fn binary_op(self, _encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
         match op {
             BoolBinaryOp::And => Z3Bool::and(&[self, rhs]),
             BoolBinaryOp::Or => Z3Bool::or(&[self, rhs]),

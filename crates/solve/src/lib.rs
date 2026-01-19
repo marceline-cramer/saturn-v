@@ -22,9 +22,7 @@ pub mod sat;
 #[cfg(feature = "z3")]
 pub mod z3;
 
-// TODO: state concurrency wrappers
 // TODO: consider a lazy encoding wrapper to minimize cost of large aggregates
-// TODO: hash-consing memoization wrappers?
 
 /// A solver.
 ///
@@ -93,72 +91,78 @@ impl SolveResult {
 
     /// Tests if the result is [SolveResult::Unsat].
     pub fn is_unsat(&self) -> bool {
-        matches!(self, SolveResult::Unsat { .. })
+        matches!(self, SolveResult::Unsat)
     }
 }
 
-/// A logic model for encoding problems within.
+/// An incrementally-constructed logic model.
 pub trait Model {
+    /// The type of encoders for this model.
+    type Encoder: Send + Sync + 'static;
+
+    /// Create an [Encoder] for this model.
+    fn encode(&self) -> Self::Encoder;
+
     /// The type of this model's Boolean values.
-    type Bool: Bool<Self>;
+    type Bool: Bool<Self::Encoder>;
 }
 
-/// A trait for Boolean values within given state.
-pub trait Bool<S: ?Sized>:
-    Fresh<S>
-    + FromRust<S, bool>
-    + ToRust<S, bool>
-    + UnaryOp<S, Op = BoolUnaryOp>
-    + BinaryOp<S, Op = BoolBinaryOp>
+/// A trait for Boolean values within the given encoder.
+pub trait Bool<E: ?Sized>:
+    Fresh<E>
+    + FromRust<E, bool>
+    + ToRust<E, bool>
+    + UnaryOp<E, Op = BoolUnaryOp>
+    + BinaryOp<E, Op = BoolBinaryOp>
 {
 }
 
-impl<S: ?Sized, T> Bool<S> for T where
-    T: Fresh<S>
-        + FromRust<S, bool>
-        + ToRust<S, bool>
-        + UnaryOp<S, Op = BoolUnaryOp>
-        + BinaryOp<S, Op = BoolBinaryOp>
+impl<E: ?Sized, T> Bool<E> for T where
+    T: Fresh<E>
+        + FromRust<E, bool>
+        + ToRust<E, bool>
+        + UnaryOp<E, Op = BoolUnaryOp>
+        + BinaryOp<E, Op = BoolBinaryOp>
 {
 }
 
-/// Convert a value from a Rust value.
-pub trait FromRust<S: ?Sized, T> {
-    /// Creates a value of this type from a Rust value.
-    fn from_const(state: &mut S, value: T) -> Self;
+/// Encode a value from a Rust value.
+pub trait FromRust<E: ?Sized, T> {
+    /// Encodes a value of this type from a Rust value.
+    fn from_const(encoder: &mut E, value: T) -> Self;
 }
 
-/// Convert a value to a Rust value.
-pub trait ToRust<S: ?Sized, T> {
+/// Decode a Rust value from a value.
+pub trait ToRust<E: ?Sized, T> {
     /// Attempts to convert a value of this type to a Rust value.
-    fn to_const(&self, state: &mut S) -> Option<T>;
+    fn to_const(&self, encoder: &mut E) -> Option<T>;
 }
 
 /// Create a unique, unconstrained value.
 ///
 /// If a value is equivalent via [Eq], it is guaranteed to refer only to the
 /// same fresh value.
-pub trait Fresh<S: ?Sized>: Eq {
+pub trait Fresh<E: ?Sized>: Eq {
     /// Create an unconstrained value.
-    fn fresh(state: &mut S) -> Self;
+    fn fresh(encoder: &mut E) -> Self;
 }
 
 /// Implements unary operations.
-pub trait UnaryOp<S: ?Sized> {
+pub trait UnaryOp<E: ?Sized> {
     /// The type of unary operations on this value.
     type Op;
 
-    /// Performs a unary operation on this value.
-    fn unary_op(self, state: &mut S, op: Self::Op) -> Self;
+    /// Encodes a unary operation on this value.
+    fn unary_op(self, encoder: &mut E, op: Self::Op) -> Self;
 }
 
 /// Implements binary operations with a specific right-hand operand type.
-pub trait BinaryOp<S: ?Sized, Rhs: ?Sized = Self> {
+pub trait BinaryOp<E: ?Sized, Rhs: ?Sized = Self> {
     /// The type of binary operations on this value.
     type Op;
 
-    /// Performs a binary operation on this value.
-    fn binary_op(self, state: &mut S, op: Self::Op, rhs: Rhs) -> Self;
+    /// Encodes a binary operation on this value.
+    fn binary_op(self, encoder: &mut E, op: Self::Op, rhs: Rhs) -> Self;
 }
 
 /// Binary operations that can be performed on a Boolean value.

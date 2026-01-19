@@ -15,20 +15,39 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::HashMap,
+    collections::hash_map,
     hash::{BuildHasherDefault, DefaultHasher, Hash, Hasher},
+    ops::Not,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
+use dashmap::DashMap;
 use prehash::Passthru;
+use rustsat::{
+    encodings::CollectClauses,
+    solvers::SolveIncremental,
+    types::{Lit, Var},
+};
 use smallvec::{smallvec, SmallVec};
 
 use crate::{partial::PartialValue, *};
 
-pub struct SatSolver {
+pub struct SatSolver<S> {
+    solver: S,
+    next_var: u32,
     model: SatModel,
+
+    /// Maps variable identifiers to this solver instance's variables.
+    vars: hash_map::HashMap<u64, Var, BuildHasherDefault<Passthru>>,
 }
 
-impl Solver for SatSolver {
+impl<S> Solver for SatSolver<S>
+where
+    S: CollectClauses + SolveIncremental,
+{
     type Model = SatModel;
 
     fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
@@ -44,22 +63,97 @@ impl Solver for SatSolver {
     }
 }
 
+impl<S: CollectClauses> SatSolver<S> {
+    /// Returns the instance's variable index for the model's variable ID.
+    pub fn get_var(&mut self, id: u64) -> Var {
+        // reuse existing variable if possible
+        use hash_map::Entry;
+        let var = match self.vars.entry(id) {
+            Entry::Occupied(existing) => return *existing.get(),
+            Entry::Vacant(entry) => {
+                // allocate and insert new variable otherwise
+                let var = Var::new(self.next_var);
+                self.next_var += 1;
+                entry.insert(var);
+                var
+            }
+        };
+
+        // get the variable's gate, if available
+        let Some(gate) = self
+            .model
+            .gates
+            .get(&id)
+            .map(|entry| entry.value().to_owned())
+        else {
+            // if no gate is available, the variable is unconstrained
+            return var;
+        };
+
+        // get each variable in the gate
+        // will invoke this function recursively, so stack overflow is a possibility
+        let gate_vars: SmallVec<[Lit; 8]> =
+            gate.literals.iter().map(|lit| self.get_lit(*lit)).collect();
+
+        // create a closure to convert gate terms to instance literals
+        let term_to_lit = |term: &GateTerm| match *term {
+            GateTerm::Output { polarity } => Lit::new(var.idx32(), !polarity),
+            GateTerm::Literal { variable, polarity } => {
+                let lit = *gate_vars.get(variable as usize).unwrap();
+
+                if polarity {
+                    lit
+                } else {
+                    !lit
+                }
+            }
+        };
+
+        // encode each clause in the gate
+        let clauses = gate
+            .clauses
+            .iter()
+            .map(|clause| clause.iter().map(term_to_lit).collect());
+
+        // add clauses to the solver
+        self.solver.extend_clauses(clauses).unwrap();
+
+        // return the variable ID
+        var
+    }
+
+    /// Returns the instance's literal for a model literal.
+    pub fn get_lit(&mut self, lit: SatLit) -> Lit {
+        let var = self.get_var(lit.variable);
+        Lit::new(var.idx32(), !lit.polarity)
+    }
+}
+
+pub type SatModel = Arc<SatModelInner>;
+
 // TODO: garbage collection
-pub struct SatModel {
+pub struct SatModelInner {
     /// Maps variable IDs to their [Gate] encodings.
     ///
     /// If a variable ID does not have a gate, it is considered unconstrained.
-    gates: HashMap<u64, Gate, BuildHasherDefault<Passthru>>,
+    gates: DashMap<u64, Gate, BuildHasherDefault<Passthru>>,
 
     /// The ID of the next fresh variable.
-    next_var: u64,
+    // TODO: either ensure this doesn't need to be cryptographic *or* generate randomly.
+    next_var: AtomicU64,
 }
 
 impl Model for SatModel {
-    type Bool = PartialValue<bool, Lit>;
+    type Encoder = Self;
+
+    fn encode(&self) -> Self::Encoder {
+        self.clone()
+    }
+
+    type Bool = PartialValue<bool, SatLit>;
 }
 
-impl SatModel {
+impl SatModelInner {
     /// Adds a gate to this model and returns its variable ID.
     ///
     /// It's crucial that the hash function used here is cryptographic and that
@@ -67,7 +161,7 @@ impl SatModel {
     /// handled so this is a possibility.
     ///
     /// Determinism is not needed currently but may be needed for future cluster execution.
-    pub fn add_gate(&mut self, gate: Gate) -> u64 {
+    pub fn add_gate(&self, gate: Gate) -> u64 {
         // hash the gate to get a variable ID
         let mut hasher = DefaultHasher::new();
         gate.hash(&mut hasher);
@@ -81,22 +175,20 @@ impl SatModel {
     }
 
     /// Creates a new unbound variable identifier.
-    pub fn add_var(&mut self) -> u64 {
-        let id = self.next_var;
-        self.next_var += 1;
-        id
+    pub fn add_var(&self) -> u64 {
+        self.next_var.fetch_add(1, Ordering::Relaxed)
     }
 }
 
 /// A logical gate, which encodes CNF clauses to constrain values.
 ///
-/// For now, it's assumed that all gates force exactly one literal, When support
-/// for bitvectors is added, gates will support constraining multiple output
-/// literals at once.
+/// For now, it's assumed that all gates force exactly one literal as output.
+/// When support for bitvectors is added, gates will support constraining
+/// multiple output literals at once.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Gate {
-    /// A mapping from gate term variable indices to [Lit].
-    pub variables: SmallVec<[Lit; 2]>,
+    /// A mapping from gate term variable indices to [SatLit].
+    pub literals: SmallVec<[SatLit; 2]>,
 
     /// The list of clauses in the gate.
     ///
@@ -162,7 +254,7 @@ pub enum GateTerm {
 /// remove constraints independently of an append-only SAT solver and support
 /// rebuilding a solver entirely from scratch.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Lit {
+pub struct SatLit {
     /// The unique variable identifier of this literal.
     pub variable: u64,
 
@@ -170,29 +262,29 @@ pub struct Lit {
     pub polarity: bool,
 }
 
-impl Fresh<SatModel> for Lit {
-    fn fresh(state: &mut SatModel) -> Self {
-        Lit {
-            variable: state.add_var(),
+impl Fresh<SatModel> for SatLit {
+    fn fresh(encoder: &mut SatModel) -> Self {
+        SatLit {
+            variable: encoder.add_var(),
             polarity: true,
         }
     }
 }
 
-impl<S> UnaryOp<S> for Lit {
+impl<E> UnaryOp<E> for SatLit {
     type Op = BoolUnaryOp;
 
-    fn unary_op(self, _state: &mut S, op: Self::Op) -> Self {
+    fn unary_op(self, _encoder: &mut E, op: Self::Op) -> Self {
         match op {
             BoolUnaryOp::Not => self.not(),
         }
     }
 }
 
-impl BinaryOp<SatModel> for Lit {
+impl BinaryOp<SatModel> for SatLit {
     type Op = BoolBinaryOp;
 
-    fn binary_op(self, state: &mut SatModel, op: Self::Op, rhs: Self) -> Self {
+    fn binary_op(self, encoder: &mut SatModel, op: Self::Op, rhs: Self) -> Self {
         // choose Tseitin encoding depending on operation
         let clauses = match op {
             BoolBinaryOp::And => smallvec![
@@ -209,22 +301,22 @@ impl BinaryOp<SatModel> for Lit {
 
         // create the gate encoding
         let gate = Gate {
-            variables: smallvec![self, rhs],
+            literals: smallvec![self, rhs],
             clauses,
         };
 
         // return the gate's output as a literal
-        Lit {
-            variable: state.add_gate(gate),
+        SatLit {
+            variable: encoder.add_gate(gate),
             polarity: true,
         }
     }
 }
 
-impl BinaryOp<SatModel, bool> for PartialValue<bool, Lit> {
+impl BinaryOp<SatModel, bool> for PartialValue<bool, SatLit> {
     type Op = BoolBinaryOp;
 
-    fn binary_op(self, _state: &mut SatModel, op: Self::Op, rhs: bool) -> Self {
+    fn binary_op(self, _encoder: &mut SatModel, op: Self::Op, rhs: bool) -> Self {
         use BoolBinaryOp::*;
         use PartialValue::*;
         match (op, rhs) {
@@ -236,16 +328,17 @@ impl BinaryOp<SatModel, bool> for PartialValue<bool, Lit> {
     }
 }
 
-impl<S> ToRust<S, bool> for Lit {
-    fn to_const(&self, _state: &mut S) -> Option<bool> {
+impl<E> ToRust<E, bool> for SatLit {
+    fn to_const(&self, _encoder: &mut E) -> Option<bool> {
         // CNF variables are never known before solve
         None
     }
 }
 
-impl Lit {
-    /// Negates the polarity of this literal.
-    pub fn not(self) -> Self {
+impl Not for SatLit {
+    type Output = Self;
+
+    fn not(self) -> Self {
         Self {
             variable: self.variable,
             polarity: !self.polarity,

@@ -23,37 +23,39 @@ pub enum PartialValue<C, V> {
     Variable(V),
 }
 
-impl<S, C: Eq, V: Fresh<S>> Fresh<S> for PartialValue<C, V> {
-    fn fresh(state: &mut S) -> Self {
-        PartialValue::Variable(V::fresh(state))
+impl<E, C: Eq, V: Fresh<E>> Fresh<E> for PartialValue<C, V> {
+    fn fresh(encoder: &mut E) -> Self {
+        PartialValue::Variable(V::fresh(encoder))
     }
 }
 
-impl<S, C, V> FromRust<S, C> for PartialValue<C, V> {
-    fn from_const(_state: &mut S, value: C) -> Self {
+impl<E, C, V> FromRust<E, C> for PartialValue<C, V> {
+    fn from_const(_encoder: &mut E, value: C) -> Self {
         PartialValue::Const(value)
     }
 }
 
-impl<S, C: Clone, V: ToRust<S, C>> ToRust<S, C> for PartialValue<C, V> {
-    fn to_const(&self, state: &mut S) -> Option<C> {
+impl<E, C: Clone, V: ToRust<E, C>> ToRust<E, C> for PartialValue<C, V> {
+    fn to_const(&self, encoder: &mut E) -> Option<C> {
         match self {
             PartialValue::Const(value) => Some(value.clone()),
-            PartialValue::Variable(var) => var.to_const(state),
+            PartialValue::Variable(var) => var.to_const(encoder),
         }
     }
 }
 
-impl<S, V> UnaryOp<S> for PartialValue<bool, V>
+impl<E, V> UnaryOp<E> for PartialValue<bool, V>
 where
-    V: UnaryOp<S, Op = BoolUnaryOp>,
+    V: UnaryOp<E, Op = BoolUnaryOp>,
 {
     type Op = BoolUnaryOp;
 
-    fn unary_op(self, state: &mut S, op: Self::Op) -> Self {
+    fn unary_op(self, encoder: &mut E, op: Self::Op) -> Self {
         let value = match self {
             PartialValue::Const(value) => value,
-            PartialValue::Variable(var) => return PartialValue::Variable(var.unary_op(state, op)),
+            PartialValue::Variable(var) => {
+                return PartialValue::Variable(var.unary_op(encoder, op))
+            }
         };
 
         match op {
@@ -62,27 +64,27 @@ where
     }
 }
 
-impl<S, C, V, Op> BinaryOp<S> for PartialValue<C, V>
+impl<E, C, V, Op> BinaryOp<E> for PartialValue<C, V>
 where
-    V: BinaryOp<S, Op = Op>,
-    PartialValue<C, V>: BinaryOp<S, C, Op = Op>,
+    V: BinaryOp<E, Op = Op>,
+    PartialValue<C, V>: BinaryOp<E, C, Op = Op>,
     Op: Commutative,
 {
     type Op = Op;
 
-    fn binary_op(self, state: &mut S, op: Self::Op, rhs: Self) -> Self {
+    fn binary_op(self, encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
         use PartialValue::*;
         match (self, rhs) {
-            (Variable(lhs), Variable(rhs)) => Variable(lhs.binary_op(state, op, rhs)),
-            (partial, Const(rhs)) | (Const(rhs), partial) => partial.binary_op(state, op, rhs),
+            (Variable(lhs), Variable(rhs)) => Variable(lhs.binary_op(encoder, op, rhs)),
+            (partial, Const(rhs)) | (Const(rhs), partial) => partial.binary_op(encoder, op, rhs),
         }
     }
 }
 
-impl<S> BinaryOp<S> for bool {
+impl<E> BinaryOp<E> for bool {
     type Op = BoolBinaryOp;
 
-    fn binary_op(self, _state: &mut S, op: Self::Op, rhs: Self) -> Self {
+    fn binary_op(self, _encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
         use BoolBinaryOp::*;
         match op {
             And => self && rhs,
