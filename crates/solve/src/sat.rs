@@ -104,14 +104,7 @@ pub struct Gate {
     pub clauses: SmallVec<[Clause; 3]>,
 }
 
-/// A macro for rapidly instantiating a [Clause].
-macro_rules! clause {
-    ($($terms:expr),*) => {
-        smallvec!($(term!($terms)),*)
-    };
-}
-
-/// A macro for instantiating a [GateTerm].
+/// A macro for easily instantiating a [GateTerm].
 macro_rules! term {
     (~output) => {
         GateTerm::Output { polarity: false }
@@ -203,14 +196,14 @@ impl BinaryOp<SatModel> for Lit {
         // choose Tseitin encoding depending on operation
         let clauses = match op {
             BoolBinaryOp::And => smallvec![
-                clause!(!0, !1, output),
-                clause!(0, !output),
-                clause!(1, !output)
+                smallvec!(term!(~0), term!(~1), term!(output)),
+                smallvec!(term!(0), term!(~output)),
+                smallvec!(term!(1), term!(~output))
             ],
             BoolBinaryOp::Or => smallvec!(
-                clause!(0, 1, !output),
-                clause!(!0, output),
-                clause!(!1, output)
+                smallvec!(term!(0), term!(1), term!(~output)),
+                smallvec!(term!(~0), term!(output)),
+                smallvec!(term!(~1), term!(output))
             ),
         };
 
