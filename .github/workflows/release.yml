@@ -101,6 +101,7 @@ jobs:
           CARGO_BUILD: ${{ matrix.cargo_build }}
           CC: clang
           CXX: clang++
+          CADICAL_RUN_CPP_TESTS: 'false'
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
