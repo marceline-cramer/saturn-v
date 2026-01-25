@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, hash::Hash};
 
 use differential_dataflow::{
     input::Input,
@@ -65,7 +65,7 @@ pub fn backend(
         };
 
         // evaluate to fixed-point
-        let output = StratumOutput::evaluate_naf(scope, &input);
+        let output = StratumOutput::evaluate_stratified(scope, &input);
 
         // build lookup relations
         let relations_by_key = input.relations.map(Key::pair).arrange_by_key();
@@ -209,7 +209,21 @@ impl<'a, G: Scope, T: Refines<G::Timestamp>> StratumOutput<Child<'a, G, T>> {
     }
 }
 
-impl<G: Scope<Timestamp: Default + Lattice>> StratumOutput<G> {
+impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
+    /// Evaluates stratified input, using alternating fixedpoints per-stratum.
+    pub fn evaluate_stratified(scope: &mut G, input: &StratumInput<G>) -> Self {
+        scope.iterative::<u32, _, _>(move |scope| {
+            // enter input into this scope
+            let input = StratumInput {
+                nodes: input.nodes.enter_at(scope, |node| node.stratum()),
+                ..input.enter(scope)
+            };
+
+            // evaluate this stratum to positive fixed-point
+            StratumOutput::evaluate_naf(scope, &input).leave()
+        })
+    }
+
     /// Evaluates to fixedpoint using alternating fixedpoints with negation as failure.
     pub fn evaluate_naf(scope: &mut G, input: &StratumInput<G>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
@@ -581,7 +595,9 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
             dst: *dst,
             values: values.into(),
         },
-        NodeOutput::Antijoin { relation, query } => {
+        NodeOutput::Antijoin {
+            relation, query, ..
+        } => {
             let refute = query
                 .iter()
                 .map(|term| match term {

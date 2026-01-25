@@ -210,7 +210,7 @@ pub struct Relation<R> {
     /// the dependency is evaluated to fixedpoint first. Then, the absence of tuples
     /// in the dependency is treated as proof of falsity in non-monotonic operations
     /// in the dependent.
-    pub stratum: usize,
+    pub stratum: u32,
 
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,

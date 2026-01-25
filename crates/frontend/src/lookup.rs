@@ -188,7 +188,7 @@ pub fn relation_is_conditional<'db>(db: &'db dyn Database, rel: RelationDefiniti
 
 /// Finds the negation stratum of a relation.
 #[salsa::tracked]
-pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> usize {
+pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> u32 {
     // find all transitive non-monotonic dependencies
     let nm_deps = relation_indirect_nm_deps(db, rel);
 
