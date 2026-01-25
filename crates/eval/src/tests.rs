@@ -165,6 +165,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Base".to_string(),
         facts: vec![
             vec![Value::Integer(1)],
@@ -178,6 +179,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Refute".to_string(),
         facts: vec![],
         kind: RelationKind::Basic,
@@ -187,6 +189,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Out".to_string(),
         facts: vec![],
         kind: RelationKind::Basic,
