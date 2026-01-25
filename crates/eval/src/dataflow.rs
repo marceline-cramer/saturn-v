@@ -551,10 +551,8 @@ pub fn conditional_gate(
 #[allow(unused_variables)]
 pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, D, Diff)) {
     let collection = collection.to_string();
-    move |ev| {
-        // event!(Level::TRACE, collection, ?time, diff, message = ?data);
-
-        eprintln!("{collection}: {ev:?}");
+    move |(data, time, diff)| {
+        event!(Level::TRACE, collection, ?time, diff, message = ?data);
     }
 }
 
