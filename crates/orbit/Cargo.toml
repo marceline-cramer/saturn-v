@@ -52,5 +52,5 @@ name = "bake"
 required-features = ["simulate"]
 
 [[bin]]
-name = "demo"
+name = "orbit-demo"
 required-features = ["leptos"]

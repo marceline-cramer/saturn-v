@@ -113,6 +113,13 @@ impl Node {
             _ => None,
         }
     }
+
+    pub fn stratum(&self) -> u32 {
+        match self.output {
+            NodeOutput::Antijoin { stratum, .. } => stratum,
+            _ => 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
@@ -228,6 +235,11 @@ pub enum NodeOutput {
 
         /// A fully-populated query to project tuples to.
         query: Arc<[QueryTerm]>,
+
+        /// The negation stratum blocking this antijoin operation.
+        ///
+        /// Antijoin cannot proceed until this negation stratum is reached.
+        stratum: u32,
     },
 
     /// Stores a node's output tuples into a relation.
@@ -268,6 +280,9 @@ pub struct Relation {
 
     /// The IO of this relation.
     pub io: RelationIO,
+
+    /// The negation stratum of this relation.
+    pub stratum: u32,
 }
 
 impl Relation {

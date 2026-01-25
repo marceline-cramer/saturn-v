@@ -26,6 +26,7 @@ async fn test_pick_one() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Choice".to_string(),
         facts: (1..=10).map(|idx| vec![Value::Integer(idx)]).collect(),
         kind: RelationKind::Decision,
@@ -60,6 +61,7 @@ async fn test_pick_pairs() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Base".to_string(),
         facts: vec![vec![Value::Integer(0)]],
         kind: RelationKind::Basic,
@@ -97,6 +99,7 @@ async fn test_pick_pairs() {
             StructuredType::Primitive(Type::Integer),
             StructuredType::Primitive(Type::Integer),
         ]),
+        stratum: 0,
         store: "Pair".to_string(),
         facts: vec![],
         kind: RelationKind::Decision,
@@ -162,6 +165,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Base".to_string(),
         facts: vec![
             vec![Value::Integer(1)],
@@ -175,6 +179,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Refute".to_string(),
         facts: vec![],
         kind: RelationKind::Basic,
@@ -184,6 +189,7 @@ async fn test_antijoin_unconditional() {
 
     program.insert_relation(Relation {
         ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
         store: "Out".to_string(),
         facts: vec![],
         kind: RelationKind::Basic,

@@ -1,9 +1,9 @@
 [package]
 name = "tree-sitter-kerolox"
 description = "Kerolox grammar for tree-sitter"
-version = "0.1.0"
+version.workspace = true
 authors.workspace = true
-license = "AGPL-3.0-or-later"
+license.workspace = true
 readme = "README.md"
 keywords = ["incremental", "parsing", "tree-sitter", "kerolox"]
 categories = ["parser-implementations", "parsing", "text-editors"]

@@ -16,6 +16,7 @@
 
 use leptos::prelude::*;
 use saturn_v_orbit::{get_default_orbits, leptos::Orbit};
+use web_sys::wasm_bindgen::JsCast;
 
 #[component]
 fn App() -> impl IntoView {
@@ -49,5 +50,8 @@ fn App() -> impl IntoView {
 
 fn main() {
     console_error_panic_hook::set_once();
-    mount_to_body(App);
+
+    if let Some(el) = document().get_element_by_id("orbit-demo") {
+        mount_to(el.dyn_into().unwrap(), App).forget();
+    }
 }

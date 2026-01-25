@@ -26,6 +26,7 @@ def passthru_program_json(*, fact: str | None = None) -> str:
         "relations": {
             "Input": {
                 "store": "Input",
+                "stratum": 0,
                 "ty": {"Primitive": "String"},
                 "kind": "Basic",
                 "io": "Input",
@@ -34,6 +35,7 @@ def passthru_program_json(*, fact: str | None = None) -> str:
             },
             "Output": {
                 "store": "Output",
+                "stratum": 0,
                 "ty": {"Primitive": "String"},
                 "kind": "Basic",
                 "io": "Output",
