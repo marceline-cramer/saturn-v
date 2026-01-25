@@ -54,10 +54,14 @@ pub fn check_all(db: &dyn Database, ws: Workspace) {
         toplevel::file_syntax_errors(db, *file);
         let interns = resolve::file_interns(db, *file);
 
-        // stratify relations to guarantee stable model completeness
+        // compute relation stratums to surface non-monotonic diagnostics
         for (_name, item) in interns {
-            if let NamespaceItem::Relation(rel) = item.inner {
-                lookup::relation_stratum(db, rel);
+            match item.inner {
+                NamespaceItem::Relation(rel) => {
+                    // compute stratum which will walk body relations and emit warnings
+                    lookup::relation_stratum(db, rel);
+                }
+                _ => {}
             }
         }
 

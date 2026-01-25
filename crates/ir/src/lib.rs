@@ -106,6 +106,7 @@ impl<R: Clone + Ord> Program<R> {
                     io: relation.io,
                     facts: relation.facts,
                     store: cb(relation.store),
+                    stratum: relation.stratum,
                     rules,
                 };
 
@@ -200,6 +201,16 @@ pub struct Relation<R> {
 
     /// A list of facts initially stored by this relation.
     pub facts: Vec<Vec<Value>>,
+
+    /// The *negation stratum* of this relation.
+    ///
+    /// Implements [negation as failure](https://en.wikipedia.org/wiki/Negation_as_failure),
+    /// a means of handling non-monotonic reasoning in logic languages. Before
+    /// a relation with a non-monotonic dependency on another relation is evaluated,
+    /// the dependency is evaluated to fixedpoint first. Then, the absence of tuples
+    /// in the dependency is treated as proof of falsity in non-monotonic operations
+    /// in the dependent.
+    pub stratum: usize,
 
     /// Each rule that stores to this relation.
     pub rules: Vec<Rule<R>>,

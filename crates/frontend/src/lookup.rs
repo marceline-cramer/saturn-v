@@ -434,3 +434,26 @@ impl BasicDiagnostic for NonMonotonicCycle {
         vec![]
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NonMonotonicQuery {
+    pub at: WithAst<String>,
+}
+
+impl BasicDiagnostic for NonMonotonicQuery {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("non-monotonic queries are not fully supported")
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Warning
+    }
+
+    fn is_fatal(&self) -> bool {
+        false
+    }
+}
