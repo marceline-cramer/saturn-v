@@ -257,11 +257,11 @@ impl<G: Scope<Timestamp: Default + Lattice>> StratumOutput<G> {
             input.tuples = tuples.clone();
 
             // run the internal semi-naive evaluation
-            let output = StratumOutput::evaluate_once(&input);
+            let mut output = StratumOutput::evaluate_once(&input);
 
             // feed outputs back into stratum variables to fixed-point
-            facts.set_concat(&output.facts);
-            tuples.set_concat(&output.tuples);
+            output.facts = facts.set_concat(&output.facts);
+            output.tuples = tuples.set_concat(&output.tuples);
 
             // return outputs of all extended collections
             output.leave().inspect()
