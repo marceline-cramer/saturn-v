@@ -66,6 +66,7 @@ fn passthru_program() -> Program {
         ty: ir::StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::Input,
+        stratum: 0,
         facts: vec![],
         rules: vec![],
     });
@@ -75,6 +76,7 @@ fn passthru_program() -> Program {
         ty: ir::StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::Output,
+        stratum: 0,
         facts: vec![],
         rules: vec![ir::Rule {
             head: vec![ir::QueryTerm::Variable(0)],
@@ -119,6 +121,7 @@ async fn test_invalid_program() -> Result<()> {
         ty: StructuredType::Primitive(ir::Type::String),
         kind: ir::RelationKind::Basic,
         io: ir::RelationIO::None,
+        stratum: 0,
         facts: vec![vec![ir::Value::Integer(0)]],
         rules: vec![],
     });
