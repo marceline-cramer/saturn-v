@@ -147,13 +147,13 @@ jobs:
 
   release-wasm:
     name: WebAssembly packages
-    uses: ./.github/workflows/wasm.yml
+    uses: ./.github/actions/wasm.yml
     with:
       version: ${{ github.ref_name }}
 
   release-vscode:
     name: VSCode extension
-    uses: ./.github/workflows/vscode.yml
+    uses: ./.github/actions/vscode.yml
     with:
       version: ${{ github.ref_name }}
 
