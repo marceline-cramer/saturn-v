@@ -1,8 +1,10 @@
 name: WebAssembly Builds
-inputs:
-  version:
-    required: true
-    type: string
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 jobs:
   wasm-build:

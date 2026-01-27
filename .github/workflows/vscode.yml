@@ -1,8 +1,10 @@
 name: VSCode Extension
-inputs:
-  version:
-    required: true
-    type: string
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 jobs:
   vscode-build:

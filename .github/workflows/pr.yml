@@ -51,13 +51,13 @@ jobs:
 
   wasm:
     name: WebAssembly packages
-    uses: ./.github/actions/wasm
+    uses: ./.github/workflows/wasm.yml
     with:
       version: ${{ github.head_ref }}
 
   vscode:
     name: VSCode extension
-    uses: ./.github/actions/vscode
+    uses: ./.github/workflows/vscode.yml
     with:
       version: ${{ github.head_ref }}
 
