@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
