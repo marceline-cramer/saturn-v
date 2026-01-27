@@ -17,7 +17,7 @@ repository = "https://github.com/marceline-cramer/saturn-v"
 arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
 anyhow = "1"
-chumsky = "0.9"
+chumsky = "0.12"
 console_error_panic_hook = "0.1"
 differential-dataflow = "0.18"
 either = "1.15"

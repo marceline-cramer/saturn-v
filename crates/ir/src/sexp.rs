@@ -16,7 +16,7 @@
 
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 
-use chumsky::prelude::*;
+use chumsky::{input::ValueInput, prelude::*};
 use either::Either;
 
 use crate::*;
@@ -28,7 +28,7 @@ impl Sexp for Program<String> {
         Doc::intersperse(relations.chain(constraints), Doc::hardline())
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let relation = Relation::<String>::parser().map(|rel| {
             let mut p = Program::default();
             p.insert_relation(rel);
@@ -65,7 +65,7 @@ impl Sexp for Relation<String> {
         )
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let store = Token::item();
         let ty = StructuredType::parser();
         let kind = RelationKind::parser();
@@ -115,7 +115,7 @@ impl Sexp for Constraint<String> {
         todo!()
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         todo!()
     }
 }
@@ -125,7 +125,7 @@ impl Sexp for Rule<String> {
         todo!()
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         todo!()
     }
 }
@@ -140,7 +140,7 @@ impl Sexp for StructuredType {
         }
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         recursive(|structured_ty| {
             let tuple = Token::expect_item("Tuple")
                 .ignore_then(structured_ty.repeated())
@@ -186,7 +186,7 @@ impl Sexp for Instruction {
         }
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         use Instruction::*;
         recursive(|instr| {
             // recurse helper
@@ -265,7 +265,7 @@ impl Sexp for Expr {
         }
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         recursive(|expr| {
             // recurse helper
             let expr = expr.map(Arc::new);
@@ -314,7 +314,7 @@ impl QueryTerm {
         )
     }
 
-    pub fn parser() -> impl Parser<Token, Vec<Self>, Error = Simple<Token>> {
+    pub fn parser<I: TokenInput>() -> impl SexpParser<I, Vec<Self>> {
         recursive(|query| {
             let value = parse_list("QueryValue", Value::parser().then(query.clone())).map(
                 |(val, mut rest): (Value, Vec<Self>)| {
@@ -356,7 +356,7 @@ impl Sexp for Value {
         doc_inline_list([kind, &val])
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let boolean =
             parse_list("Boolean", Token::item()).try_map(|item, span| match item.as_str() {
                 "True" => Ok(Value::Boolean(true)),
@@ -465,7 +465,7 @@ pub fn doc_fact(fact: &[Value]) -> Doc {
 }
 
 /// Parses a fact.
-pub fn parse_fact() -> impl Parser<Token, Vec<Value>, Error = Simple<Token>> {
+pub fn parse_fact<I: TokenInput>() -> impl SexpParser<I, Vec<Value>> {
     Token::expect_item("fact")
         .ignore_then(Value::parser().repeated())
         .delimited_by(just(Token::LParen), just(Token::RParen))
@@ -514,17 +514,17 @@ pub fn doc_list(inner: Doc) -> Doc {
 }
 
 /// Parse a paren-delimited list annotated with a given tag.
-pub fn parse_list<T>(
+pub fn parse_list<I: TokenInput, T>(
     tag: &'static str,
-    items: impl Parser<Token, T, Error = Simple<Token>>,
-) -> impl Parser<Token, T, Error = Simple<Token>> {
+    items: impl SexpParser<I, T>,
+) -> impl SexpParser<I, T> {
     Token::expect_item(tag)
         .ignore_then(items)
         .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
 /// Parse a unit-length tagged list.
-pub fn parse_tag(tag: &'static str) -> impl Parser<Token, (), Error = Simple<Token>> {
+pub fn parse_tag<I: TokenInput>(tag: &'static str) -> impl SexpParser<I, ()> {
     Token::expect_item(tag)
         .ignored()
         .delimited_by(just(Token::LParen), just(Token::RParen))
@@ -543,7 +543,7 @@ impl<T: SexpVariant> Sexp for T {
         doc_list(Doc::text(format!("{self:?}")))
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         Token::item()
             .try_map(|item, span| match item.parse() {
                 Ok(op) => Ok(op),
@@ -557,7 +557,7 @@ pub type Doc = RcDoc<'static, ()>;
 
 pub trait Sexp: Sized {
     fn to_doc(&self) -> Doc;
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self>;
 }
 
 impl Sexp for BTreeSet<u32> {
@@ -566,7 +566,17 @@ impl Sexp for BTreeSet<u32> {
         doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
     }
 }
+
+/// A utility trait alias for valid sexp parsers.
+pub trait SexpParser<I: TokenInput, T>: Parser<'static, I, T> {}
+
+impl<I: TokenInput, T, P> SexpParser<I, T> for P where P: Parser<'static, I, T> {}
+
+/// A trait alias for [ValueInput] for tokens.
+pub trait TokenInput: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
+
+impl<I> TokenInput for I where I: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
