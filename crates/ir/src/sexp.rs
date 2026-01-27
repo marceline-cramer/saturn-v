@@ -29,23 +29,21 @@ impl Sexp for Program<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        let relation = Relation::<String>::parser().map(|rel| {
-            let mut p = Program::default();
-            p.insert_relation(rel);
-            p
-        });
+        Relation::<String>::parser()
+            .map(Either::Left)
+            .or(Constraint::<String>::parser().map(Either::Right))
+            .repeated()
+            .fold(Program::default(), |mut program, el| match el {
+                Either::Left(rel) => {
+                    program.insert_relation(rel);
+                    program
+                }
 
-        let constraint = Constraint::<String>::parser().map(|rel| {
-            let mut p = Program::default();
-            p.constraints.insert(rel);
-            p
-        });
-
-        relation.or(constraint).repeated().map(|els| {
-            els.into_iter()
-                .reduce(|l, r| l.merge(r))
-                .unwrap_or_default()
-        })
+                Either::Right(cons) => {
+                    program.constraints.insert(cons);
+                    program
+                }
+            })
     }
 }
 
@@ -87,18 +85,17 @@ impl Sexp for Relation<String> {
         let fact = parse_fact().map(Either::Left);
         let rule = Rule::<String>::parser().map(Either::Right);
 
-        let fields = fact.or(rule).repeated().map(|fields| {
-            fields
-                .into_iter()
-                .fold((Vec::new(), Vec::new()), |(mut facts, mut rules), field| {
-                    match field {
-                        Either::Left(fact) => facts.push(fact),
-                        Either::Right(rule) => rules.push(rule),
-                    };
+        let fields = fact.or(rule).repeated().fold(
+            (Vec::new(), Vec::new()),
+            |(mut facts, mut rules), field| {
+                match field {
+                    Either::Left(fact) => facts.push(fact),
+                    Either::Right(rule) => rules.push(rule),
+                };
 
-                    (facts, rules)
-                })
-        });
+                (facts, rules)
+            },
+        );
 
         let body = base.then(fields).map(|(mut base, (facts, rules))| {
             base.facts = facts;
@@ -143,8 +140,9 @@ impl Sexp for StructuredType {
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         recursive(|structured_ty| {
             let tuple = Token::expect_item("Tuple")
-                .ignore_then(structured_ty.repeated())
-                .map(StructuredType::Tuple);
+                .ignore_then(structured_ty.repeated().collect())
+                .map(StructuredType::Tuple)
+                .delimited_by(just(Token::LParen), just(Token::RParen));
 
             Type::parser().map(StructuredType::Primitive).or(tuple)
         })
@@ -235,13 +233,8 @@ impl Sexp for Instruction {
                 rest,
             });
 
-            noop.or(sink)
-                .or(filter)
-                .or(from_query)
-                .or(let_)
-                .or(merge)
-                .or(join)
-                .or(antijoin)
+            // combine all options
+            choice((noop, sink, filter, from_query, let_, merge, join, antijoin))
         })
     }
 }
@@ -361,7 +354,7 @@ impl Sexp for Value {
             parse_list("Boolean", Token::item()).try_map(|item, span| match item.as_str() {
                 "True" => Ok(Value::Boolean(true)),
                 "False" => Ok(Value::Boolean(false)),
-                _ => Err(Simple::custom(span, "expected `True` or `False`")),
+                _ => Err(Rich::custom(span, "expected `True` or `False`")),
             });
 
         let integer = parse_list("Integer", Token::integer()).map(Value::Integer);
@@ -388,7 +381,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn lexer() -> impl Parser<char, Vec<Self>, Error = Simple<char>> {
+    pub fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Self>> {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
@@ -397,7 +390,7 @@ impl Token {
         // integer
         let int = just('-')
             .or_not()
-            .then(one_of("0123456789").repeated().at_least(1))
+            .then(one_of("0123456789").repeated().at_least(1).collect())
             .try_map(|(negate, numerals), span| {
                 let mut string = String::new();
                 string.extend(negate);
@@ -406,7 +399,7 @@ impl Token {
                 string
                     .parse()
                     .map(Token::Integer)
-                    .map_err(|_| Simple::custom(span, "failed to parse integer literal"))
+                    .map_err(|_| Rich::custom(span, "failed to parse integer literal"))
             });
 
         // alphanumeric item
@@ -420,39 +413,34 @@ impl Token {
             });
 
         // any of the above options (padded with whitespace)
-        lparen
-            .or(rparen)
-            .or(quote)
-            .or(int)
-            .or(item)
-            .recover_with(skip_then_retry_until([]))
+        choice((lparen, rparen, quote, int, item))
             .padded()
             .repeated()
             .then_ignore(end())
     }
 
     /// Short-hand to expect a specific item.
-    pub fn expect_item(name: impl ToString) -> impl Parser<Token, Token, Error = Simple<Token>> {
+    pub fn expect_item<I: TokenInput>(name: impl ToString) -> impl SexpParser<I, Token> {
         just(Token::Item(name.to_string()))
     }
 
     /// Short-hand to parse an integer.
-    pub fn integer() -> impl Parser<Token, i64, Error = Simple<Token>> {
+    pub fn integer<I: TokenInput>() -> impl SexpParser<I, i64> {
         select! {
             Token::Integer(val) => val,
         }
     }
 
     /// Short-hand to parse an unsigned integer.
-    pub fn unsigned() -> impl Parser<Token, u32, Error = Simple<Token>> {
+    pub fn unsigned<I: TokenInput>() -> impl SexpParser<I, u32> {
         Self::integer().try_map(|i, span| {
             i.try_into()
-                .map_err(|_| Simple::custom(span, "expected unsigned 32-bit integer"))
+                .map_err(|_| Rich::custom(span, "expected unsigned 32-bit integer"))
         })
     }
 
     /// Short-hand to parse the contents of any item.
-    pub fn item() -> impl Parser<Token, String, Error = Simple<Token>> {
+    pub fn item<I: TokenInput>() -> impl SexpParser<I, String> {
         select! {
             Token::Item(val) => val.to_string(),
         }
@@ -467,7 +455,7 @@ pub fn doc_fact(fact: &[Value]) -> Doc {
 /// Parses a fact.
 pub fn parse_fact<I: TokenInput>() -> impl SexpParser<I, Vec<Value>> {
     Token::expect_item("fact")
-        .ignore_then(Value::parser().repeated())
+        .ignore_then(Value::parser().repeated().collect())
         .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
@@ -547,7 +535,7 @@ impl<T: SexpVariant> Sexp for T {
         Token::item()
             .try_map(|item, span| match item.parse() {
                 Ok(op) => Ok(op),
-                Err(_) => Err(Simple::custom(span, "unrecognized variant")),
+                Err(_) => Err(Rich::custom(span, "unrecognized variant")),
             })
             .delimited_by(just(Token::LParen), just(Token::RParen))
     }
@@ -567,14 +555,17 @@ impl Sexp for BTreeSet<u32> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
+        parse_list("set-of", Token::unsigned().repeated().collect())
     }
 }
 
 /// A utility trait alias for valid sexp parsers.
-pub trait SexpParser<I: TokenInput, T>: Parser<'static, I, T> {}
+pub trait SexpParser<I: TokenInput, T>: Parser<'static, I, T, ParserExtra> + Clone {}
 
-impl<I: TokenInput, T, P> SexpParser<I, T> for P where P: Parser<'static, I, T> {}
+impl<I: TokenInput, T, P> SexpParser<I, T> for P where P: Parser<'static, I, T, ParserExtra> + Clone {}
+
+/// The type of parser extras to use throughout.
+type ParserExtra = extra::Full<Rich<'static, Token>, (), ()>;
 
 /// A trait alias for [ValueInput] for tokens.
 pub trait TokenInput: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
