@@ -64,23 +64,20 @@ impl Sexp for Relation<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        let store = Token::item();
-        let ty = StructuredType::parser();
-        let kind = RelationKind::parser();
-        let io = RelationIO::parser();
-
-        let base = store
-            .then(ty)
-            .then(kind)
-            .then(io)
-            .map(|(((store, ty), kind), io)| Relation {
-                store,
-                kind,
-                ty,
-                io,
-                facts: vec![],
-                rules: vec![],
-            });
+        let base = group((
+            Token::item(),
+            StructuredType::parser(),
+            RelationKind::parser(),
+            RelationIO::parser(),
+        ))
+        .map(|(store, ty, kind, io)| Relation {
+            store,
+            ty,
+            kind,
+            io,
+            facts: vec![],
+            rules: vec![],
+        });
 
         let fact = parse_fact().map(Either::Left);
         let rule = Rule::<String>::parser().map(Either::Right);
@@ -381,7 +378,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Self>> {
+    pub fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Self>, extra::Full<Rich<'a, char>, (), ()>> {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
@@ -390,11 +387,11 @@ impl Token {
         // integer
         let int = just('-')
             .or_not()
-            .then(one_of("0123456789").repeated().at_least(1).collect())
+            .then(text::int(10))
             .try_map(|(negate, numerals), span| {
                 let mut string = String::new();
                 string.extend(negate);
-                string.extend(numerals);
+                string.push_str(numerals);
 
                 string
                     .parse()
@@ -403,19 +400,13 @@ impl Token {
             });
 
         // alphanumeric item
-        let item = filter(|c: &char| c.is_ascii_alphabetic())
-            .then(filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').repeated())
-            .map(|(first, rest)| {
-                let mut str = String::new();
-                str.push(first);
-                str.extend(rest);
-                Token::Item(str)
-            });
+        let item = text::ident().map(ToString::to_string).map(Token::Item);
 
         // any of the above options (padded with whitespace)
         choice((lparen, rparen, quote, int, item))
             .padded()
             .repeated()
+            .collect()
             .then_ignore(end())
     }
 
