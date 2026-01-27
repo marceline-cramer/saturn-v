@@ -120,6 +120,18 @@ impl Sexp for Rule<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        QueryTerm::parser()
+            .then(RuleBody::parser())
+            .map(|(head, body)| Rule { head, body })
+    }
+}
+
+impl Sexp for RuleBody<String> {
+    fn to_doc(&self) -> Doc {
+        todo!()
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         todo!()
     }
 }
@@ -373,6 +385,7 @@ pub enum Token {
     RParen,
     Quote,
     Item(String),
+    Keyword(String),
     Integer(i64),
     Real(OrderedFloat<f64>),
 }
@@ -402,8 +415,14 @@ impl Token {
         // alphanumeric item
         let item = text::ident().map(ToString::to_string).map(Token::Item);
 
+        // Lisp-style keyword
+        let kw = just(":")
+            .ignore_then(text::ident())
+            .map(ToString::to_string)
+            .map(Token::Keyword);
+
         // any of the above options (padded with whitespace)
-        choice((lparen, rparen, quote, int, item))
+        choice((lparen, rparen, quote, int, item, kw))
             .padded()
             .repeated()
             .collect()
