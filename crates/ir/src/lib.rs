@@ -216,7 +216,9 @@ pub struct Relation<R> {
     pub rules: Vec<Rule<R>>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum RelationIO {
     /// This relation does not interact with IO at all.
@@ -274,7 +276,9 @@ impl StructuredType {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum RelationKind {
     /// Generates tuples without any logical overhead.
@@ -542,7 +546,9 @@ impl Value {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum Type {
     Boolean,
