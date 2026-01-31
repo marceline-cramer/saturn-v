@@ -18,11 +18,124 @@
 
 #![warn(missing_docs)]
 
+use std::{collections::BTreeSet, future::Future};
+
 use ordered_float::OrderedFloat;
-pub use saturn_v_ir::{self as ir, StructuredType};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
+
+pub use saturn_v_ir::{self as ir, StructuredType};
+
+/// A trait that bounds the handling of the entire server RPC interface.
+///
+/// This is used server-side to bound the server but also client-side to bound
+/// a complete RPC protocol implementation.
+pub trait Rpc:
+    Handle<GetProgram>
+    + Handle<SetProgram>
+    + Handle<ListInputs>
+    + Handle<GetInput>
+    + Handle<UpdateInput>
+    + Handle<ListOutputs>
+    + Handle<GetOutput>
+{
+}
+
+/// Implements a request handler for a particular request type.
+pub trait Handle<T: Request> {
+    /// Handles a given request.
+    fn on_request(&self, request: &T) -> impl Future<Output = ServerResult<T::Response>> + Send;
+}
+
+/// Retrieves the current loaded program.
+#[derive(Deserialize, Serialize)]
+pub struct GetProgram {}
+
+impl Request for GetProgram {
+    const NAME: &'static str = "GetProgram";
+    type Response = Program;
+}
+
+/// Sets the current program.
+#[derive(Deserialize, Serialize)]
+pub struct SetProgram {
+    /// The program to set.
+    pub program: Program,
+}
+
+impl Request for SetProgram {
+    const NAME: &'static str = "SetProgram";
+    type Response = ();
+}
+
+/// Lists the information on each input relation.
+#[derive(Deserialize, Serialize)]
+pub struct ListInputs {}
+
+impl Request for ListInputs {
+    const NAME: &'static str = "ListInputs";
+    type Response = Vec<RelationInfo>;
+}
+
+/// Retrieves all tuples currently occupying an input relation.
+#[derive(Deserialize, Serialize)]
+pub struct GetInput {
+    /// The ID of the input relation.
+    pub id: String,
+}
+
+impl Request for GetInput {
+    const NAME: &'static str = "GetInput";
+    type Response = BTreeSet<StructuredValue>;
+}
+
+/// Applies updates to the contents of an input relation.
+#[derive(Deserialize, Serialize)]
+pub struct UpdateInput {
+    /// The ID of the input relation to update.
+    pub id: String,
+
+    /// A list of tuple updates to apply to the input.
+    pub updates: Vec<TupleUpdate>,
+}
+
+impl Request for UpdateInput {
+    const NAME: &'static str = "UpdateInput";
+    type Response = ();
+}
+
+/// Lists the information on each output relation.
+#[derive(Deserialize, Serialize)]
+pub struct ListOutputs {}
+
+impl Request for ListOutputs {
+    const NAME: &'static str = "ListOutputs";
+    type Response = Vec<RelationInfo>;
+}
+
+/// Retrieves all tuples currently occupying an output relation.
+#[derive(Deserialize, Serialize)]
+pub struct GetOutput {
+    /// The ID of the output relation.
+    pub id: String,
+}
+
+impl Request for GetOutput {
+    const NAME: &'static str = "GetOutput";
+    type Response = BTreeSet<StructuredValue>;
+}
+
+/// An RPC server request to the ambient request context.
+pub trait Request: DeserializeOwned + Serialize + Sync {
+    /// The name of this request method.
+    const NAME: &'static str;
+
+    /// The type of this request's response.
+    ///
+    /// This is implicitly wrapped in [ServerResult].
+    type Response: DeserializeOwned + Serialize + Sync;
+}
 
 /// A type alias for results that only have [ServerError] for errors.
 pub type ServerResult<T> = std::result::Result<T, ServerError>;
@@ -111,7 +224,7 @@ pub struct RelationInfo {
 pub struct SequenceId(pub u64);
 
 /// A Saturn V-compatible value type.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StructuredValue {
     /// A nested list of other values.
