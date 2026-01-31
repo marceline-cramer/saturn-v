@@ -1,0 +1,138 @@
+// Copyright (C) 2025-2026 Marceline Cramer
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Saturn V is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Saturn V is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+// more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
+
+use ::z3::{ast, Optimize, SatResult};
+
+use crate::*;
+
+#[derive(Default)]
+pub struct Z3Solver {
+    inner: Optimize,
+    model: Z3Model,
+}
+
+impl Solver for Z3Solver {
+    type Model = Z3Model;
+
+    fn solve(&mut self, opts: SolveOptions<Self::Model>) -> SolveResult {
+        // push unconstrained solver state
+        self.inner.push();
+
+        // add soft constraints
+        for (soft, weight) in opts.soft {
+            self.inner.assert_soft(soft, *weight, None);
+        }
+
+        // run solver
+        let result = self.inner.check(opts.hard);
+
+        // fetch model info before popping solver
+        let model = self.inner.get_model();
+
+        // discard temporary assertions
+        self.inner.pop();
+
+        // handle solve result
+        match result {
+            SatResult::Unsat => return SolveResult::Unsat,
+            SatResult::Unknown => return SolveResult::Unknown,
+            SatResult::Sat => {}
+        }
+
+        // unwrap model now that we know it's SAT
+        let model = model.unwrap();
+
+        // calculate cost value
+        let cost = opts
+            .soft
+            .iter()
+            .filter(|(soft, _cost)| !model.eval(soft, true).unwrap().as_bool().unwrap())
+            .map(|(_soft, cost)| cost)
+            .sum();
+
+        // evaluate requests bools
+        let bool_values = opts
+            .bool_eval
+            .iter()
+            .map(|val| model.eval(val, true).unwrap().as_bool().unwrap())
+            .collect();
+
+        // return complete SAT info
+        SolveResult::Sat { cost, bool_values }
+    }
+
+    fn as_model(&mut self) -> &mut Self::Model {
+        &mut self.model
+    }
+
+    fn into_model(self) -> Self::Model {
+        self.model
+    }
+}
+
+#[derive(Default)]
+pub struct Z3Model {}
+
+impl Model for Z3Model {
+    /// Z3 doesn't require any global encoding logic because it works in a
+    /// global context, so the encoder type is empty.
+    type Encoder = ();
+
+    fn encode(&self) -> Self::Encoder {}
+
+    type Bool = Z3Bool;
+}
+
+pub type Z3Bool = ast::Bool;
+
+impl<E> Fresh<E> for Z3Bool {
+    fn fresh(_encoder: &mut E) -> Self {
+        Z3Bool::fresh_const("Z3Bool")
+    }
+}
+
+impl<E> FromRust<E, bool> for Z3Bool {
+    fn from_const(_encoder: &mut E, value: bool) -> Self {
+        Z3Bool::from_bool(value)
+    }
+}
+
+impl<E> ToRust<E, bool> for Z3Bool {
+    fn to_const(&self, _encoder: &mut E) -> Option<bool> {
+        self.as_bool()
+    }
+}
+
+impl<E> UnaryOp<E> for Z3Bool {
+    type Op = BoolUnaryOp;
+
+    fn unary_op(self, _encoder: &mut E, op: Self::Op) -> Self {
+        match op {
+            BoolUnaryOp::Not => self.not(),
+        }
+    }
+}
+
+impl<E> BinaryOp<E, Z3Bool> for Z3Bool {
+    type Op = BoolBinaryOp;
+
+    fn binary_op(self, _encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
+        match op {
+            BoolBinaryOp::And => Z3Bool::and(&[self, rhs]),
+            BoolBinaryOp::Or => Z3Bool::or(&[self, rhs]),
+        }
+    }
+}

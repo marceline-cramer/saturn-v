@@ -1,0 +1,27 @@
+[package]
+name = "saturn-v-solve"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+dashmap = "6.1"
+prehash = "1.0.0"
+smallvec.workspace = true
+
+[dependencies.rustsat]
+workspace = true
+optional = true
+
+[dependencies.z3]
+workspace = true
+optional = true
+
+[dev-dependencies]
+rustsat-cadical.workspace = true
+
+[features]
+sat = ["dep:rustsat"]
+z3 = ["dep:z3"]

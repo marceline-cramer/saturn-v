@@ -15,23 +15,19 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use saturn_v_ir::{BinaryOpKind, Expr, QueryTerm, Type, UnaryOpKind, Value};
-use z3::{
-    ast::{self, Ast},
-    Context, FuncDecl, SortKind,
-};
+use z3::{ast, FuncDecl, SortKind};
 
-pub fn expr_to_z3<'a>(
-    ctx: &'a Context,
-    variables: &[(Type, ast::Dynamic<'a>)],
-    relations: &[FuncDecl<'a>],
+pub fn expr_to_z3(
+    variables: &[(Type, ast::Dynamic)],
+    relations: &[FuncDecl],
     expr: &Expr,
-) -> Result<(Type, ast::Dynamic<'a>), Error> {
+) -> Result<(Type, ast::Dynamic), Error> {
     match expr {
         Expr::Variable(idx) => variables
             .get(*idx as usize)
             .cloned()
             .ok_or(Error::InvalidVariableIndex(*idx)),
-        Expr::Value(val) => Ok(value_to_z3(ctx, val)),
+        Expr::Value(val) => Ok(value_to_z3(val.clone())),
         Expr::Load { relation, query } => {
             let relation = relations
                 .get(*relation as usize)
@@ -44,7 +40,7 @@ pub fn expr_to_z3<'a>(
                         .get(*idx as usize)
                         .cloned()
                         .ok_or(Error::InvalidVariableIndex(*idx))?,
-                    QueryTerm::Value(val) => value_to_z3(ctx, val),
+                    QueryTerm::Value(val) => value_to_z3(val.clone()),
                 });
             }
 
@@ -52,7 +48,7 @@ pub fn expr_to_z3<'a>(
             Ok((Type::Boolean, relation.apply(args.as_slice())))
         }
         Expr::UnaryOp { op, term } => {
-            let (ty, term) = expr_to_z3(ctx, variables, relations, term)?;
+            let (ty, term) = expr_to_z3(variables, relations, term)?;
 
             use Type::*;
             use UnaryOpKind::*;
@@ -64,15 +60,15 @@ pub fn expr_to_z3<'a>(
             })
         }
         Expr::BinaryOp { op, lhs, rhs } => {
-            let (lhs_ty, lhs) = expr_to_z3(ctx, variables, relations, lhs)?;
-            let (rhs_ty, rhs) = expr_to_z3(ctx, variables, relations, rhs)?;
+            let (lhs_ty, lhs) = expr_to_z3(variables, relations, lhs)?;
+            let (rhs_ty, rhs) = expr_to_z3(variables, relations, rhs)?;
 
             use BinaryOpKind::*;
             use Type::*;
             let result = match (*op, lhs_ty, rhs_ty) {
                 // equality
                 (Eq, lhs_ty, rhs_ty) if lhs_ty == rhs_ty => {
-                    Some((Boolean, ast::Dynamic::from(lhs._eq(&rhs))))
+                    Some((Boolean, ast::Dynamic::from(lhs.eq(&rhs))))
                 }
 
                 // integer arithmetic
@@ -93,13 +89,13 @@ pub fn expr_to_z3<'a>(
 
                 // real arithmetic
                 (_, Real, Real) => {
-                    let rounding = ast::Float::round_towards_zero(ctx);
+                    let rounding = ast::RoundingMode::round_towards_zero();
                     let lhs = lhs.as_float().unwrap();
                     let rhs = rhs.as_float().unwrap();
                     let result = match *op {
-                        Add => Some(rounding.add(&lhs, &rhs)),
-                        Mul => Some(rounding.mul(&lhs, &rhs)),
-                        Div => Some(rounding.div(&lhs, &rhs)),
+                        Add => Some(lhs.add_with_rounding_mode(rhs, &rounding)),
+                        Mul => Some(lhs.mul_with_rounding_mode(rhs, &rounding)),
+                        Div => Some(lhs.div_with_rounding_mode(rhs, &rounding)),
                         Lt => return Ok((Boolean, lhs.lt(&rhs).into())),
                         Le => return Ok((Boolean, lhs.le(&rhs).into())),
                         _ => None,
@@ -113,7 +109,7 @@ pub fn expr_to_z3<'a>(
                     let lhs = lhs.as_string().unwrap();
                     let rhs = rhs.as_string().unwrap();
                     let result = match *op {
-                        Concat => Some(ast::String::concat(ctx, &[&lhs, &rhs])),
+                        Concat => Some(ast::String::concat(&[&lhs, &rhs])),
                         _ => None,
                     };
 
@@ -125,8 +121,8 @@ pub fn expr_to_z3<'a>(
                     let lhs = lhs.as_bool().unwrap();
                     let rhs = rhs.as_bool().unwrap();
                     let result = match *op {
-                        And => Some(ast::Bool::and(ctx, &[&lhs, &rhs])),
-                        Or => Some(ast::Bool::or(ctx, &[&lhs, &rhs])),
+                        And => Some(ast::Bool::and(&[&lhs, &rhs])),
+                        Or => Some(ast::Bool::or(&[&lhs, &rhs])),
                         _ => None,
                     };
 
@@ -145,20 +141,14 @@ pub fn expr_to_z3<'a>(
     }
 }
 
-pub fn value_to_z3<'a>(ctx: &'a Context, val: &Value) -> (Type, ast::Dynamic<'a>) {
+pub fn value_to_z3(val: Value) -> (Type, ast::Dynamic) {
     use Value::*;
     match val {
-        Boolean(val) => (Type::Boolean, ast::Bool::from_bool(ctx, *val).into()),
-        Integer(val) => (Type::Integer, ast::Int::from_i64(ctx, *val).into()),
-        Real(val) => (Type::Real, ast::Float::from_f64(ctx, **val).into()),
-        Symbol(val) => (
-            Type::Symbol,
-            ast::String::from_str(ctx, val).unwrap().into(),
-        ),
-        String(val) => (
-            Type::String,
-            ast::String::from_str(ctx, val).unwrap().into(),
-        ),
+        Boolean(val) => (Type::Boolean, ast::Bool::from_bool(val).into()),
+        Integer(val) => (Type::Integer, ast::Int::from_i64(val).into()),
+        Real(val) => (Type::Real, ast::Float::from_f64(*val).into()),
+        Symbol(val) => (Type::Symbol, ast::String::from(val).into()),
+        String(val) => (Type::String, ast::String::from(val).into()),
     }
 }
 
