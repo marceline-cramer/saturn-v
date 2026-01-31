@@ -27,9 +27,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dependencies.fjall]
-version = "2.11"
-default-features = false
-features = ["ssi_tx", "lz4"]
+version = "3"
 
 [dev-dependencies]
 saturn-v-client = { workspace = true, features = ["invalid-requests"] }

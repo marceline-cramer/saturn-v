@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -19,10 +19,15 @@ use std::collections::BTreeSet;
 use salsa::{Database, Update};
 
 use crate::{
-    infer::{infer_resolved_relation_type, typed_constraint, typed_rule, TypeKey},
+    infer::{
+        infer_resolved_relation_type, infer_resolved_type_alias, typed_constraint, typed_rule,
+        TypeKey,
+    },
     lookup,
     parse::*,
-    resolve::{file_relation, file_unresolved_types, resolve_relation_type, Unresolved},
+    resolve::{
+        file_relation, file_unresolved_types, resolve_relation_type, resolve_type_alias, Unresolved,
+    },
     toplevel::{AstNode, File, Point},
     types::WithAst,
 };
@@ -33,6 +38,7 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // get the kind of entity
     let kind = match e.kind(db) {
         EntityKind::Import(_) => "Import",
+        EntityKind::TypeAlias(_) => "Type alias",
         EntityKind::File(_) => "File",
         EntityKind::Relation(_) => "Relation",
         EntityKind::Variable { .. } => "Variable",
@@ -42,6 +48,7 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
     // get the name of the entity
     let name = match e.kind(db) {
         EntityKind::Relation(def) => Some(def.name(db).inner.to_owned()),
+        EntityKind::TypeAlias(alias) => Some(alias.name(db).inner.to_owned()),
         EntityKind::Variable { name, .. } => Some(name.clone()),
         _ => None,
     };
@@ -54,6 +61,11 @@ pub fn entity_info<'db>(db: &'db dyn Database, e: Entity<'db>) -> EntityInfo {
         EntityKind::Relation(def) => {
             let resolved = resolve_relation_type(db, *def);
             let ty = infer_resolved_relation_type(db, resolved);
+            Some(ty.to_naive().to_string())
+        }
+        EntityKind::TypeAlias(alias) => {
+            let resolved = resolve_type_alias(db, *alias);
+            let ty = infer_resolved_type_alias(db, resolved);
             Some(ty.to_naive().to_string())
         }
         EntityKind::Variable { name, scope } => {
@@ -165,6 +177,10 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
                     item.ast(db),
                     EntityKind::Import(abstract_import(db, item)),
                 )),
+                ItemKind::TypeAlias => {
+                    let def = abstract_type_alias(db, item);
+                    type_alias(db, def, at)
+                }
                 ItemKind::Definition => {
                     let def = abstract_relation(db, item);
                     definition(db, def, at)
@@ -189,6 +205,31 @@ pub fn entity(db: &dyn Database, file: File, at: Point) -> Option<Entity<'_>> {
         file.root(db).unwrap(),
         EntityKind::File(file),
     ))
+}
+
+/// Locates an entity within a type alias.
+#[salsa::tracked]
+pub fn type_alias<'db>(
+    db: &'db dyn Database,
+    def: AbstractTypeAlias<'db>,
+    at: Point,
+) -> Option<Entity<'db>> {
+    // if the name of the type alias is hovered, that is the entity
+    if def.name(db).ast.span(db).contains(at) {
+        return Some(Entity::new(
+            db,
+            def.name(db).ast,
+            EntityKind::TypeAlias(def),
+        ));
+    }
+
+    // locate within the type
+    if def.ty(db).ast.span(db).contains(at) {
+        return resolved_type(db, def.ty(db), at);
+    }
+
+    // otherwise, no entity could be located
+    None
 }
 
 /// Locates an entity within a relation definition.
@@ -403,6 +444,9 @@ pub struct Entity<'db> {
 pub enum EntityKind<'db> {
     /// An import item.
     Import(AbstractImport<'db>),
+
+    /// A type alias.
+    TypeAlias(AbstractTypeAlias<'db>),
 
     /// Refers to a single file.
     File(File),

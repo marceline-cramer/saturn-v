@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -29,7 +29,7 @@ pub use salsa::DatabaseImpl as Db;
 
 use crate::{
     diagnostic::{AccumulateDiagnostic, SimpleError},
-    parse::{RelationDefinition, TypeAlias},
+    parse::{AbstractTypeAlias, RelationDefinition},
     types::WithAst,
 };
 
@@ -52,7 +52,7 @@ pub enum NamespaceItem<'db> {
     File(File),
     Namespace(Namespace<'db>),
     Relation(RelationDefinition<'db>),
-    TypeAlias(TypeAlias<'db>),
+    TypeAlias(AbstractTypeAlias<'db>),
     Unknown,
 }
 

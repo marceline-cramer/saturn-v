@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -127,6 +127,7 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                     rel.store.clone(),
                     Relation {
                         name: rel.store.to_string(),
+                        stratum: rel.stratum,
                         ty: rel.ty.clone(),
                         kind: rel.kind,
                         io: rel.io,
@@ -394,9 +395,9 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                 // create nodes for the rest of the instructions
                 let (node, map) = self.load_instruction(loaded, rest);
 
-                // load the key of the relation to load from
+                // fetch the relation to load from
                 let key = &loaded[*relation as usize];
-                let relation = Key::new(self.relations.get(key).unwrap());
+                let relation = self.relations.get(key).unwrap();
 
                 // load query terms for antijoin
                 let query = terms
@@ -410,8 +411,15 @@ impl<R: Clone + Display + Ord + 'static> Loader<R> {
                     })
                     .collect();
 
+                // fetch stratum of refuting relation
+                let stratum = relation.stratum;
+
                 // output as antijoin
-                let output = NodeOutput::Antijoin { relation, query };
+                let output = NodeOutput::Antijoin {
+                    relation: Key::new(relation),
+                    query,
+                    stratum,
+                };
 
                 // insert node
                 let src = self.insert(node, None, output);
