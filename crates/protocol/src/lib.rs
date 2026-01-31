@@ -18,7 +18,7 @@
 
 #![warn(missing_docs)]
 
-use std::{collections::BTreeSet, future::Future};
+use std::{borrow::Cow, collections::BTreeSet, future::Future, marker::PhantomData};
 
 use ordered_float::OrderedFloat;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -42,10 +42,24 @@ pub trait Rpc:
 {
 }
 
+/// Implements a subscription handler for a subscription type.
+pub trait HandleSubscribe<T: Subscription> {
+    /// Handles a whole subscription lifetime.
+    ///
+    /// The future lasts the duration of the subscription if successful or
+    /// will return with an error if either subscribing or unsubscribing is
+    /// unsuccessful.
+    fn on_subscribe(
+        &self,
+        request: T,
+        on_update: impl FnMut(T::Response) + Send,
+    ) -> impl Future<Output = ServerResult<()>> + Send;
+}
+
 /// Implements a request handler for a particular request type.
 pub trait Handle<T: Request> {
     /// Handles a given request.
-    fn on_request(&self, request: &T) -> impl Future<Output = ServerResult<T::Response>> + Send;
+    fn on_request(&self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
 }
 
 /// Retrieves the current loaded program.
@@ -53,8 +67,11 @@ pub trait Handle<T: Request> {
 pub struct GetProgram {}
 
 impl Request for GetProgram {
-    const NAME: &'static str = "GetProgram";
     type Response = Program;
+
+    fn name() -> Cow<'static, str> {
+        "GetProgram".into()
+    }
 }
 
 /// Sets the current program.
@@ -65,8 +82,11 @@ pub struct SetProgram {
 }
 
 impl Request for SetProgram {
-    const NAME: &'static str = "SetProgram";
     type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "SetProgram".into()
+    }
 }
 
 /// Lists the information on each input relation.
@@ -74,8 +94,11 @@ impl Request for SetProgram {
 pub struct ListInputs {}
 
 impl Request for ListInputs {
-    const NAME: &'static str = "ListInputs";
     type Response = Vec<RelationInfo>;
+
+    fn name() -> Cow<'static, str> {
+        "ListInputs".into()
+    }
 }
 
 /// Retrieves all tuples currently occupying an input relation.
@@ -86,8 +109,11 @@ pub struct GetInput {
 }
 
 impl Request for GetInput {
-    const NAME: &'static str = "GetInput";
     type Response = BTreeSet<StructuredValue>;
+
+    fn name() -> Cow<'static, str> {
+        "GetInput".into()
+    }
 }
 
 /// Applies updates to the contents of an input relation.
@@ -101,8 +127,11 @@ pub struct UpdateInput {
 }
 
 impl Request for UpdateInput {
-    const NAME: &'static str = "UpdateInput";
     type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "UpdateInput".into()
+    }
 }
 
 /// Lists the information on each output relation.
@@ -110,8 +139,11 @@ impl Request for UpdateInput {
 pub struct ListOutputs {}
 
 impl Request for ListOutputs {
-    const NAME: &'static str = "ListOutputs";
     type Response = Vec<RelationInfo>;
+
+    fn name() -> Cow<'static, str> {
+        "ListOutputs".into()
+    }
 }
 
 /// Retrieves all tuples currently occupying an output relation.
@@ -122,14 +154,64 @@ pub struct GetOutput {
 }
 
 impl Request for GetOutput {
-    const NAME: &'static str = "GetOutput";
     type Response = BTreeSet<StructuredValue>;
+
+    fn name() -> Cow<'static, str> {
+        "GetOutput".into()
+    }
+}
+
+/// An RPC request to create a [Subscription].
+#[derive(Deserialize, Serialize)]
+pub struct Subscribe<T> {
+    /// The request parameters to the subscription.
+    pub params: T,
+
+    /// The ID of the new subscription object.
+    pub id: usize,
+}
+
+impl<T: Subscription> Request for Subscribe<T> {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        format!("Subscribe{}", T::name()).into()
+    }
+}
+
+/// An RPC request to unsubscribe from and destroy an subscription object.
+#[derive(Deserialize, Serialize)]
+pub struct Unsubscribe<T> {
+    /// The ID of the subscription object.
+    pub id: usize,
+
+    /// Ignore the type of the subscription.
+    pub _phantom: PhantomData<T>,
+}
+
+impl<T: Subscription> Request for Unsubscribe<T> {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        format!("Unsubscribe{}", T::name()).into()
+    }
+}
+
+/// An RPC subscription schema.
+///
+/// The `Self` type is the contents of the intial subscription request.
+pub trait Subscription: DeserializeOwned + Serialize + Send + Sync {
+    /// The name of this subscription object.
+    fn name() -> Cow<'static, str>;
+
+    /// The type of each element in the subscription's response.
+    type Response: DeserializeOwned + Serialize + Sync;
 }
 
 /// An RPC server request to the ambient request context.
-pub trait Request: DeserializeOwned + Serialize + Sync {
+pub trait Request: DeserializeOwned + Serialize + Send + Sync {
     /// The name of this request method.
-    const NAME: &'static str;
+    fn name() -> Cow<'static, str>;
 
     /// The type of this request's response.
     ///
