@@ -18,7 +18,7 @@
 
 #![warn(missing_docs)]
 
-use std::{fmt::Debug, future::Future, ops::Deref};
+use std::{fmt::Debug, future::Future, ops::Deref, str::FromStr, sync::Arc};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
@@ -465,7 +465,7 @@ impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
 
         // send initial subscription request
         self.on_request(Subscribe {
-            params: request,
+            param: request,
             id: subscription_id,
         })
         .await
@@ -502,12 +502,12 @@ impl<T: Request> Handle<T> for JsonRpcClient {
         let request_id = self.requests.lock().insert(req_tx);
 
         // create the JSON-RPC request body
-        let request_json = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": T::name(),
-            "id": request_id,
-            "param": request,
-        });
+        let request_json = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: T::name().to_string(),
+            id: serde_json::Value::from(request_id),
+            param: request,
+        };
 
         // send the request to the transport
         let request = serde_json::to_string(&request_json).unwrap();
@@ -521,4 +521,86 @@ impl<T: Request> Handle<T> for JsonRpcClient {
         // TODO: handle deserialization without unwrapping?
         serde_json::from_value(response).unwrap()
     }
+}
+
+impl JsonRpcClient {
+    /// Creates a JSON-RPC client over the given duplex message channel.
+    pub fn new(tx: flume::Sender<String>, rx: flume::Receiver<String>) -> Arc<Self> {
+        // create shared client handle
+        let client = Arc::new(Self {
+            requests: Default::default(),
+            subscriptions: Default::default(),
+            tx,
+        });
+
+        // spawn event pump for incoming messages
+        tokio::spawn({
+            let client = client.clone();
+            async move {
+                while let Ok(json) = rx.recv_async().await {
+                    client.handle_incoming(json);
+                }
+            }
+        });
+
+        // return remaining client handle
+        client
+    }
+
+    /// Handle a single incoming message.
+    fn handle_incoming(&self, message: String) {
+        use serde_json::*;
+
+        // deserialize the incoming JSON object
+        let Ok(value) = Map::<String, Value>::from_str(&message) else {
+            // TODO: log errors
+            return;
+        };
+
+        // confirm that the incoming value is marked as JSON-RPC
+        if value.get("jsonrpc") != Some(&Value::String("2.0".to_string())) {
+            // TODO: log error
+            return;
+        }
+
+        // if the incoming value has a "method" field, it is a subscription notification
+        if value.get("method").is_some() {
+            // the type of untyped subscription notification requests
+            type Event = JsonRpcRequest<SubscriptionEvent<Value>>;
+
+            // deserialize the request
+            // ignore the method name since the notif will have the ID
+            // TODO: handle incoming requests with IDs somehow
+            let Ok(request) = serde_json::from_value::<Event>(value.into()) else {
+                // TODO: log error
+                return;
+            };
+
+            // send subscription event to corresponding subscription ID
+            // if the channel is missing or closed, assume we've unsubscribed
+            self.subscriptions
+                .lock()
+                .get(request.param.id)
+                .map(|tx| tx.send(request.param.event));
+        }
+    }
+}
+
+/// A type schema for a JSON-RPC request.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcRequest<T> {
+    /// Must always be "2.0".
+    // TODO: is there a serde annotation to deserialize and assert this?
+    pub jsonrpc: String,
+
+    /// The name of the method.
+    pub method: String,
+
+    /// The ID of the request.
+    ///
+    /// If not JSON null, this request must be responded to.
+    pub id: serde_json::Value,
+
+    /// The parameter payload of the request.
+    pub param: T,
 }

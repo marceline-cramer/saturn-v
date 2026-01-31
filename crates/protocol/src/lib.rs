@@ -165,7 +165,7 @@ impl Request for GetOutput {
 #[derive(Deserialize, Serialize)]
 pub struct Subscribe<T> {
     /// The request parameters to the subscription.
-    pub params: T,
+    pub param: T,
 
     /// The ID of the new subscription object.
     pub id: usize,
@@ -195,6 +195,16 @@ impl<T: Subscription> Request for Unsubscribe<T> {
     fn name() -> Cow<'static, str> {
         format!("Unsubscribe{}", T::name()).into()
     }
+}
+
+/// The type of a subscription response notification.
+#[derive(Deserialize, Serialize)]
+pub struct SubscriptionEvent<T> {
+    /// The ID of the subscription object.
+    pub id: usize,
+
+    /// The contents of the event.
+    pub event: T,
 }
 
 /// An RPC subscription schema.
