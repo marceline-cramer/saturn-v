@@ -27,7 +27,11 @@ use std::{
 use dashmap::DashMap;
 use prehash::Passthru;
 use rustsat::{
-    encodings::CollectClauses,
+    encodings::{
+        pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
+        CollectClauses,
+    },
+    instances::{BasicVarManager, ManageVars},
     solvers::SolveIncremental,
     types::{Lit, Var},
 };
@@ -38,7 +42,7 @@ use crate::{partial::PartialValue, *};
 #[derive(Default)]
 pub struct SatSolver<S> {
     solver: S,
-    next_var: u32,
+    var_mgr: BasicVarManager,
     model: SatModel,
 
     /// Maps variable identifiers to this solver instance's variables.
@@ -52,48 +56,90 @@ where
     type Model = SatModel;
 
     fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
-        // encode and collect all hard constraint literals
-        let mut hard = Vec::with_capacity(opts.hard.len());
+        // encode and collect all hard constraint assumptions
+        let mut assumptions = Vec::with_capacity(opts.hard.len());
         for var in opts.hard.iter() {
             use PartialValue::*;
             match var {
                 Const(true) => {}
                 Const(false) => return SolveResult::Unsat,
                 Variable(lit) => {
-                    hard.push(self.get_lit(*lit));
+                    assumptions.push(self.get_lit(*lit));
                 }
             }
         }
 
-        // call solver with assumptions
-        // TODO: replace unwrap with tracing error + return unknown
-        let result = self.solver.solve_assumps(&hard).unwrap();
+        // save the number of hard assumptions
+        // this may be less than the number of hard constraints if some are constant true
+        let hard_assumption_num = assumptions.len();
 
-        // handle non-sat solving results
-        match result {
-            rustsat::solvers::SolverResult::Unsat => return SolveResult::Unsat,
-            rustsat::solvers::SolverResult::Interrupted => return SolveResult::Unknown,
-            rustsat::solvers::SolverResult::Sat => {}
-        }
-
-        // evaluate the queried Boolean values
-        let bool_values = opts
-            .bool_eval
+        // create a cost totalizer for soft constraints
+        let mut cost_totalizer: DynamicPolyWatchdog = opts
+            .soft
             .iter()
-            .cloned()
-            .map(|var| {
-                var.eval(|lit| {
-                    let var = self.get_var(lit.variable);
-                    let model = self.solver.var_val(var).unwrap();
-                    model.to_bool_with_def(false) ^ !lit.polarity
-                })
-            })
+            .flat_map(|(value, weight)| value.variable().map(|lit| (lit, *weight)))
+            .map(|(lit, weight)| (!self.get_lit(lit), weight as usize))
             .collect();
 
-        // return complete SAT info
-        SolveResult::Sat {
-            cost: 0,
-            bool_values,
+        // initialize with no current assignment to queried Booleans
+        let mut bool_values = None;
+
+        // assign an initial, unused cost value (will update after first SAT)
+        let mut cost = 0;
+
+        // begin minimizing the cost upper bound
+        loop {
+            // check satisfiability with current assumptions
+            // TODO: replace unwrap with tracing error + return unknown
+            let result = self.solver.solve_assumps(&assumptions).unwrap();
+
+            // handle non-sat solving results
+            use rustsat::solvers::SolverResult::*;
+            match result {
+                Sat => {}
+                Interrupted => return SolveResult::Unknown,
+                Unsat => match bool_values {
+                    Some(bool_values) => {
+                        return SolveResult::Sat { cost, bool_values };
+                    }
+                    None => {
+                        return SolveResult::Unsat;
+                    }
+                },
+            }
+
+            // evaluate the current queried Boolean values
+            bool_values = Some(self.eval_bools(opts.bool_eval));
+
+            // clear any soft assumptions from the previous iteration
+            assumptions.truncate(hard_assumption_num);
+
+            // calculate the cost of the current assignment
+            cost = opts
+                .soft
+                .iter()
+                .filter(|(value, _weight)| !self.eval_bool(*value))
+                .map(|(_value, weight)| *weight)
+                .sum();
+
+            // if cost has hit zero, this is the best solution
+            if cost == 0 {
+                return SolveResult::Sat {
+                    cost,
+                    bool_values: bool_values.unwrap(),
+                };
+            }
+
+            // otherwise, attempt to find a better cost upper bound
+            let cost_ub = (cost - 1) as usize;
+
+            // update the totalizer's encodings for the new cost bound
+            cost_totalizer
+                .encode_ub_change(cost_ub..=cost_ub, &mut self.solver, &mut self.var_mgr)
+                .unwrap();
+
+            // add soft assumptions for this new cost upper bound
+            assumptions.extend(cost_totalizer.enforce_ub(cost_ub).unwrap());
         }
     }
 
@@ -106,7 +152,25 @@ where
     }
 }
 
-impl<S: CollectClauses> SatSolver<S> {
+impl<S: SolveIncremental + CollectClauses> SatSolver<S> {
+    /// Evaluates a list of Boolean values in the current solver model.
+    pub fn eval_bools(&mut self, values: &[PartialValue<bool, SatLit>]) -> Vec<bool> {
+        values
+            .iter()
+            .cloned()
+            .map(|value| self.eval_bool(value))
+            .collect()
+    }
+
+    /// Evaluate a Boolean value in the current solver model.
+    pub fn eval_bool(&mut self, value: PartialValue<bool, SatLit>) -> bool {
+        value.eval(|lit| {
+            let var = self.get_var(lit.variable);
+            let model = self.solver.var_val(var).unwrap();
+            model.to_bool_with_def(false) ^ !lit.polarity
+        })
+    }
+
     /// Returns the instance's variable index for the model's variable ID.
     pub fn get_var(&mut self, id: u64) -> Var {
         // reuse existing variable if possible
@@ -115,8 +179,7 @@ impl<S: CollectClauses> SatSolver<S> {
             Entry::Occupied(existing) => return *existing.get(),
             Entry::Vacant(entry) => {
                 // allocate and insert new variable otherwise
-                let var = Var::new(self.next_var);
-                self.next_var += 1;
+                let var = self.var_mgr.new_var();
                 entry.insert(var);
                 var
             }

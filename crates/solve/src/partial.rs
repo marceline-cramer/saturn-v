@@ -31,6 +31,14 @@ impl<C, V> PartialValue<C, V> {
             PartialValue::Variable(var) => cb(var),
         }
     }
+
+    /// Filter out constants.
+    pub fn variable(self) -> Option<V> {
+        match self {
+            PartialValue::Const(_) => None,
+            PartialValue::Variable(var) => Some(var),
+        }
+    }
 }
 
 impl<E, C: Eq, V: Fresh<E>> Fresh<E> for PartialValue<C, V> {
