@@ -17,10 +17,20 @@
 use crate::*;
 
 /// A wrapper for types that can be partially-evaluated.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum PartialValue<C, V> {
     Const(C),
     Variable(V),
+}
+
+impl<C, V> PartialValue<C, V> {
+    /// Fully evaluate (i.e. convert to const).
+    pub fn eval(self, cb: impl FnOnce(V) -> C) -> C {
+        match self {
+            PartialValue::Const(value) => value,
+            PartialValue::Variable(var) => cb(var),
+        }
+    }
 }
 
 impl<E, C: Eq, V: Fresh<E>> Fresh<E> for PartialValue<C, V> {

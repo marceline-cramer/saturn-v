@@ -52,7 +52,49 @@ where
     type Model = SatModel;
 
     fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
-        todo!()
+        // encode and collect all hard constraint literals
+        let mut hard = Vec::with_capacity(opts.hard.len());
+        for var in opts.hard.iter() {
+            use PartialValue::*;
+            match var {
+                Const(true) => {}
+                Const(false) => return SolveResult::Unsat,
+                Variable(lit) => {
+                    hard.push(self.get_lit(*lit));
+                }
+            }
+        }
+
+        // call solver with assumptions
+        // TODO: replace unwrap with tracing error + return unknown
+        let result = self.solver.solve_assumps(&hard).unwrap();
+
+        // handle non-sat solving results
+        match result {
+            rustsat::solvers::SolverResult::Unsat => return SolveResult::Unsat,
+            rustsat::solvers::SolverResult::Interrupted => return SolveResult::Unknown,
+            rustsat::solvers::SolverResult::Sat => {}
+        }
+
+        // evaluate the queried Boolean values
+        let bool_values = opts
+            .bool_eval
+            .iter()
+            .cloned()
+            .map(|var| {
+                var.eval(|lit| {
+                    let var = self.get_var(lit.variable);
+                    let model = self.solver.var_val(var).unwrap();
+                    model.to_bool_with_def(false) ^ !lit.polarity
+                })
+            })
+            .collect();
+
+        // return complete SAT info
+        SolveResult::Sat {
+            cost: 0,
+            bool_values,
+        }
     }
 
     fn as_model(&mut self) -> &mut Self::Model {
