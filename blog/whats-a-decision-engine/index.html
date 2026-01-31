@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<head>
+    <meta charset="UTF-8"><meta http-equiv="Content-Security-Policy"
+content="default-src 'self';font-src &#x27;self&#x27; data: 'self';img-src &#x27;self&#x27; https:&#x2F;&#x2F;* data:;style-src &#x27;self&#x27; 'unsafe-inline';frame-src player.vimeo.com https:&#x2F;&#x2F;www.youtube-nocookie.com giscus.app;connect-src 'self';script-src 'self'  giscus.app 'self' 'wasm-unsafe-eval'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="base" content="https://marceline-cramer.github.io/saturn-v">
+
+    
+    <title>
+Saturn V • What's a decision engine?</title>
+
+    
+    
+    
+        <link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50%" x="50%" dominant-baseline="central" text-anchor="middle" font-size="88">🪐</text></svg>'>
+    
+
+    
+    
+
+    
+    
+    
+        
+            <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/custom_subset.css?h=0b9535a28bc3d5bf2321">
+        
+    
+
+    
+        <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/main.css?h=fe8c9607d92b0cda0f8f" />
+        <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/css/custom.css?h=1f784d19972d052a46f7" />
+
+    <meta name="color-scheme" content="light dark" />
+        <meta name="description" content="What&#x27;s this &quot;decision engine&quot; I keep yapping about (and what is Saturn V anyway)?" />
+        <meta property="og:description" content="What&#x27;s this &quot;decision engine&quot; I keep yapping about (and what is Saturn V anyway)?" />
+
+    
+
+    <meta property="og:title" content="What's a decision engine?" />
+    <meta property="og:type" content="article" />
+
+    
+<meta property="og:locale" content="en_GB" />
+
+    <meta property="og:url" content="https:&#x2F;&#x2F;marceline-cramer.github.io&#x2F;saturn-v&#x2F;blog&#x2F;whats-a-decision-engine&#x2F;" /><meta property="og:site_name" content="Saturn V">
+        <noscript><link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/no_js.css"/></noscript>
+        <script type="text/javascript" src="https://marceline-cramer.github.io/saturn-v/js/initializeTheme.min.js"></script>
+        <script defer src="https://marceline-cramer.github.io/saturn-v/js/themeSwitcher.min.js"></script><script defer src="https://marceline-cramer.github.io/saturn-v/search_index.en.js?h=9ec8896551e6db358ee5"></script>
+        <script defer src="https://marceline-cramer.github.io/saturn-v/js/searchElasticlunr.min.js?h=3626c0ef99daa745b31e"></script>
+
+        
+    
+</head>
+
+
+<body>
+    <header>
+    <nav class="navbar">
+        <div class="nav-title">
+            <a class="home-title" href="https://marceline-cramer.github.io/saturn-v">Saturn V</a>
+        </div>
+            <div class="nav-navs">
+                <ul>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https://marceline-cramer.github.io/saturn-v/docs/">Docs
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https://marceline-cramer.github.io/saturn-v/blog/">Blog
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https:&#x2F;&#x2F;discord.gg&#x2F;apTv6WEhpn">Discord
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https:&#x2F;&#x2F;github.com&#x2F;marceline-cramer&#x2F;saturn-v">GitHub
+                                </a>
+                            </li>
+                        <li class="menu-icons-container">
+                        <ul class="menu-icons-group">
+                            <li class="js menu-icon">
+                                <div role="button" tabindex="0" id="search-button" class="search-icon interactive-icon" title="Click or press $SHORTCUT to open search" aria-label="Click or press $SHORTCUT to open search">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                                        <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+                                    </svg>
+                                </div>
+                            </li>
+
+                            
+                            
+
+                            <li class="theme-switcher-wrapper js"><div
+        title="Toggle dark&#x2F;light mode"
+        class="theme-switcher"
+        tabindex="0"
+        role="button"
+        aria-label="Toggle dark mode"
+        aria-pressed="false">
+    </div><div
+        title="Reset mode to default"
+        class="theme-resetter arrow"
+        tabindex="0"
+        role="button"
+        aria-hidden="true"
+        aria-label="Reset mode to default">
+    </div>
+
+</li>
+</ul>
+                    </li>
+                </ul>
+            </div>
+        
+    </nav>
+</header>
+
+    <div class="content">
+
+        
+        
+
+
+
+
+<main>
+    <article class="h-entry">
+        <h1 class="p-name article-title">
+            What's a decision engine?
+        </h1>
+        <a class="u-url u-uid" href="https://marceline-cramer.github.io/saturn-v/blog/whats-a-decision-engine/"></a>
+
+        <ul class="meta"><li>By <span class="p-author">Marceline Cramer</span></li><li><time class="dt-published" datetime="2025-06-14"><span class='separator' aria-hidden='true'>•</span>14th Jun 2025</time></li><li title="1635 words"><span class='separator' aria-hidden='true'>•</span>9 min read</li>
+        </ul>
+            <p class="p-summary" hidden>What&#x27;s this &quot;decision engine&quot; I keep yapping about (and what is Saturn V anyway)?</p><section class="e-content body"><h1 id="decision-fatigue">Decision fatigue</h1>
+<p>Making decisions is hard. What to eat for breakfast? What clothes do I wear? Do I need to bring a coat? What homework do I need to do? Do I need to go shopping? These decisions add up, and there is a limit to how many good decisions a person can make in a given timespan. When this limit is reached, it is called <a rel="external" href="https://www.ama-assn.org/delivering-care/public-health/what-doctors-wish-patients-knew-about-decision-fatigue">decision fatigue</a>.</p>
+<p>A massive amount of effort every day is expended on making these very small decisions. To many, this becomes a point of self-expression: developing a fashion sense, cooking unique and fresh food at home, or developing personalized diets to suit their body goals. However, in the information age, the number of decisions we make on a daily basis is <a rel="external" href="https://finance.yahoo.com/news/exhaustion-modern-life-decision-fatigue-180410366.html">massively rising</a>. Soon, everyone will need to have to carefully tailor their internet hygiene, routines, work schedules, and housework around this upper limit in human executive function.</p>
+<p>Many people are already severely affected by decision fatigue. To the depressed, autistic, ADHD, chronically fatigued, <a rel="external" href="https://en.wikipedia.org/wiki/Spoon_theory">spoonie</a>, or other mentally ill or disabled person, even doing the bare minimum to participate in modern society is fatiguing. Many people do not even have the ability to replenish their decision-making energy after what most people consider to be a suitable rest period, leading to long-term or chronic decision fatigue. For neurodivergent folks, there are very few cultural support structures in place to help neurodivergent people to make their lives work for their brains. Decision fatigue is a major contributing factor to the status quo that society is simply not well-suited to the mentally ill or disabled.</p>
+<h1 id="the-decision-engine">The decision engine</h1>
+<p>I personally am depressed, ADHD, and <em>very</em> autistic, leading me to have an idea. How many of these minor, day-to-day decisions can be simply automated away? After all, we live in an era with access to massive amounts of computing power per capita. Just how many decisions in modern life can be simply delegated to an algorithm? I call the hypothetical algorithm that can take on this responsibility a "decision engine." The idea is simple: most of the small choices we make are based on very simple rules with complex interactions between them. A sufficiently advanced computer program should be capable of making those choices if it was made aware of those rules and interactions.</p>
+<p>If everyday tasks could truly be automated in the full context of the rest of someone's life, imagine what that could do for society. One way of thinking about it is as a "prosthetic habits" system, like a cybernetic implant that allows people to spend their scarce decisions on more important, productive, or valuable things than the minutiae. Disabled and neurodivergent people might find life much easier to approach and succeed at a higher number of personal and important goals. If self-reflection and mindfulness activities were integrated into the engine as well, it could generally elevate one's ability to respond to and support themselves in the environment around them. Adding new rules and options to the decision engine does not tax the engine like it taxes an individual, meaning that individual habits become much easier to commit to, and it may push the upper limit on how many self-enrichment activities can be committed to for even averagely-abled people.</p>
+<p>A decision engine would, of course, have to be both extremely personalized and complex. There are many, many factors contributing to all of the minor events and tasks going on in one's life. Designing an algorithm to coordinate someone's entire life is an essence a data integration problem. Luckily, as of the Web 2.0 boom, data integration is arguably what computers are best at in the moment. The little decisions driving a single person's entire life are a drop in the bucket compared to what modern data centers process every single day.</p>
+<h1 id="so-where-are-they">So where are they?</h1>
+<p>The decision engine and its potential to solve decision fatigue would clearly have a lot of wide appeal. So, why doesn't it already exist? I believe that the reason is because the state of the data processing technology that could implement a decision engine is both fragmented and alienated from the user.</p>
+<p>Since the smartphone boom of the late 2000s, everybody wants to make "the killer app." Every app clamors for your attention and a download onto your device, and the result is that each individual app has diminishing returns on how much data processing and functionality it can offer alone. This app overpopulation becomes yet another axis of decision fatigue because now <em>you</em>, the user, are responsible for coordinating all of these loud, bratty, antisocial apps into a meaningful whole. There are meal planner apps, grocery list apps, calendar apps, and video call apps, but there isn't an app that can remind you to buy bananas today because otherwise you won't have time for breakfast before your 6:00 AM Zoom meeting.</p>
+<p>Despite the fact that the technology to augment entire lives exists, it is not being applied towards that end. In fact, it leads to the opposite: data analytics are the crux of social media, targeted advertising, and browser tracking technologies. These are the very things that are causing this pandemic of decision fatigue in the first place. To the average consumer it's a chronic inconvenience and to the disabled it's life-destroying. Google and Microsoft attempt to build the "super-app" to some extent through their own suites of integrated productivity tools. However, how personal, private, or modular could such a thing be? These massive companies profit off of your poor executive function in the first place, so why should they care about your 5:30 AM banana?</p>
+<p>The solution to this is not something that the app market or Silicon Valley hype could accomplish on its own. <em>You have to give the technology back to the people.</em> By making the decision engine <a rel="external" href="https://en.wikipedia.org/wiki/Free_software">free software</a>, <a rel="external" href="https://en.wikipedia.org/wiki/Self-hosting_(web_services)">self-hostable</a>, and as modular as possible, it transitions from a hypothetical super-app to a practical system I can design. If it is licensed under a strong <a rel="external" href="https://en.wikipedia.org/wiki/Copyleft">copyleft</a> license, this guarantees that the community of decision engine users can maintain compatibility with each other, building an open network of people sharing their decision-making profiles with each other. It also rescues the decision engine from falling back into the same sort of app developer fragmentation.</p>
+<h1 id="summary-of-decision-engines">Summary of decision engines</h1>
+<p>Let's recap everything thus far. The decision engine needs to be:</p>
+<ol>
+<li><strong>Personal</strong>: The engine is supposed to be a cybernetic implant, right? Every user needs to have an extremely high degree of customizability over their own instance of the decision engine. All of your own weird lifestyle quirks should be a joy to factor into the system, not a nuisance.</li>
+<li><strong>Modular</strong>: The decision engine is supposed to be for everyone, so it needs to support an unbounded amount of extensibility. Any specific top-level design decisions would be presumptive at best or alienating at worst. I'm sick of apps following "good app design" in a little feature sandbox and limiting what I can do with them.</li>
+<li><strong>Networked</strong>: Making healthy, context-aware decisions requires a vast wealth of information about your own situation. It is critical that the decision engine is capable of integrating with arbitrary sources of external data such as calendars, map information, weather forecasts, or food prices.</li>
+<li><strong>Open</strong>: You're going to be putting all sorts of personal data into this thing, maybe even secrets you wouldn't tell anyone else. It should run on hardware you have access to and you should have a guarantee that it is not instrumented into some corporate data analytics system.</li>
+<li><strong>Free</strong>: If the decision engine becomes privatized and its inner workings are hidden from its users, all of the prior points are at risk of compromise. Strong free software licensing and a tightknit userbase demonstrating solidarity towards this end are critical. My thoughts on this subject are elaborated on in <a href="https://marceline-cramer.github.io/saturn-v/blog/why-free-software/">Why free software?</a></li>
+</ol>
+<h1 id="introducing-saturn-v">Introducing Saturn V</h1>
+<p>The decision engine is the core idea behind Saturn V: a piece of software that can be arbitrarily extended with rulesets reflecting the mechanics of a user's personal life, then make recommendations towards what decisions will meet that user's personal goals. To not get too technical, Saturn V is designed to support changing the rulesets and provide new information about the user's life at any time, making it an always-on decision-making companion.</p>
+<p>Saturn V is a prototype. A decision engine that could be considered "complete" by majority consensus is well out of the scope of any piece of software that I can create alone (for free). My main focus for Saturn V is to make a decision engine that supports <em>my</em> needs as a first priority, simply because I'm incapable of making anything else (especially for free). However, I also make an effort to share my work whenever possible. Saturn V is licensed as <a rel="external" href="https://en.wikipedia.org/wiki/Free_software">free software</a> and its development is done publicly on <a rel="external" href="https://github.com/marceline-cramer/saturn-v">its GitHub repository</a>. I hope that in time, future decision engines will be created using different design approaches than mine. Saturn V is made for me first, as a research project second, and as a consumer-targeted app third. There will come a day where a design aspect of Saturn V becomes untenable with its goals, in which case a new decision engine project will need to be launched to advance decision engine development to the next stage.</p>
+
+        </section>
+
+        
+                
+                
+                    
+                    
+                        
+                        
+                        
+                    
+                
+                
+            <nav class="full-width article-navigation">
+                <div></div>
+                <div><a href="https://marceline-cramer.github.io/saturn-v/blog/why-free-software/" aria-label="Next" aria-describedby="right_title">Next&nbsp;<span class="arrow">→</span></a>
+                <p aria-hidden="true" id="right_title">Why free software?</p></div>
+            </nav>
+        
+        
+
+        
+            
+            
+            
+
+            
+                
+                
+            
+        
+            
+            
+            
+
+            
+        
+            
+            
+            
+
+            
+        
+            
+            
+            
+
+            
+        
+        
+            
+
+<div id="comments" class="comments"
+
+
+    data-repo="marceline-cramer&#x2F;saturn-v"
+    data-repo-id="R_kgDOOZoxkw"
+    data-category="Blog"
+    data-category-id="DIC_kwDOOZoxk84CrhD3"
+    
+        data-mapping="og:title"
+    
+    data-strict="0"
+    data-reactions-enabled="1"
+    
+        data-input-position="top"
+    
+    data-light-theme="noborder_light"
+    data-dark-theme="noborder_dark"
+    
+        data-lang="en"
+    
+    data-lazy-loading="true"
+    >
+
+
+
+
+    <script src="https://marceline-cramer.github.io/saturn-v/js/giscus.min.js" async></script>
+
+
+<noscript>You need JavaScript to view the comments.</noscript>
+</div>
+
+        </article>
+</main>
+
+
+<script defer src="https://marceline-cramer.github.io/saturn-v/js/mermaid.min.js"></script><span id="copy-success" class="hidden">
+        Copied!
+    </span>
+    <span id="copy-init" class="hidden">
+        Copy code to clipboard
+    </span>
+    <script defer src="https://marceline-cramer.github.io/saturn-v/js/copyCodeToClipboard.min.js"></script>
+
+<script defer src="https://marceline-cramer.github.io/saturn-v/js/footnoteBacklinks.min.js"></script>
+    </div>
+    <footer>
+    <section>
+        <nav class="socials nav-navs">
+        </nav>
+
+        
+        <nav class="nav-navs">
+        </nav>
+
+        <div class="credits">
+            <small>
+                
+
+                
+                Powered by
+                <a rel="" 
+
+ href="https://www.getzola.org">Zola</a>
+                &amp;
+                <a rel="" 
+
+ href="https://github.com/welpo/tabi">tabi</a>
+
+                </small>
+        </div>
+    </section>
+
+    <div id="searchModal" class="search-modal js" role="dialog" aria-labelledby="modalTitle">
+    <h1 id="modalTitle" class="visually-hidden">Search</h1>
+    <div id="modal-content">
+        <div id="searchBar">
+            <div class="search-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                    <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+                </svg>
+            </div>
+            <input id="searchInput" role="combobox" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="results-container" placeholder="Search…"/>
+            <div id="clear-search" class="close-icon interactive-icon" tabindex="0" role="button" title="Clear search">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
+                </svg>
+            </div>
+        </div>
+        <div id="results-container">
+            <div id="results-info"><span id="zero_results"> No results</span>
+                <span id="one_results"> $NUMBER result</span>
+                <span id="many_results"> $NUMBER results</span><span id="two_results"> $NUMBER results</span>
+                <span id="few_results"> $NUMBER results</span>
+            </div>
+            <div id="results" role="listbox"></div>
+        </div>
+    </div>
+</div>
+</footer>
+
+
+    
+    
+</body>
+
+</html>

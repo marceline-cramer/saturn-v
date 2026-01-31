@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://marceline-cramer.github.io/saturn-v/sitemap_style.xsl" type="text/xsl"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/</loc>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/</loc>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/is-saturn-v-ai/</loc>
+        <lastmod>2025-12-12</lastmod>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/page/1/</loc>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/v0-2/</loc>
+        <lastmod>2026-01-25</lastmod>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/whats-a-decision-engine/</loc>
+        <lastmod>2025-06-14</lastmod>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/blog/why-free-software/</loc>
+        <lastmod>2025-06-15</lastmod>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/docs/</loc>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/docs/architecture/</loc>
+    </url>
+    <url>
+        <loc>https://marceline-cramer.github.io/saturn-v/orbit-demo/</loc>
+    </url>
+</urlset>
