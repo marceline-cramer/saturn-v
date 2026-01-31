@@ -18,13 +18,15 @@
 
 #![warn(missing_docs)]
 
-use std::{fmt::Debug, future::Future, ops::Deref};
+use std::{fmt::Debug, future::Future, ops::Deref, str::FromStr, sync::Arc};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
+use parking_lot::Mutex;
 use reqwest::{Method, RequestBuilder, Url};
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_protocol::*;
 use serde::{Deserialize, Serialize};
+use slab::Slab;
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
@@ -435,4 +437,170 @@ impl From<Error> for JsValue {
             other => JsValue::from_str(&format!("{other:#?}")),
         }
     }
+}
+
+/// A JSON-RPC client.
+pub struct JsonRpcClient {
+    /// A table matching request IDs to senders to their recipients.
+    requests: Mutex<Slab<flume::Sender<serde_json::Value>>>,
+
+    /// A table matching subscription IDs to senders to their recipients.
+    subscriptions: Mutex<Slab<flume::Sender<serde_json::Value>>>,
+
+    /// A sender of serialized JSON values to the outgoing transport.
+    tx: flume::Sender<String>,
+}
+
+impl Rpc for JsonRpcClient {}
+
+impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
+    async fn on_subscribe(
+        &self,
+        request: T,
+        mut on_update: impl FnMut(T::Response) + Send,
+    ) -> ServerResult<()> {
+        // create event handler channel and insert into table
+        let (req_tx, req_rx) = flume::unbounded();
+        let subscription_id = self.subscriptions.lock().insert(req_tx);
+
+        // send initial subscription request
+        self.on_request(Subscribe {
+            param: request,
+            id: subscription_id,
+        })
+        .await
+        .inspect_err(|_| {
+            // clean up subscription ID if request failed
+            self.subscriptions.lock().remove(subscription_id);
+        })?;
+
+        // stream subscription events into callback
+        while let Ok(value) = req_rx.recv_async().await {
+            // deserialize object
+            // TODO: log error if parse fails
+            if let Ok(ev) = serde_json::from_value(value) {
+                on_update(ev);
+            }
+        }
+
+        // remove subscription sender
+        self.subscriptions.lock().remove(subscription_id);
+
+        // return result of unsubscription request
+        self.on_request(Unsubscribe {
+            id: subscription_id,
+            _phantom: std::marker::PhantomData::<T>,
+        })
+        .await
+    }
+}
+
+impl<T: Request> Handle<T> for JsonRpcClient {
+    async fn on_request(&self, request: T) -> ServerResult<<T as Request>::Response> {
+        // create request handler oneshot channel and insert into table
+        let (req_tx, req_rx) = flume::bounded(1);
+        let request_id = self.requests.lock().insert(req_tx);
+
+        // create the JSON-RPC request body
+        let request_json = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: T::name().to_string(),
+            id: serde_json::Value::from(request_id),
+            param: request,
+        };
+
+        // send the request to the transport
+        let request = serde_json::to_string(&request_json).unwrap();
+
+        // TODO: handle channel send error without unwrapping?
+        self.tx.send_async(request).await.unwrap();
+
+        // TODO: handle channel cancellation without unwrapping?
+        let response = req_rx.into_recv_async().await.unwrap();
+
+        // TODO: handle deserialization without unwrapping?
+        serde_json::from_value(response).unwrap()
+    }
+}
+
+impl JsonRpcClient {
+    /// Creates a JSON-RPC client over the given duplex message channel.
+    pub fn new(tx: flume::Sender<String>, rx: flume::Receiver<String>) -> Arc<Self> {
+        // create shared client handle
+        let client = Arc::new(Self {
+            requests: Default::default(),
+            subscriptions: Default::default(),
+            tx,
+        });
+
+        // spawn event pump for incoming messages
+        tokio::spawn({
+            let client = client.clone();
+            async move {
+                while let Ok(json) = rx.recv_async().await {
+                    client.handle_incoming(json);
+                }
+            }
+        });
+
+        // return remaining client handle
+        client
+    }
+
+    /// Handle a single incoming message.
+    fn handle_incoming(&self, message: String) {
+        use serde_json::*;
+
+        // deserialize the incoming JSON object
+        let Ok(value) = Map::<String, Value>::from_str(&message) else {
+            // TODO: log errors
+            return;
+        };
+
+        // confirm that the incoming value is marked as JSON-RPC
+        if value.get("jsonrpc") != Some(&Value::String("2.0".to_string())) {
+            // TODO: log error
+            return;
+        }
+
+        // if the incoming value has a "method" field, it is a subscription notification
+        if value.get("method").is_some() {
+            // the type of untyped subscription notification requests
+            type Event = JsonRpcRequest<SubscriptionEvent<Value>>;
+
+            // deserialize the request
+            // ignore the method name since the notif will have the ID
+            // TODO: handle incoming requests with IDs somehow
+            let Ok(request) = serde_json::from_value::<Event>(value.into()) else {
+                // TODO: log error
+                return;
+            };
+
+            // send subscription event to corresponding subscription ID
+            // if the channel is missing or closed, assume we've unsubscribed
+            self.subscriptions
+                .lock()
+                .get(request.param.id)
+                .map(|tx| tx.send(request.param.event));
+        }
+    }
+}
+
+/// A type schema for a JSON-RPC request.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcRequest<T> {
+    /// Must always be "2.0".
+    // TODO: is there a serde annotation to deserialize and assert this?
+    pub jsonrpc: String,
+
+    /// The name of the method.
+    pub method: String,
+
+    /// The ID of the request.
+    ///
+    /// If not JSON null, this request must be responded to.
+    pub id: serde_json::Value,
+
+    /// The parameter payload of the request.
+    pub param: T,
 }
