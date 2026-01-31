@@ -16,7 +16,6 @@ serde_json.workspace = true
 saturn-v-protocol.workspace = true
 serde-wasm-bindgen.workspace = true
 reqwest-eventsource = "0.6"
-cfg-if = "1.0.3"
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
@@ -26,7 +25,7 @@ url.workspace = true
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
-features = ["json", "rustls-tls"]
+features = ["json", "native-tls"]
 
 [features]
 # Enables access to invalid network requests for testing server implementations.
