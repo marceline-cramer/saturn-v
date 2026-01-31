@@ -20,8 +20,8 @@ anyhow = "1"
 chumsky = "0.9"
 console_error_panic_hook = "0.1"
 differential-dataflow = "0.18"
-flume = "0.11"
-futures-util = "0.3"
+flume = "0.12"
+futures-util = { version = "0.3", default-features = false }
 indexmap = "2.8"
 leptos = { version = "0.8", features = ["csr"] }
 ordered-float = { version = "4", features = ["serde"] }
@@ -35,6 +35,7 @@ smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 timely = "0.25"
+tinyvec = { version = "1.10", features = ["alloc"] }
 tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"

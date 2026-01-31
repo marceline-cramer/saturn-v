@@ -40,8 +40,8 @@ use tracing::{event, Level};
 
 use crate::{
     types::{
-        Condition, ConditionalLink, ConstraintGroup, Fact, FixedValues, Gate, LoadHead, LoadMask,
-        Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
+        get_load_mask, Condition, ConditionalLink, ConstraintGroup, Fact, FixedValues, Gate,
+        LoadHead, LoadMask, Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
     },
     utils::*,
     DataflowRouters, InputEventKind,
@@ -493,11 +493,11 @@ pub fn load_mask(
         .values
         .iter()
         .enumerate()
-        .map(|(idx, val)| (mask[idx], val));
+        .map(|(idx, val)| (get_load_mask(mask, idx), val));
 
     let head = values
         .clone()
-        .filter(|(masked, _)| !*masked)
+        .filter(|(masked, _)| !masked)
         .map(value)
         .cloned()
         .collect();
