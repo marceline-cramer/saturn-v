@@ -444,14 +444,59 @@ pub struct JsonRpcClient {
     /// A table matching request IDs to senders to their recipients.
     requests: Mutex<Slab<flume::Sender<serde_json::Value>>>,
 
+    /// A table matching subscription IDs to senders to their recipients.
+    subscriptions: Mutex<Slab<flume::Sender<serde_json::Value>>>,
+
     /// A sender of serialized JSON values to the outgoing transport.
     tx: flume::Sender<String>,
 }
 
 impl Rpc for JsonRpcClient {}
 
+impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
+    async fn on_subscribe(
+        &self,
+        request: T,
+        mut on_update: impl FnMut(T::Response) + Send,
+    ) -> ServerResult<()> {
+        // create event handler channel and insert into table
+        let (req_tx, req_rx) = flume::unbounded();
+        let subscription_id = self.subscriptions.lock().insert(req_tx);
+
+        // send initial subscription request
+        self.on_request(Subscribe {
+            params: request,
+            id: subscription_id,
+        })
+        .await
+        .inspect_err(|_| {
+            // clean up subscription ID if request failed
+            self.subscriptions.lock().remove(subscription_id);
+        })?;
+
+        // stream subscription events into callback
+        while let Ok(value) = req_rx.recv_async().await {
+            // deserialize object
+            // TODO: log error if parse fails
+            if let Ok(ev) = serde_json::from_value(value) {
+                on_update(ev);
+            }
+        }
+
+        // remove subscription sender
+        self.subscriptions.lock().remove(subscription_id);
+
+        // return result of unsubscription request
+        self.on_request(Unsubscribe {
+            id: subscription_id,
+            _phantom: std::marker::PhantomData::<T>,
+        })
+        .await
+    }
+}
+
 impl<T: Request> Handle<T> for JsonRpcClient {
-    async fn on_request(&self, request: &T) -> ServerResult<<T as Request>::Response> {
+    async fn on_request(&self, request: T) -> ServerResult<<T as Request>::Response> {
         // create request handler oneshot channel and insert into table
         let (req_tx, req_rx) = flume::bounded(1);
         let request_id = self.requests.lock().insert(req_tx);
@@ -459,7 +504,7 @@ impl<T: Request> Handle<T> for JsonRpcClient {
         // create the JSON-RPC request body
         let request_json = serde_json::json!({
             "jsonrpc": "2.0",
-            "method": T::NAME,
+            "method": T::name(),
             "id": request_id,
             "param": request,
         });
