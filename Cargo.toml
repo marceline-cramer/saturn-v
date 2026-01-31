@@ -35,6 +35,7 @@ smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 timely = "0.25"
+tinyvec = { version = "1.10", features = ["alloc"] }
 tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"

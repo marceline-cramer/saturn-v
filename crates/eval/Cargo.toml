@@ -7,13 +7,13 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-bitvec = { version = "1", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
 indexmap.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
+tinyvec = { workspace = true, features = ["serde"] }
 timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
