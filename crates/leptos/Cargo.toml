@@ -1,0 +1,13 @@
+[package]
+name = "saturn-v-leptos"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+leptos.workspace = true
+leptos-use = "0.18"
+saturn-v-client.workspace = true
+saturn-v-protocol.workspace = true
