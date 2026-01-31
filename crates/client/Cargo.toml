@@ -10,12 +10,15 @@ repository.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+flume.workspace = true
 futures-util.workspace = true
+parking_lot.workspace = true
+reqwest-eventsource = "0.6"
 serde.workspace = true
 serde_json.workspace = true
 saturn-v-protocol.workspace = true
 serde-wasm-bindgen.workspace = true
-reqwest-eventsource = "0.6"
+slab = "0.4"
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true

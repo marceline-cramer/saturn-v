@@ -21,10 +21,12 @@
 use std::{fmt::Debug, future::Future, ops::Deref};
 
 use futures_util::{Stream, StreamExt, TryStreamExt};
+use parking_lot::Mutex;
 use reqwest::{Method, RequestBuilder, Url};
 use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_protocol::*;
 use serde::{Deserialize, Serialize};
+use slab::Slab;
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
@@ -434,5 +436,44 @@ impl From<Error> for JsValue {
             Error::Server(server) => JsValue::from(server),
             other => JsValue::from_str(&format!("{other:#?}")),
         }
+    }
+}
+
+/// A JSON-RPC client.
+pub struct JsonRpcClient {
+    /// A table matching request IDs to senders to their recipients.
+    requests: Mutex<Slab<flume::Sender<serde_json::Value>>>,
+
+    /// A sender of serialized JSON values to the outgoing transport.
+    tx: flume::Sender<String>,
+}
+
+impl Rpc for JsonRpcClient {}
+
+impl<T: Request> Handle<T> for JsonRpcClient {
+    async fn on_request(&self, request: &T) -> ServerResult<<T as Request>::Response> {
+        // create request handler oneshot channel and insert into table
+        let (req_tx, req_rx) = flume::bounded(1);
+        let request_id = self.requests.lock().insert(req_tx);
+
+        // create the JSON-RPC request body
+        let request_json = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": T::NAME,
+            "id": request_id,
+            "param": request,
+        });
+
+        // send the request to the transport
+        let request = serde_json::to_string(&request_json).unwrap();
+
+        // TODO: handle channel send error without unwrapping?
+        self.tx.send_async(request).await.unwrap();
+
+        // TODO: handle channel cancellation without unwrapping?
+        let response = req_rx.into_recv_async().await.unwrap();
+
+        // TODO: handle deserialization without unwrapping?
+        serde_json::from_value(response).unwrap()
     }
 }

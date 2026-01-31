@@ -3210,13 +3210,16 @@ dependencies = [
 name = "saturn-v-client"
 version = "0.2.0"
 dependencies = [
+ "flume",
  "futures-util",
+ "parking_lot",
  "reqwest",
  "reqwest-eventsource",
  "saturn-v-protocol",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "slab",
  "thiserror 2.0.18",
  "url",
  "wasm-bindgen",
