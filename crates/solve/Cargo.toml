@@ -19,6 +19,9 @@ optional = true
 workspace = true
 optional = true
 
+[dev-dependencies]
+rustsat-cadical.workspace = true
+
 [features]
 sat = ["dep:rustsat"]
 z3 = ["dep:z3"]

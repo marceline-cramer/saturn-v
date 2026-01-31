@@ -22,6 +22,9 @@ pub mod sat;
 #[cfg(feature = "z3")]
 pub mod z3;
 
+#[cfg(test)]
+pub mod tests;
+
 // TODO: consider a lazy encoding wrapper to minimize cost of large aggregates
 
 /// A solver.
@@ -114,6 +117,7 @@ pub trait Bool<E: ?Sized>:
     + ToRust<E, bool>
     + UnaryOp<E, Op = BoolUnaryOp>
     + BinaryOp<E, Op = BoolBinaryOp>
+    + Clone
 {
 }
 
@@ -123,6 +127,7 @@ impl<E: ?Sized, T> Bool<E> for T where
         + ToRust<E, bool>
         + UnaryOp<E, Op = BoolUnaryOp>
         + BinaryOp<E, Op = BoolBinaryOp>
+        + Clone
 {
 }
 

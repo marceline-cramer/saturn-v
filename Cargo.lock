@@ -3420,6 +3420,7 @@ dependencies = [
  "dashmap 6.1.0",
  "prehash",
  "rustsat",
+ "rustsat-cadical",
  "smallvec",
  "z3",
 ]

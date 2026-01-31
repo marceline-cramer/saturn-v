@@ -17,7 +17,7 @@
 use crate::*;
 
 /// A wrapper for types that can be partially-evaluated.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PartialValue<C, V> {
     Const(C),
     Variable(V),

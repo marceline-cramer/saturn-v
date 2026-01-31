@@ -35,6 +35,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::{partial::PartialValue, *};
 
+#[derive(Default)]
 pub struct SatSolver<S> {
     solver: S,
     next_var: u32,
@@ -141,6 +142,15 @@ pub struct SatModelInner {
     /// The ID of the next fresh variable.
     // TODO: either ensure this doesn't need to be cryptographic *or* generate randomly.
     next_var: AtomicU64,
+}
+
+impl Default for SatModelInner {
+    fn default() -> Self {
+        Self {
+            gates: Default::default(),
+            next_var: AtomicU64::from(1),
+        }
+    }
 }
 
 impl Model for SatModel {
