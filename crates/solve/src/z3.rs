@@ -74,8 +74,8 @@ impl Solver for Z3Solver {
         SolveResult::Sat { cost, bool_values }
     }
 
-    fn as_model(&mut self) -> &mut Self::Model {
-        &mut self.model
+    fn as_model(&self) -> &Self::Model {
+        &self.model
     }
 
     fn into_model(self) -> Self::Model {
@@ -86,53 +86,38 @@ impl Solver for Z3Solver {
 #[derive(Default)]
 pub struct Z3Model {}
 
-impl Model for Z3Model {
-    /// Z3 doesn't require any global encoding logic because it works in a
-    /// global context, so the encoder type is empty.
-    type Encoder = ();
+impl Model for Z3Model {}
 
-    fn encode(&self) -> Self::Encoder {}
+impl Encoder<bool> for Z3Model {
+    type Repr = ast::Bool;
 
-    type Bool = Z3Bool;
-}
-
-pub type Z3Bool = ast::Bool;
-
-impl<E> Fresh<E> for Z3Bool {
-    fn fresh(_encoder: &mut E) -> Self {
-        Z3Bool::fresh_const("Z3Bool")
+    fn fresh(&self) -> Self::Repr {
+        ast::Bool::fresh_const("Encoder<bool>")
     }
-}
 
-impl<E> FromRust<E, bool> for Z3Bool {
-    fn from_const(_encoder: &mut E, value: bool) -> Self {
-        Z3Bool::from_bool(value)
+    fn from_const(&self, value: impl Into<bool>) -> Self::Repr {
+        ast::Bool::from_bool(value.into())
     }
-}
 
-impl<E> ToRust<E, bool> for Z3Bool {
-    fn to_const(&self, _encoder: &mut E) -> Option<bool> {
-        self.as_bool()
+    fn to_const(&self, repr: Self::Repr) -> Option<bool> {
+        repr.as_bool()
     }
-}
 
-impl<E> UnaryOp<E> for Z3Bool {
-    type Op = BoolUnaryOp;
-
-    fn unary_op(self, _encoder: &mut E, op: Self::Op) -> Self {
+    fn unary_op(&self, op: <bool as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
         match op {
-            BoolUnaryOp::Not => self.not(),
+            BoolUnaryOp::Not => repr.not(),
         }
     }
-}
 
-impl<E> BinaryOp<E, Z3Bool> for Z3Bool {
-    type Op = BoolBinaryOp;
-
-    fn binary_op(self, _encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
+    fn binary_op(
+        &self,
+        op: <bool as Ops>::BinaryOp,
+        lhs: Self::Repr,
+        rhs: Self::Repr,
+    ) -> Self::Repr {
         match op {
-            BoolBinaryOp::And => Z3Bool::and(&[self, rhs]),
-            BoolBinaryOp::Or => Z3Bool::or(&[self, rhs]),
+            BoolBinaryOp::And => ast::Bool::and(&[lhs, rhs]),
+            BoolBinaryOp::Or => ast::Bool::or(&[lhs, rhs]),
         }
     }
 }

@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
+use std::sync::Arc;
+
 pub mod partial;
 
 #[cfg(feature = "sat")]
@@ -39,37 +41,10 @@ pub trait Solver {
     fn solve(&mut self, opts: SolveOptions<Self::Model>) -> SolveResult;
 
     /// Accesses the model in the solver.
-    fn as_model(&mut self) -> &mut Self::Model;
+    fn as_model(&self) -> &Self::Model;
 
     /// Destroys this solver and returns the internal model.
     fn into_model(self) -> Self::Model;
-}
-
-impl<S: Solver, T: Ops> Encoder<T> for S
-where
-    S::Model: Encoder<T>,
-{
-    type Repr = <<S as Solver>::Model as Encoder<T>>::Repr;
-
-    fn fresh(&self) -> Self::Repr {
-        self.as_model().fresh()
-    }
-
-    fn from_const(&self, value: impl Into<T>) -> Self::Repr {
-        self.as_model().from_const(value)
-    }
-
-    fn to_const(&self, repr: Self::Repr) -> Option<T> {
-        self.as_model().to_const(repr)
-    }
-
-    fn unary_op(&self, op: <T as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
-        self.as_model().unary_op(op, repr)
-    }
-
-    fn binary_op(&self, op: <T as Ops>::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
-        self.as_model().binary_op(op, lhs, rhs)
-    }
 }
 
 /// Parameters for a [Solver] run.
@@ -126,7 +101,7 @@ impl SolveResult {
 }
 
 /// Type alias for the representation of Boolean values in an encoder.
-pub type Bool<M: Encoder<bool>> = M::Repr;
+pub type Bool<M: Encoder<bool>> = <M as Encoder<bool>>::Repr;
 
 /// An incrementally-constructed logic model.
 pub trait Model: Encoder<bool> {}
@@ -134,7 +109,7 @@ pub trait Model: Encoder<bool> {}
 /// Operations for manipulated encoded values.
 pub trait Encoder<T: Ops> {
     /// The representation of this value in the solver.
-    type Repr: Copy + Send + Sync + 'static;
+    type Repr: Clone + 'static;
 
     /// Creates a fresh, uninterpreted variable.
     fn fresh(&self) -> Self::Repr;
@@ -150,6 +125,30 @@ pub trait Encoder<T: Ops> {
 
     /// Encodes a binary operation on two values.
     fn binary_op(&self, op: T::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr;
+}
+
+impl<T: Ops, E: Encoder<T>> Encoder<T> for Arc<E> {
+    type Repr = E::Repr;
+
+    fn fresh(&self) -> Self::Repr {
+        self.as_ref().fresh()
+    }
+
+    fn from_const(&self, value: impl Into<T>) -> Self::Repr {
+        self.as_ref().from_const(value)
+    }
+
+    fn to_const(&self, repr: E::Repr) -> Option<T> {
+        self.as_ref().to_const(repr)
+    }
+
+    fn unary_op(&self, op: <T as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
+        self.as_ref().unary_op(op, repr)
+    }
+
+    fn binary_op(&self, op: <T as Ops>::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
+        self.as_ref().binary_op(op, lhs, rhs)
+    }
 }
 
 /// Defines associated operation kinds on a type.
@@ -172,12 +171,7 @@ pub enum BoolBinaryOp {
     Or,
 }
 
-impl Commutative for BoolBinaryOp {}
-
 /// Unary operations that can be performed on a Boolean value.
 pub enum BoolUnaryOp {
     Not,
 }
-
-/// A marker trait for binary operations that are always commutative.
-pub trait Commutative {}
