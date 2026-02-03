@@ -101,7 +101,7 @@ impl SolveResult {
 }
 
 /// Type alias for the representation of Boolean values in an encoder.
-pub type Bool<M: Encoder<bool>> = <M as Encoder<bool>>::Repr;
+pub type Bool<M> = <M as Encoder<bool>>::Repr;
 
 /// An incrementally-constructed logic model.
 pub trait Model: Encoder<bool> {}

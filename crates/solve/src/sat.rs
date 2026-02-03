@@ -37,7 +37,10 @@ use rustsat::{
 };
 use smallvec::{smallvec, SmallVec};
 
-use crate::{partial::PartialValue, *};
+use crate::{
+    partial::{PartialEncoder, PartialValue},
+    *,
+};
 
 #[derive(Default)]
 pub struct SatSolver<S> {
@@ -143,8 +146,8 @@ where
         }
     }
 
-    fn as_model(&mut self) -> &mut Self::Model {
-        &mut self.model
+    fn as_model(&self) -> &Self::Model {
+        &self.model
     }
 
     fn into_model(self) -> Self::Model {
@@ -258,15 +261,7 @@ impl Default for SatModelInner {
     }
 }
 
-impl Model for SatModel {
-    type Encoder = Self;
-
-    fn encode(&self) -> Self::Encoder {
-        self.clone()
-    }
-
-    type Bool = PartialValue<bool, SatLit>;
-}
+impl Model for SatModel {}
 
 impl SatModelInner {
     /// Adds a gate to this model and returns its variable ID.
@@ -295,22 +290,6 @@ impl SatModelInner {
     }
 }
 
-/// A logical gate, which encodes CNF clauses to constrain values.
-///
-/// For now, it's assumed that all gates force exactly one literal as output.
-/// When support for bitvectors is added, gates will support constraining
-/// multiple output literals at once.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Gate {
-    /// A mapping from gate term variable indices to [SatLit].
-    pub literals: SmallVec<[SatLit; 2]>,
-
-    /// The list of clauses in the gate.
-    ///
-    /// Optimized for data locality (hash-consing + encoding). AND and OR gates are three clauses each.
-    pub clauses: SmallVec<[Clause; 3]>,
-}
-
 /// A macro for easily instantiating a [GateTerm].
 macro_rules! term {
     (~output) => {
@@ -334,6 +313,88 @@ macro_rules! term {
             polarity: true,
         }
     };
+}
+
+impl PartialEncoder<bool> for SatModelInner {
+    type Repr = SatLit;
+
+    fn fresh_variable(&self) -> Self::Repr {
+        SatLit {
+            variable: self.add_var(),
+            polarity: true,
+        }
+    }
+
+    fn unary_op_variable(&self, op: <bool as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
+        match op {
+            BoolUnaryOp::Not => repr.not(),
+        }
+    }
+
+    fn binary_op_const(
+        &self,
+        op: <bool as Ops>::BinaryOp,
+        lhs: Self::Repr,
+        rhs: bool,
+    ) -> PartialValue<bool, Self::Repr> {
+        use BoolBinaryOp::*;
+        use PartialValue::*;
+        match (op, rhs) {
+            (And, false) => Const(false),
+            (And, true) => Variable(lhs),
+            (Or, true) => Const(true),
+            (Or, false) => Variable(lhs),
+        }
+    }
+
+    fn binary_op_variable(
+        &self,
+        op: <bool as Ops>::BinaryOp,
+        lhs: Self::Repr,
+        rhs: Self::Repr,
+    ) -> PartialValue<bool, Self::Repr> {
+        // choose Tseitin encoding depending on operation
+        let clauses = match op {
+            BoolBinaryOp::And => smallvec![
+                smallvec!(term!(~0), term!(~1), term!(output)),
+                smallvec!(term!(0), term!(~output)),
+                smallvec!(term!(1), term!(~output))
+            ],
+            BoolBinaryOp::Or => smallvec!(
+                smallvec!(term!(0), term!(1), term!(~output)),
+                smallvec!(term!(~0), term!(output)),
+                smallvec!(term!(~1), term!(output))
+            ),
+        };
+
+        // create the gate encoding
+        let gate = Gate {
+            literals: smallvec![lhs, rhs],
+            clauses,
+        };
+
+        // return the gate's output as a literal
+        PartialValue::Variable(SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        })
+    }
+}
+
+/// A logical gate, which encodes CNF clauses to constrain values.
+///
+/// For now, it's assumed that all gates force exactly one literal as output.
+/// When support for bitvectors is added, gates will support constraining
+/// multiple output literals at once.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Gate {
+    /// A mapping from gate term variable indices to [SatLit].
+    pub literals: SmallVec<[SatLit; 2]>,
+
+    /// The list of clauses in the gate.
+    ///
+    /// Optimized for data locality (hash-consing + encoding). AND and OR gates are three clauses each.
+    pub clauses: SmallVec<[Clause; 3]>,
 }
 
 /// A singular clause in a [Gate].
@@ -375,79 +436,6 @@ pub struct SatLit {
 
     /// This literal's polarity.
     pub polarity: bool,
-}
-
-impl Fresh<SatModel> for SatLit {
-    fn fresh(encoder: &mut SatModel) -> Self {
-        SatLit {
-            variable: encoder.add_var(),
-            polarity: true,
-        }
-    }
-}
-
-impl<E> UnaryOp<E> for SatLit {
-    type Op = BoolUnaryOp;
-
-    fn unary_op(self, _encoder: &mut E, op: Self::Op) -> Self {
-        match op {
-            BoolUnaryOp::Not => self.not(),
-        }
-    }
-}
-
-impl BinaryOp<SatModel> for SatLit {
-    type Op = BoolBinaryOp;
-
-    fn binary_op(self, encoder: &mut SatModel, op: Self::Op, rhs: Self) -> Self {
-        // choose Tseitin encoding depending on operation
-        let clauses = match op {
-            BoolBinaryOp::And => smallvec![
-                smallvec!(term!(~0), term!(~1), term!(output)),
-                smallvec!(term!(0), term!(~output)),
-                smallvec!(term!(1), term!(~output))
-            ],
-            BoolBinaryOp::Or => smallvec!(
-                smallvec!(term!(0), term!(1), term!(~output)),
-                smallvec!(term!(~0), term!(output)),
-                smallvec!(term!(~1), term!(output))
-            ),
-        };
-
-        // create the gate encoding
-        let gate = Gate {
-            literals: smallvec![self, rhs],
-            clauses,
-        };
-
-        // return the gate's output as a literal
-        SatLit {
-            variable: encoder.add_gate(gate),
-            polarity: true,
-        }
-    }
-}
-
-impl BinaryOp<SatModel, bool> for PartialValue<bool, SatLit> {
-    type Op = BoolBinaryOp;
-
-    fn binary_op(self, _encoder: &mut SatModel, op: Self::Op, rhs: bool) -> Self {
-        use BoolBinaryOp::*;
-        use PartialValue::*;
-        match (op, rhs) {
-            (And, false) => Const(false),
-            (And, true) => self,
-            (Or, true) => Const(true),
-            (Or, false) => self,
-        }
-    }
-}
-
-impl<E> ToRust<E, bool> for SatLit {
-    fn to_const(&self, _encoder: &mut E) -> Option<bool> {
-        // CNF variables are never known before solve
-        None
-    }
 }
 
 impl Not for SatLit {

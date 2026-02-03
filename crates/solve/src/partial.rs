@@ -41,72 +41,73 @@ impl<C, V> PartialValue<C, V> {
     }
 }
 
-impl<E, C: Eq, V: Fresh<E>> Fresh<E> for PartialValue<C, V> {
-    fn fresh(encoder: &mut E) -> Self {
-        PartialValue::Variable(V::fresh(encoder))
-    }
-}
+impl<E: PartialEncoder<bool>> Encoder<bool> for E {
+    type Repr = PartialValue<bool, E::Repr>;
 
-impl<E, C, V> FromRust<E, C> for PartialValue<C, V> {
-    fn from_const(_encoder: &mut E, value: C) -> Self {
-        PartialValue::Const(value)
+    fn fresh(&self) -> Self::Repr {
+        PartialValue::Variable(self.fresh_variable())
     }
-}
 
-impl<E, C: Clone, V: ToRust<E, C>> ToRust<E, C> for PartialValue<C, V> {
-    fn to_const(&self, encoder: &mut E) -> Option<C> {
-        match self {
-            PartialValue::Const(value) => Some(value.clone()),
-            PartialValue::Variable(var) => var.to_const(encoder),
+    fn from_const(&self, value: impl Into<bool>) -> Self::Repr {
+        PartialValue::Const(value.into())
+    }
+
+    fn to_const(&self, repr: Self::Repr) -> Option<bool> {
+        match repr {
+            PartialValue::Const(value) => Some(value),
+            PartialValue::Variable(_) => None,
         }
     }
-}
 
-impl<E, V> UnaryOp<E> for PartialValue<bool, V>
-where
-    V: UnaryOp<E, Op = BoolUnaryOp>,
-{
-    type Op = BoolUnaryOp;
-
-    fn unary_op(self, encoder: &mut E, op: Self::Op) -> Self {
-        let value = match self {
-            PartialValue::Const(value) => value,
-            PartialValue::Variable(var) => {
-                return PartialValue::Variable(var.unary_op(encoder, op))
-            }
-        };
-
-        match op {
-            BoolUnaryOp::Not => PartialValue::Const(!value),
-        }
-    }
-}
-
-impl<E, C, V, Op> BinaryOp<E> for PartialValue<C, V>
-where
-    V: BinaryOp<E, Op = Op>,
-    PartialValue<C, V>: BinaryOp<E, C, Op = Op>,
-    Op: Commutative,
-{
-    type Op = Op;
-
-    fn binary_op(self, encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
+    fn unary_op(&self, op: BoolUnaryOp, repr: Self::Repr) -> Self::Repr {
         use PartialValue::*;
-        match (self, rhs) {
-            (Variable(lhs), Variable(rhs)) => Variable(lhs.binary_op(encoder, op, rhs)),
-            (partial, Const(rhs)) | (Const(rhs), partial) => partial.binary_op(encoder, op, rhs),
+        match repr {
+            Variable(var) => Variable(self.unary_op_variable(op, var)),
+            Const(value) => match op {
+                BoolUnaryOp::Not => Const(!value),
+            },
+        }
+    }
+
+    fn binary_op(&self, op: BoolBinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
+        use PartialValue::*;
+        match (lhs, rhs) {
+            (Variable(lhs), Variable(rhs)) => self.binary_op_variable(op, lhs, rhs),
+            (Variable(lhs), Const(rhs)) | (Const(rhs), Variable(lhs)) => {
+                self.binary_op_const(op, lhs, rhs)
+            }
+            (Const(lhs), Const(rhs)) => Const(match op {
+                BoolBinaryOp::And => lhs && rhs,
+                BoolBinaryOp::Or => lhs || rhs,
+            }),
         }
     }
 }
 
-impl<E> BinaryOp<E> for bool {
-    type Op = BoolBinaryOp;
+/// An encoder that relies on partial evaluation for constant values.
+pub trait PartialEncoder<T: Ops> {
+    /// The representation of variable values in the encoder.
+    type Repr: Clone + 'static;
 
-    fn binary_op(self, _encoder: &mut E, op: Self::Op, rhs: Self) -> Self {
-        use BoolBinaryOp::*;
-        match op {
-            And => self && rhs,
-            Or => self || rhs,
-        }
-    }
+    /// Creates a fresh, uninterpreted variable value.
+    fn fresh_variable(&self) -> Self::Repr;
+
+    /// Evaluates a unary operation on a variable.
+    fn unary_op_variable(&self, op: T::UnaryOp, repr: Self::Repr) -> Self::Repr;
+
+    /// Evaluates a binary operation of a variable against a constant.
+    fn binary_op_const(
+        &self,
+        op: T::BinaryOp,
+        lhs: Self::Repr,
+        rhs: T,
+    ) -> PartialValue<T, Self::Repr>;
+
+    /// Evaluates a binary operation of a variable against another variable.
+    fn binary_op_variable(
+        &self,
+        op: T::BinaryOp,
+        lhs: Self::Repr,
+        rhs: Self::Repr,
+    ) -> PartialValue<T, Self::Repr>;
 }
