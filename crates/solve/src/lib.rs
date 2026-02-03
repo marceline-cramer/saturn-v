@@ -45,16 +45,43 @@ pub trait Solver {
     fn into_model(self) -> Self::Model;
 }
 
+impl<S: Solver, T: Ops> Encoder<T> for S
+where
+    S::Model: Encoder<T>,
+{
+    type Repr = <<S as Solver>::Model as Encoder<T>>::Repr;
+
+    fn fresh(&self) -> Self::Repr {
+        self.as_model().fresh()
+    }
+
+    fn from_const(&self, value: impl Into<T>) -> Self::Repr {
+        self.as_model().from_const(value)
+    }
+
+    fn to_const(&self, repr: Self::Repr) -> Option<T> {
+        self.as_model().to_const(repr)
+    }
+
+    fn unary_op(&self, op: <T as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
+        self.as_model().unary_op(op, repr)
+    }
+
+    fn binary_op(&self, op: <T as Ops>::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
+        self.as_model().binary_op(op, lhs, rhs)
+    }
+}
+
 /// Parameters for a [Solver] run.
 pub struct SolveOptions<'a, M: Model> {
     /// The hard assumptions.
-    pub hard: &'a [M::Bool],
+    pub hard: &'a [Bool<M>],
 
     /// The soft assumptions to use.
-    pub soft: &'a [(M::Bool, u32)],
+    pub soft: &'a [(Bool<M>, u32)],
 
     /// The Boolean values to evaluate after solving.
-    pub bool_eval: &'a [M::Bool],
+    pub bool_eval: &'a [Bool<M>],
 }
 
 impl<'a, M: Model> Default for SolveOptions<'a, M> {
@@ -98,76 +125,45 @@ impl SolveResult {
     }
 }
 
+/// Type alias for the representation of Boolean values in an encoder.
+pub type Bool<M: Encoder<bool>> = M::Repr;
+
 /// An incrementally-constructed logic model.
-pub trait Model {
-    /// The type of encoders for this model.
-    type Encoder: Send + Sync + 'static;
+pub trait Model: Encoder<bool> {}
 
-    /// Create an [Encoder] for this model.
-    fn encode(&self) -> Self::Encoder;
+/// Operations for manipulated encoded values.
+pub trait Encoder<T: Ops> {
+    /// The representation of this value in the solver.
+    type Repr: Copy + Send + Sync + 'static;
 
-    /// The type of this model's Boolean values.
-    type Bool: Bool<Self::Encoder>;
+    /// Creates a fresh, uninterpreted variable.
+    fn fresh(&self) -> Self::Repr;
+
+    /// Creates a value of this type from a Rust constant.
+    fn from_const(&self, value: impl Into<T>) -> Self::Repr;
+
+    /// Attempts to convert a value of this type back to a constant.
+    fn to_const(&self, repr: Self::Repr) -> Option<T>;
+
+    /// Encodes a unary operation on a value.
+    fn unary_op(&self, op: T::UnaryOp, repr: Self::Repr) -> Self::Repr;
+
+    /// Encodes a binary operation on two values.
+    fn binary_op(&self, op: T::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr;
 }
 
-/// A trait for Boolean values within the given encoder.
-pub trait Bool<E: ?Sized>:
-    Fresh<E>
-    + FromRust<E, bool>
-    + ToRust<E, bool>
-    + UnaryOp<E, Op = BoolUnaryOp>
-    + BinaryOp<E, Op = BoolBinaryOp>
-    + Clone
-{
-}
-
-impl<E: ?Sized, T> Bool<E> for T where
-    T: Fresh<E>
-        + FromRust<E, bool>
-        + ToRust<E, bool>
-        + UnaryOp<E, Op = BoolUnaryOp>
-        + BinaryOp<E, Op = BoolBinaryOp>
-        + Clone
-{
-}
-
-/// Encode a value from a Rust value.
-pub trait FromRust<E: ?Sized, T> {
-    /// Encodes a value of this type from a Rust value.
-    fn from_const(encoder: &mut E, value: T) -> Self;
-}
-
-/// Decode a Rust value from a value.
-pub trait ToRust<E: ?Sized, T> {
-    /// Attempts to convert a value of this type to a Rust value.
-    fn to_const(&self, encoder: &mut E) -> Option<T>;
-}
-
-/// Create a unique, unconstrained value.
-///
-/// If a value is equivalent via [Eq], it is guaranteed to refer only to the
-/// same fresh value.
-pub trait Fresh<E: ?Sized>: Eq {
-    /// Create an unconstrained value.
-    fn fresh(encoder: &mut E) -> Self;
-}
-
-/// Implements unary operations.
-pub trait UnaryOp<E: ?Sized> {
+/// Defines associated operation kinds on a type.
+pub trait Ops {
     /// The type of unary operations on this value.
-    type Op;
+    type UnaryOp;
 
-    /// Encodes a unary operation on this value.
-    fn unary_op(self, encoder: &mut E, op: Self::Op) -> Self;
+    /// The type of binary operations on this value.
+    type BinaryOp;
 }
 
-/// Implements binary operations with a specific right-hand operand type.
-pub trait BinaryOp<E: ?Sized, Rhs: ?Sized = Self> {
-    /// The type of binary operations on this value.
-    type Op;
-
-    /// Encodes a binary operation on this value.
-    fn binary_op(self, encoder: &mut E, op: Self::Op, rhs: Rhs) -> Self;
+impl Ops for bool {
+    type BinaryOp = BoolBinaryOp;
+    type UnaryOp = BoolUnaryOp;
 }
 
 /// Binary operations that can be performed on a Boolean value.

@@ -18,9 +18,7 @@ use crate::*;
 
 fn test_assume_true<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let val = FromRust::from_const(&mut enc, true);
+    let val = solver.from_const(true);
 
     let result = solver.solve(SolveOptions {
         hard: &[val],
@@ -32,9 +30,7 @@ fn test_assume_true<S: Solver + Default>() {
 
 fn test_assume_false<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let val = FromRust::from_const(&mut enc, false);
+    let val = solver.from_const(false);
 
     let result = solver.solve(SolveOptions {
         hard: &[val],
@@ -46,10 +42,8 @@ fn test_assume_false<S: Solver + Default>() {
 
 fn test_assume_not_false<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let val = <S::Model as Model>::Bool::from_const(&mut enc, false);
-    let not_val = val.unary_op(&mut enc, BoolUnaryOp::Not);
+    let val = solver.from_const(false);
+    let not_val = solver.unary_op(BoolUnaryOp::Not, val);
 
     let result = solver.solve(SolveOptions {
         hard: &[not_val],
@@ -61,10 +55,8 @@ fn test_assume_not_false<S: Solver + Default>() {
 
 fn test_assume_not_true<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let val = <S::Model as Model>::Bool::from_const(&mut enc, true);
-    let not_val = val.unary_op(&mut enc, BoolUnaryOp::Not);
+    let val = solver.from_const(true);
+    let not_val = solver.unary_op(BoolUnaryOp::Not, val);
 
     let result = solver.solve(SolveOptions {
         hard: &[not_val],
@@ -76,12 +68,10 @@ fn test_assume_not_true<S: Solver + Default>() {
 
 fn test_assume_fresh<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let val = <S::Model as Model>::Bool::fresh(&mut enc);
+    let val = solver.fresh();
 
     let result = solver.solve(SolveOptions {
-        hard: &[val.clone()],
+        hard: &[val],
         bool_eval: &[val],
         ..Default::default()
     });
@@ -97,17 +87,13 @@ fn test_assume_fresh<S: Solver + Default>() {
 
 fn test_and_nor_unsat<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let lhs = <S::Model as Model>::Bool::fresh(&mut enc);
-    let rhs = <S::Model as Model>::Bool::fresh(&mut enc);
 
-    let and = lhs
-        .clone()
-        .binary_op(&mut enc, BoolBinaryOp::And, rhs.clone());
+    let lhs = solver.fresh();
+    let rhs = solver.fresh();
 
-    let or = lhs.binary_op(&mut enc, BoolBinaryOp::Or, rhs);
-    let nor = or.unary_op(&mut enc, BoolUnaryOp::Not);
+    let and = solver.binary_op(BoolBinaryOp::And, lhs, rhs);
+    let or = solver.binary_op(BoolBinaryOp::Or, lhs, rhs);
+    let nor = solver.unary_op(BoolUnaryOp::Not, or);
 
     let result = solver.solve(SolveOptions {
         hard: &[and, nor],
@@ -119,20 +105,16 @@ fn test_and_nor_unsat<S: Solver + Default>() {
 
 fn test_minimize_either_or<S: Solver + Default>() {
     let mut solver = S::default();
-    let model = solver.as_model();
-    let mut enc = model.encode();
-    let lhs = <S::Model as Model>::Bool::fresh(&mut enc);
-    let rhs = <S::Model as Model>::Bool::fresh(&mut enc);
 
-    let and = lhs
-        .clone()
-        .binary_op(&mut enc, BoolBinaryOp::And, rhs.clone());
+    let lhs = solver.fresh();
+    let rhs = solver.fresh();
 
-    let nand = and.clone().unary_op(&mut enc, BoolUnaryOp::Not);
+    let and = solver.binary_op(BoolBinaryOp::And, lhs, rhs);
+    let nand = solver.unary_op(BoolUnaryOp::Not, and);
 
     let result = solver.solve(SolveOptions {
         hard: &[nand],
-        soft: &[(lhs.clone(), 1), (rhs.clone(), 2)],
+        soft: &[(lhs, 1), (rhs, 2)],
         bool_eval: &[and, lhs, rhs],
     });
 
