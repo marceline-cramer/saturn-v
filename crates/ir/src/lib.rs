@@ -167,11 +167,13 @@ pub enum ConstraintKind {
         kind: CardinalityConstraintKind,
 
         /// The threshold of the cardinality constraint.
-        threshold: u16,
+        threshold: u32,
     },
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, EnumString, Deserialize, Serialize,
+)]
 #[cfg_attr(feature = "fuzz", derive(Arbitrary))]
 pub enum CardinalityConstraintKind {
     /// The cardinality must be at least the threshold.

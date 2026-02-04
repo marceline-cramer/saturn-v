@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, str::FromStr, sync::Arc};
+use std::{fmt::Debug, str::FromStr};
 
 use chumsky::{input::ValueInput, prelude::*};
 use either::Either;
@@ -64,14 +64,16 @@ impl Sexp for Relation<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        let base = group((
-            Token::item(),
-            StructuredType::parser(),
-            RelationKind::parser(),
-            RelationIO::parser(),
+        let base = set((
+            parse_property("name", Token::item()),
+            parse_property("stratum", Token::unsigned()),
+            parse_property("ty", StructuredType::parser()),
+            parse_property("kind", RelationKind::parser()),
+            parse_property("io", RelationIO::parser()),
         ))
-        .map(|(store, ty, kind, io)| Relation {
+        .map(|(store, stratum, ty, kind, io)| Relation {
             store,
+            stratum,
             ty,
             kind,
             io,
@@ -110,19 +112,39 @@ impl Sexp for Constraint<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        todo!()
+        let body = set((
+            parse_property("weight", ConstraintWeight::parser()),
+            parse_property("kind", ConstraintKind::parser()),
+            parse_property("head", Vec::<u32>::parser()),
+            parse_property("body", RuleBody::parser()),
+        ))
+        .map(|(weight, kind, head, body)| Constraint {
+            weight,
+            kind,
+            head,
+            body,
+        });
+
+        parse_list("constraint", body)
     }
 }
 
 impl Sexp for Rule<String> {
     fn to_doc(&self) -> Doc {
-        todo!()
+        doc_pair(
+            "rule",
+            QueryTerm::to_doc(self.head.iter())
+                .append(Doc::space())
+                .append(self.body.to_doc()),
+        )
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        QueryTerm::parser()
+        let body = QueryTerm::parser()
             .then(RuleBody::parser())
-            .map(|(head, body)| Rule { head, body })
+            .map(|(head, body)| Rule { head, body });
+
+        parse_list("rule", body)
     }
 }
 
@@ -132,7 +154,50 @@ impl Sexp for RuleBody<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        let loaded = parse_list("vec-of", Token::item().repeated().collect());
+
+        let body = set((
+            parse_property("vars", Vec::<Type>::parser()),
+            parse_property("loaded", loaded),
+        ))
+        .then(Instruction::parser())
+        .map(|((vars, loaded), instructions)| RuleBody {
+            vars,
+            loaded,
+            instructions,
+        });
+
+        parse_list("rule-body", body)
+    }
+}
+
+impl Sexp for ConstraintKind {
+    fn to_doc(&self) -> Doc {
         todo!()
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list(
+            "Cardinality",
+            CardinalityConstraintKind::parser()
+                .then(Token::unsigned())
+                .map(|(kind, threshold)| ConstraintKind::Cardinality { kind, threshold }),
+        )
+    }
+}
+
+impl Sexp for ConstraintWeight {
+    fn to_doc(&self) -> Doc {
+        todo!()
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list("Hard", empty())
+            .to(ConstraintWeight::Hard)
+            .or(parse_list(
+                "Soft",
+                Token::unsigned().to(ConstraintWeight::Hard),
+            ))
     }
 }
 
@@ -434,6 +499,11 @@ impl Token {
         just(Token::Item(name.to_string()))
     }
 
+    /// Short-hand to expect a specific keyword.
+    pub fn expect_kw<I: TokenInput>(name: impl ToString) -> impl SexpParser<I, Token> {
+        just(Token::Keyword(name.to_string()))
+    }
+
     /// Short-hand to parse an integer.
     pub fn integer<I: TokenInput>() -> impl SexpParser<I, i64> {
         select! {
@@ -511,6 +581,21 @@ pub fn doc_list(inner: Doc) -> Doc {
     Doc::text("(").append(inner).append(")")
 }
 
+/// Creates a keyword-indicated document property.
+pub fn doc_property(name: &'static str, value: impl Into<Doc>) -> Doc {
+    Doc::text(format!(":{name}"))
+        .append(Doc::space())
+        .append(value.into())
+}
+
+/// Parse a keyword-indicated property with the given parser.
+pub fn parse_property<I: TokenInput, T>(
+    kw: &'static str,
+    items: impl SexpParser<I, T>,
+) -> impl SexpParser<I, T> {
+    Token::expect_kw(kw).ignore_then(items)
+}
+
 /// Parse a paren-delimited list annotated with a given tag.
 pub fn parse_list<I: TokenInput, T>(
     tag: &'static str,
@@ -534,6 +619,7 @@ impl SexpVariant for RelationIO {}
 impl SexpVariant for RelationKind {}
 impl SexpVariant for BinaryOpKind {}
 impl SexpVariant for UnaryOpKind {}
+impl SexpVariant for CardinalityConstraintKind {}
 impl SexpVariant for Type {}
 
 impl<T: SexpVariant> Sexp for T {
@@ -558,14 +644,35 @@ pub trait Sexp: Sized {
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self>;
 }
 
-impl Sexp for BTreeSet<u32> {
+impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
         doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        parse_list("set-of", Token::unsigned().repeated().collect())
+        parse_list("set-of", T::parser().repeated().collect())
+    }
+}
+
+impl<T: Sexp> Sexp for Vec<T> {
+    fn to_doc(&self) -> Doc {
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
+        doc_list(Doc::text("vec-of").append(Doc::line().append(vars).nest(4).group()))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list("vec-of", T::parser().repeated().collect())
+    }
+}
+
+impl Sexp for u32 {
+    fn to_doc(&self) -> Doc {
+        Doc::text(self.to_string())
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        Token::unsigned()
     }
 }
 
