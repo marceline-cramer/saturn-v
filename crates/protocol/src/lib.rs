@@ -32,13 +32,13 @@ pub use saturn_v_ir::{self as ir, StructuredType};
 /// This is used server-side to bound the server but also client-side to bound
 /// a complete RPC protocol implementation.
 pub trait Rpc:
-    Handle<GetProgram>
-    + Handle<SetProgram>
-    + Handle<ListInputs>
-    + Handle<GetInput>
-    + Handle<UpdateInput>
-    + Handle<ListOutputs>
-    + Handle<GetOutput>
+    HandleTx<GetProgram>
+    + HandleTx<SetProgram>
+    + HandleTx<ListInputs>
+    + HandleTx<GetInput>
+    + HandleTx<UpdateInput>
+    + HandleTx<ListOutputs>
+    + HandleTx<GetOutput>
 {
 }
 
@@ -56,6 +56,20 @@ pub trait HandleSubscribe<T: Subscription> {
     ) -> impl Future<Output = ServerResult<()>> + Send;
 }
 
+/// Implements a request handler for a transactional method.
+///
+/// All transactional requests can also be executed in one-shot commits using
+/// [TxMethod].
+pub trait HandleTx<T: TxRequest>:
+    Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
+{
+}
+
+impl<T: TxRequest, H> HandleTx<T> for H where
+    H: Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
+{
+}
+
 /// Implements a request handler for a particular request type.
 pub trait Handle<T: Request> {
     /// Handles a given request.
@@ -66,7 +80,7 @@ pub trait Handle<T: Request> {
 #[derive(Deserialize, Serialize)]
 pub struct GetProgram {}
 
-impl Request for GetProgram {
+impl TxRequest for GetProgram {
     type Response = Program;
 
     fn name() -> Cow<'static, str> {
@@ -81,7 +95,7 @@ pub struct SetProgram {
     pub program: Program,
 }
 
-impl Request for SetProgram {
+impl TxRequest for SetProgram {
     type Response = ();
 
     fn name() -> Cow<'static, str> {
@@ -93,7 +107,7 @@ impl Request for SetProgram {
 #[derive(Deserialize, Serialize)]
 pub struct ListInputs {}
 
-impl Request for ListInputs {
+impl TxRequest for ListInputs {
     type Response = Vec<RelationInfo>;
 
     fn name() -> Cow<'static, str> {
@@ -108,7 +122,7 @@ pub struct GetInput {
     pub id: String,
 }
 
-impl Request for GetInput {
+impl TxRequest for GetInput {
     type Response = BTreeSet<StructuredValue>;
 
     fn name() -> Cow<'static, str> {
@@ -126,7 +140,7 @@ pub struct UpdateInput {
     pub updates: Vec<TupleUpdate>,
 }
 
-impl Request for UpdateInput {
+impl TxRequest for UpdateInput {
     type Response = ();
 
     fn name() -> Cow<'static, str> {
@@ -138,7 +152,7 @@ impl Request for UpdateInput {
 #[derive(Deserialize, Serialize)]
 pub struct ListOutputs {}
 
-impl Request for ListOutputs {
+impl TxRequest for ListOutputs {
     type Response = Vec<RelationInfo>;
 
     fn name() -> Cow<'static, str> {
@@ -153,7 +167,7 @@ pub struct GetOutput {
     pub id: String,
 }
 
-impl Request for GetOutput {
+impl TxRequest for GetOutput {
     type Response = BTreeSet<StructuredValue>;
 
     fn name() -> Cow<'static, str> {
@@ -218,8 +232,93 @@ pub trait Subscription: DeserializeOwned + Serialize + Send + Sync {
     type Response: DeserializeOwned + Serialize + Sync;
 }
 
+/// Begins an atomic transaction.
+#[derive(Deserialize, Serialize)]
+pub struct BeginTx {
+    /// The ID of this transaction.
+    pub tx: usize,
+}
+
+impl Request for BeginTx {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "BeginTx".into()
+    }
+}
+
+/// Atomically commits a transaction with rollback on failure.
+#[derive(Deserialize, Serialize)]
+pub struct CommitTx {
+    /// The ID of the transaction.
+    pub tx: usize,
+}
+
+impl Request for CommitTx {
+    type Response = TxOutput;
+
+    fn name() -> Cow<'static, str> {
+        "CommitTx".into()
+    }
+}
+
 /// An RPC server request to the ambient request context.
 pub trait Request: DeserializeOwned + Serialize + Send + Sync {
+    /// The name of this request method.
+    fn name() -> Cow<'static, str>;
+
+    /// The type of this request's response.
+    ///
+    /// This is implicitly wrapped in [ServerResult].
+    type Response: DeserializeOwned + Serialize + Sync;
+}
+
+impl<T: TxRequest> Request for T {
+    type Response = TxResponse<T::Response>;
+
+    fn name() -> Cow<'static, str> {
+        T::name()
+    }
+}
+
+/// Adds [TxOutput] to a response type.
+#[derive(Deserialize, Serialize)]
+pub struct TxResponse<T> {
+    /// The output of the transactional commit.
+    pub tx: TxOutput,
+
+    /// The response to the particular method.
+    pub response: T,
+}
+
+/// The result of a transactional commit.
+#[derive(Deserialize, Serialize)]
+pub struct TxOutput {}
+
+/// Wraps a request with a transaction ID for context, making it a transaction method.
+#[derive(Deserialize, Serialize)]
+pub struct TxMethod<T> {
+    /// The ID of this transaction.
+    pub tx: usize,
+
+    /// The inner method request.
+    pub request: T,
+}
+
+impl<T: TxRequest> Request for TxMethod<T> {
+    type Response = T::Response;
+
+    fn name() -> Cow<'static, str> {
+        format!("Tx{}", T::name()).into()
+    }
+}
+
+/// A trait for transactional requests.
+///
+/// Transactional requests can be invoked as a transaction method to yield
+/// their result or standalone outside of a method to receive their result and
+/// the output of a one-shot committed transaction.
+pub trait TxRequest: DeserializeOwned + Serialize + Send + Sync {
     /// The name of this request method.
     fn name() -> Cow<'static, str>;
 
