@@ -9,7 +9,7 @@ edition = "2021"
 version = "0.2.0"
 authors = ["Marceline Cramer <cramermarceline@gmail.com>"]
 repository = "https://github.com/marceline-cramer/saturn-v"
-rust-version = "1.91.1"
+rust-version = "1.90"
 
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
