@@ -204,6 +204,80 @@ impl Deref for Server {
     }
 }
 
+impl CommitDataflow for Server {
+    async fn commit(&mut self, program_map: ProgramMap, events: Vec<InputEvent>) -> SequenceId {
+        // acquire lock
+        let mut server = self.lock().await;
+
+        // dereference server mutex to permit split mutable borrow
+        let server = server.deref_mut();
+
+        // update program map before flushing updates
+        server.update_program(program_map);
+
+        // allocate sequence
+        let sequence = server.sequence;
+        server.sequence += 1;
+
+        // split borrow dataflow inputs and relations
+        let (dataflow, relations) = (&mut server.inputs, &mut server.relations);
+
+        // retrieve input relation references
+        let mut relations: BTreeMap<_, _> = relations
+            .values_mut()
+            .filter(|rel| rel.io == RelationIO::Input)
+            .map(|input| (input.rel, input))
+            .collect();
+
+        // process events
+        for event in events {
+            // extract an input fact update, if one is set
+            let input = match &event {
+                InputEvent::Insert(InputEventKind::Fact(fact)) => Some(TupleUpdate::insert(fact)),
+                InputEvent::Remove(InputEventKind::Fact(fact)) => Some(TupleUpdate::remove(fact)),
+                _ => None,
+            };
+
+            // apply an input fact update to relation state
+            if let Some(TupleUpdate { state, value }) = input {
+                if let Some(relation) = relations.get_mut(&value.relation) {
+                    let value = relation.structure_values(&mut value.values.iter());
+                    relation.push(TupleUpdate { value, state });
+                }
+            }
+
+            // push event into dataflow
+            use InputEvent::*;
+            match event {
+                Insert(ev) => dataflow.events.insert(ev),
+                Remove(ev) => dataflow.events.remove(ev),
+            };
+        }
+
+        // flush events to dataflow
+        dataflow.events.flush();
+
+        // return sequence
+        SequenceId(sequence)
+    }
+}
+
+impl<T: TxRequest> Handle<T> for Server
+where
+    FjallTransaction<Self>: HandleTx<T>,
+{
+    async fn on_request(&self, request: T) -> ServerResult<TxResponse<T::Response>> {
+        let mut tx = self.lock().await.database.transaction(self.to_owned())?;
+        let result = tx.on_request(request).await?;
+        tx.commit().await?;
+
+        Ok(TxResponse {
+            tx: TxOutput {},
+            response: result,
+        })
+    }
+}
+
 impl Server {
     pub async fn make_transaction<T>(
         &self,
@@ -264,64 +338,6 @@ pub struct ServerInner {
     sequence: u64,
     program_map: ProgramMap,
     relations: HashMap<String, RelationBag>,
-}
-
-impl CommitDataflow for Server {
-    async fn commit(&mut self, program_map: ProgramMap, events: Vec<InputEvent>) -> SequenceId {
-        // acquire lock
-        let mut server = self.lock().await;
-
-        // dereference server mutex to permit split mutable borrow
-        let server = server.deref_mut();
-
-        // update program map before flushing updates
-        server.update_program(program_map);
-
-        // allocate sequence
-        let sequence = server.sequence;
-        server.sequence += 1;
-
-        // split borrow dataflow inputs and relations
-        let (dataflow, relations) = (&mut server.inputs, &mut server.relations);
-
-        // retrieve input relation references
-        let mut relations: BTreeMap<_, _> = relations
-            .values_mut()
-            .filter(|rel| rel.io == RelationIO::Input)
-            .map(|input| (input.rel, input))
-            .collect();
-
-        // process events
-        for event in events {
-            // extract an input fact update, if one is set
-            let input = match &event {
-                InputEvent::Insert(InputEventKind::Fact(fact)) => Some(TupleUpdate::insert(fact)),
-                InputEvent::Remove(InputEventKind::Fact(fact)) => Some(TupleUpdate::remove(fact)),
-                _ => None,
-            };
-
-            // apply an input fact update to relation state
-            if let Some(TupleUpdate { state, value }) = input {
-                if let Some(relation) = relations.get_mut(&value.relation) {
-                    let value = relation.structure_values(&mut value.values.iter());
-                    relation.push(TupleUpdate { value, state });
-                }
-            }
-
-            // push event into dataflow
-            use InputEvent::*;
-            match event {
-                Insert(ev) => dataflow.events.insert(ev),
-                Remove(ev) => dataflow.events.remove(ev),
-            };
-        }
-
-        // flush events to dataflow
-        dataflow.events.flush();
-
-        // return sequence
-        SequenceId(sequence)
-    }
 }
 
 impl ServerInner {

@@ -32,13 +32,13 @@ pub use saturn_v_ir::{self as ir, StructuredType};
 /// This is used server-side to bound the server but also client-side to bound
 /// a complete RPC protocol implementation.
 pub trait Rpc:
-    HandleTx<GetProgram>
-    + HandleTx<SetProgram>
-    + HandleTx<ListRelations>
-    + HandleTx<GetTuples>
-    + HandleTx<CheckTuples>
-    + HandleTx<UpdateInput>
-    + HandleTx<ClearInput>
+    HandleTxMethod<GetProgram>
+    + HandleTxMethod<SetProgram>
+    + HandleTxMethod<ListRelations>
+    + HandleTxMethod<GetTuples>
+    + HandleTxMethod<CheckTuples>
+    + HandleTxMethod<UpdateInput>
+    + HandleTxMethod<ClearInput>
     + HandleSubscribe<WatchRelation>
 {
 }
@@ -59,16 +59,13 @@ pub trait HandleSubscribe<T: Subscription> {
     ) -> impl Future<Output = ServerResult<()>> + Send;
 }
 
-/// Implements a request handler for a transactional method.
-///
-/// All transactional requests can also be executed in one-shot commits using
-/// [TxMethod].
-pub trait HandleTx<T: TxRequest>:
+/// Trait alias for request handlers on both one-shot commits and as transaction methods.
+pub trait HandleTxMethod<T: TxRequest>:
     Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
 {
 }
 
-impl<T: TxRequest, H> HandleTx<T> for H where
+impl<T: TxRequest, H> HandleTxMethod<T> for H where
     H: Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
 {
 }
@@ -80,7 +77,7 @@ pub trait Handle<T: Request> {
 }
 
 /// Implements a request handler for a particular transaction request type.
-pub trait TxHandle<T: TxRequest> {
+pub trait HandleTx<T: TxRequest> {
     /// Handles a given request.
     fn on_request(&mut self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
 }
@@ -300,7 +297,7 @@ pub trait Request: DeserializeOwned + Serialize + Send + Sync {
     /// The type of this request's response.
     ///
     /// This is implicitly wrapped in [ServerResult].
-    type Response: DeserializeOwned + Serialize + Sync;
+    type Response: DeserializeOwned + Serialize + Send + Sync;
 }
 
 impl<T: TxRequest> Request for T {
@@ -355,7 +352,7 @@ pub trait TxRequest: DeserializeOwned + Serialize + Send + Sync {
     /// The type of this request's response.
     ///
     /// This is implicitly wrapped in [ServerResult].
-    type Response: DeserializeOwned + Serialize + Sync;
+    type Response: DeserializeOwned + Serialize + Send + Sync;
 }
 
 /// A type alias for results that only have [ServerError] for errors.
