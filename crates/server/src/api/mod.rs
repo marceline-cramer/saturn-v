@@ -126,6 +126,7 @@ async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>>
             name: name.clone(),
             id: name.clone(),
             ty: output.ty.clone(),
+            is_input: false,
         })
         .collect())
     .into()
@@ -374,16 +375,10 @@ impl Server {
     }
 
     fn get_relation(&mut self, name: &str, io: RelationIO) -> ServerResult<&mut RelationBag> {
-        let error = match io {
-            RelationIO::Input => ServerError::NoSuchInput(name.to_string()),
-            RelationIO::Output => ServerError::NoSuchOutput(name.to_string()),
-            _ => unreachable!(),
-        };
-
         self.relations
             .get_mut(name)
             .filter(|rel| rel.io == io)
-            .ok_or(error)
+            .ok_or(ServerError::NoSuchRelation(name.to_string()))
     }
 }
 

@@ -71,7 +71,7 @@ impl Client {
             .await?
             .into_iter()
             .find(|input| input.name == name)
-            .ok_or_else(|| ServerError::NoSuchInput(name.to_string()))
+            .ok_or_else(|| ServerError::NoSuchRelation(name.to_string()))
             .map_err(Into::into)
     }
 
@@ -96,7 +96,7 @@ impl Client {
             .await?
             .into_iter()
             .find(|output| output.name == name)
-            .ok_or_else(|| ServerError::NoSuchOutput(name.to_string()))
+            .ok_or_else(|| ServerError::NoSuchRelation(name.to_string()))
             .map_err(Into::into)
     }
 }
@@ -163,6 +163,7 @@ impl Client {
             info: RelationInfo {
                 name: name.to_string(),
                 id: name.to_string(),
+                is_input: false,
                 ty,
             },
         }
@@ -175,6 +176,7 @@ impl Client {
             info: RelationInfo {
                 name: id.to_string(),
                 id: id.to_string(),
+                is_input: true,
                 ty,
             },
         }

@@ -484,7 +484,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             .input_relations
             .get(input)
             .cloned()
-            .ok_or(ServerError::NoSuchInput(input.to_string()))
+            .ok_or(ServerError::NoSuchRelation(input.to_string()))
     }
 
     /// Loads the current state of the database into the dataflow.
@@ -548,6 +548,7 @@ impl InputRelation {
             name: self.name.clone(),
             id: self.id.clone(),
             ty: self.ty.clone(),
+            is_input: true,
         }
     }
 
@@ -617,6 +618,7 @@ impl OutputRelation {
             name: self.name.clone(),
             id: self.id.clone(),
             ty: self.ty.clone(),
+            is_input: false,
         }
     }
 }

@@ -34,11 +34,9 @@ pub use saturn_v_ir::{self as ir, StructuredType};
 pub trait Rpc:
     HandleTx<GetProgram>
     + HandleTx<SetProgram>
-    + HandleTx<ListInputs>
-    + HandleTx<GetInput>
+    + HandleTx<ListRelations>
+    + HandleTx<GetTuples>
     + HandleTx<UpdateInput>
-    + HandleTx<ListOutputs>
-    + HandleTx<GetOutput>
 {
 }
 
@@ -103,33 +101,6 @@ impl TxRequest for SetProgram {
     }
 }
 
-/// Lists the information on each input relation.
-#[derive(Deserialize, Serialize)]
-pub struct ListInputs {}
-
-impl TxRequest for ListInputs {
-    type Response = Vec<RelationInfo>;
-
-    fn name() -> Cow<'static, str> {
-        "ListInputs".into()
-    }
-}
-
-/// Retrieves all tuples currently occupying an input relation.
-#[derive(Deserialize, Serialize)]
-pub struct GetInput {
-    /// The ID of the input relation.
-    pub id: String,
-}
-
-impl TxRequest for GetInput {
-    type Response = BTreeSet<StructuredValue>;
-
-    fn name() -> Cow<'static, str> {
-        "GetInput".into()
-    }
-}
-
 /// Applies updates to the contents of an input relation.
 #[derive(Deserialize, Serialize)]
 pub struct UpdateInput {
@@ -148,30 +119,30 @@ impl TxRequest for UpdateInput {
     }
 }
 
-/// Lists the information on each output relation.
+/// Lists the information on each loaded relation.
 #[derive(Deserialize, Serialize)]
-pub struct ListOutputs {}
+pub struct ListRelations {}
 
-impl TxRequest for ListOutputs {
+impl TxRequest for ListRelations {
     type Response = Vec<RelationInfo>;
 
     fn name() -> Cow<'static, str> {
-        "ListOutputs".into()
+        "ListRelations".into()
     }
 }
 
-/// Retrieves all tuples currently occupying an output relation.
+/// Retrieves all tuples currently occupying a relation.
 #[derive(Deserialize, Serialize)]
-pub struct GetOutput {
-    /// The ID of the output relation.
+pub struct GetTuples {
+    /// The ID of the relation.
     pub id: String,
 }
 
-impl TxRequest for GetOutput {
+impl TxRequest for GetTuples {
     type Response = BTreeSet<StructuredValue>;
 
     fn name() -> Cow<'static, str> {
-        "GetOutput".into()
+        "GetTuples".into()
     }
 }
 
@@ -342,11 +313,8 @@ pub enum ServerError {
     #[error("no program is loaded")]
     NoProgramLoaded,
 
-    #[error("input with ID {0:?} does not exist")]
-    NoSuchInput(String),
-
-    #[error("output with ID {0:?} does not exist")]
-    NoSuchOutput(String),
+    #[error("relation with ID {0:?} does not exist")]
+    NoSuchRelation(String),
 
     #[error("type mismatch: expected {expected}, got {got}")]
     TypeMismatch {
@@ -408,6 +376,9 @@ pub struct RelationInfo {
 
     /// The type of this relation.
     pub ty: StructuredType,
+
+    /// True if this relation is an input and can be modified.
+    pub is_input: bool,
 }
 
 /// A monotonically increasing identifier for input transaction results.
