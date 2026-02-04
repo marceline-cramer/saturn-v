@@ -167,7 +167,7 @@ async fn test_no_input() -> Result<()> {
     let input = client.get_invalid_input(&name, ty);
     let value = "test".to_string();
     let result = input.insert(value).await;
-    assert_eq!(server_error(result)?, ServerError::NoSuchInput(name));
+    assert_eq!(server_error(result)?, ServerError::NoSuchRelation(name));
     Ok(())
 }
 
@@ -314,7 +314,7 @@ async fn test_subscription_no_output() -> Result<()> {
     let output = client.get_invalid_output(&name, ty);
     let mut rx = output.subscribe::<String>().await?;
     let response = rx.next().await.unwrap();
-    assert_eq!(server_error(response)?, ServerError::NoSuchOutput(name));
+    assert_eq!(server_error(response)?, ServerError::NoSuchRelation(name));
     Ok(())
 }
 

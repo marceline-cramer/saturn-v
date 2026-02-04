@@ -229,6 +229,6 @@ fn test_no_such_input_error() {
 
     assert_eq!(
         result.unwrap_err(),
-        ServerError::NoSuchInput("NonExistentInput".to_string())
+        ServerError::NoSuchRelation("NonExistentInput".to_string())
     );
 }
