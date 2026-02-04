@@ -535,3 +535,28 @@ impl<T: Clone + std::fmt::Debug + Hash + Eq> Bag<T> {
         }
     }
 }
+
+/// A JSON-RPC server.
+pub struct JsonRpcServer {
+    /// A map of method names to their handlers.
+    handlers: BTreeMap<String, DynHandler>,
+
+    /// A sender of serialized JSON values to the outgoing transport.
+    tx: flume::Sender<String>,
+}
+
+impl JsonRpcServer {
+    /// Adds a handler for a request by its state.
+    pub fn add_handler<T: Request>(&mut self, state: impl Handle<T>) {
+        // initialize a dynamic-dispatch closure
+        let handler = move |value, reply| {};
+
+        // insert dynamic handler
+        self.handlers
+            .insert(T::name().to_string(), Arc::new(handler));
+    }
+}
+
+/// A boxed function for dynamic dispatch in [JsonRpcServer].
+pub type DynHandler =
+    Arc<dyn Fn(serde_json::Value, flume::Sender<serde_json::Value>) + Send + 'static>;

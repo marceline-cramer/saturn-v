@@ -546,22 +546,3 @@ impl JsonRpcClient {
         }
     }
 }
-
-/// A type schema for a JSON-RPC request.
-#[derive(Deserialize, Serialize)]
-pub struct JsonRpcRequest<T> {
-    /// Must always be "2.0".
-    // TODO: is there a serde annotation to deserialize and assert this?
-    pub jsonrpc: String,
-
-    /// The name of the method.
-    pub method: String,
-
-    /// The ID of the request.
-    ///
-    /// If not JSON null, this request must be responded to.
-    pub id: serde_json::Value,
-
-    /// The parameter payload of the request.
-    pub param: T,
-}
