@@ -1,7 +1,6 @@
 [workspace]
 default-members = ["crates/cli"]
 resolver = "3"
-rust-version = "1.91.1"
 members = ["crates/*", "tree-sitter-kerolox"]
 
 [workspace.package]
