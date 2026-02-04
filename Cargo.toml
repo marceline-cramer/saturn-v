@@ -1,10 +1,8 @@
 [workspace]
 default-members = ["crates/cli"]
 resolver = "3"
-members = [
-    "crates/*",
-    "tree-sitter-kerolox",
-]
+rust-version = "1.91.1"
+members = ["crates/*", "tree-sitter-kerolox"]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -12,6 +10,7 @@ edition = "2021"
 version = "0.2.0"
 authors = ["Marceline Cramer <cramermarceline@gmail.com>"]
 repository = "https://github.com/marceline-cramer/saturn-v"
+rust-version = "1.91.1"
 
 [workspace.dependencies]
 arbitrary = { version = "1", features = ["derive"] }
