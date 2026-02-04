@@ -4,6 +4,7 @@ description = "Kerolox grammar for tree-sitter"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
+rust-version.workspace = true
 readme = "README.md"
 keywords = ["incremental", "parsing", "tree-sitter", "kerolox"]
 categories = ["parser-implementations", "parsing", "text-editors"]
