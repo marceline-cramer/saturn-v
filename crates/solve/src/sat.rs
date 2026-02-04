@@ -25,7 +25,10 @@ use std::{
 };
 
 use dashmap::DashMap;
+use parking_lot::Mutex;
 use prehash::Passthru;
+use rand::RngCore;
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use rustsat::{
     encodings::{
         pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
@@ -244,16 +247,19 @@ pub struct SatModelInner {
     /// If a variable ID does not have a gate, it is considered unconstrained.
     gates: DashMap<u64, Gate, BuildHasherDefault<Passthru>>,
 
-    /// The ID of the next fresh variable.
-    // TODO: either ensure this doesn't need to be cryptographic *or* generate randomly.
-    next_var: AtomicU64,
+    /// A cryptographically secure oracle for fresh variable identifiers.
+    ///
+    /// The seed for the gate hasher is both deterministic and fixed between
+    /// runtimes, so it's necessary to provide cryptographically-secure
+    /// entropy for fresh variables (the base case for all gates).
+    var_rng: Mutex<ChaCha12Rng>,
 }
 
 impl Default for SatModelInner {
     fn default() -> Self {
         Self {
             gates: Default::default(),
-            next_var: AtomicU64::from(1),
+            var_rng: Mutex::new(ChaCha12Rng::from_rng(&mut rand::rng())),
         }
     }
 }
@@ -283,7 +289,7 @@ impl SatModelInner {
 
     /// Creates a new unbound variable identifier.
     pub fn add_var(&self) -> u64 {
-        self.next_var.fetch_add(1, Ordering::Relaxed)
+        self.var_rng.lock().next_u64()
     }
 }
 

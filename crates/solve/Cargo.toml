@@ -8,8 +8,19 @@ repository.workspace = true
 
 [dependencies]
 dashmap = "6.1"
+parking_lot.workspace = true
 prehash = "1.0.0"
 smallvec.workspace = true
+
+[dependencies.rand]
+version = "0.9"
+optional = true
+default-features = false
+features = ["thread_rng"]
+
+[dependencies.rand_chacha]
+version = "0.9"
+optional = true
 
 [dependencies.rustsat]
 workspace = true
@@ -23,5 +34,5 @@ optional = true
 rustsat-cadical.workspace = true
 
 [features]
-sat = ["dep:rustsat"]
+sat = ["dep:rustsat", "dep:rand", "dep:rand_chacha"]
 z3 = ["dep:z3"]
