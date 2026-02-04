@@ -157,6 +157,91 @@ macro_rules! tests_all_solvers {
     }
 }
 
+fn test_pb_eq<S: Solver + Default>() {
+    let mut solver = S::default();
+    let model = solver.as_model();
+
+    let a = model.fresh();
+    let b = model.fresh();
+
+    // a + b == 1  (exactly one of a,b is true)
+    let pb = model.pb(PbKind::Eq, 1, &[(&a, 1), (&b, 1)]);
+
+    let result = solver.solve(SolveOptions {
+        hard: &[pb],
+        bool_eval: &[a, b],
+        ..Default::default()
+    });
+
+    if let SolveResult::Sat { cost, bool_values } = result {
+        assert_eq!(cost, 0);
+        assert_eq!(bool_values.len(), 2);
+
+        // exactly one true
+        let sum = bool_values.iter().filter(|v| **v).count();
+        assert_eq!(sum, 1);
+    } else {
+        panic!("expected sat");
+    }
+}
+
+fn test_pb_le<S: Solver + Default>() {
+    let mut solver = S::default();
+    let model = solver.as_model();
+
+    let a = model.fresh();
+    let b = model.fresh();
+    let c = model.fresh();
+
+    // a + b + c <= 2 (not all three can be true)
+    let pb = model.pb(PbKind::Le, 2, &[(&a, 1), (&b, 1), (&c, 1)]);
+
+    let result = solver.solve(SolveOptions {
+        hard: &[pb],
+        bool_eval: &[a, b, c],
+        ..Default::default()
+    });
+
+    if let SolveResult::Sat { cost, bool_values } = result {
+        assert_eq!(cost, 0);
+        assert_eq!(bool_values.len(), 3);
+
+        // at most two true
+        let sum = bool_values.iter().filter(|v| **v).count();
+        assert!(sum <= 2);
+    } else {
+        panic!("expected sat");
+    }
+}
+
+fn test_pb_ge<S: Solver + Default>() {
+    let mut solver = S::default();
+    let model = solver.as_model();
+
+    let a = model.fresh();
+    let b = model.fresh();
+
+    // a*1 + b*2 >= 2  (requires b or both a and b)
+    let pb = model.pb(PbKind::Ge, 2, &[(&a, 1), (&b, 2)]);
+
+    let result = solver.solve(SolveOptions {
+        hard: &[pb],
+        bool_eval: &[a, b],
+        ..Default::default()
+    });
+
+    if let SolveResult::Sat { cost, bool_values } = result {
+        assert_eq!(cost, 0);
+        assert_eq!(bool_values.len(), 2);
+
+        // weighted sum >= 2
+        let sum = (bool_values[0] as i32) * 1 + (bool_values[1] as i32) * 2;
+        assert!(sum >= 2);
+    } else {
+        panic!("expected sat");
+    }
+}
+
 tests_all_solvers!(
     test_assume_true
     test_assume_false
@@ -165,4 +250,7 @@ tests_all_solvers!(
     test_assume_fresh
     test_and_nor_unsat
     test_minimize_either_or
+    test_pb_eq
+    test_pb_le
+    test_pb_ge
 );

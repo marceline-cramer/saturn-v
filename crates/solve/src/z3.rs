@@ -88,6 +88,16 @@ pub struct Z3Model {}
 
 impl Model for Z3Model {}
 
+impl PbEncoder for Z3Model {
+    fn pb(&self, kind: PbKind, thresh: usize, terms: PbTerms<Self>) -> Bool<Self> {
+        match kind {
+            PbKind::Eq => ast::Bool::pb_eq(terms, thresh as i32),
+            PbKind::Le => ast::Bool::pb_le(terms, thresh as i32),
+            PbKind::Ge => ast::Bool::pb_ge(terms, thresh as i32),
+        }
+    }
+}
+
 impl Encoder<bool> for Z3Model {
     type Repr = ast::Bool;
 

@@ -104,7 +104,30 @@ impl SolveResult {
 pub type Bool<M> = <M as Encoder<bool>>::Repr;
 
 /// An incrementally-constructed logic model.
-pub trait Model: Encoder<bool> {}
+pub trait Model: PbEncoder + Encoder<bool> {}
+
+/// An interface to encode pseudo-Boolean constraints.
+pub trait PbEncoder: Encoder<bool> {
+    /// Encodes a value representing if a pseudo-Boolean constraint is met.
+    fn pb(&self, kind: PbKind, thresh: usize, terms: PbTerms<Self>) -> Bool<Self>;
+}
+
+/// The type of terms in a pseudo-Boolean constraint.
+// TODO(marceline-cramer): unit tests for negative weights
+pub type PbTerms<'a, E> = &'a [(&'a Bool<E>, i32)];
+
+/// Kinds of pseudo-Boolean constraints.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PbKind {
+    /// The sum of terms must be equal to the given threshold.
+    Eq,
+
+    /// The sum of terms must be less than or equal to the given threshold.
+    Le,
+
+    /// The sum of terms must be greater than or equal to the given threshold.
+    Ge,
+}
 
 /// Operations for manipulated encoded values.
 pub trait Encoder<T: Ops> {
