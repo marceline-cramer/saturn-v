@@ -108,7 +108,14 @@ impl Sexp for Relation<String> {
 
 impl Sexp for Constraint<String> {
     fn to_doc(&self) -> Doc {
-        todo!()
+        let children = [
+            doc_property("weight", self.weight.to_doc()),
+            doc_property("kind", self.kind.to_doc()),
+            doc_property("head", self.head.to_doc()),
+            doc_property("body", self.body.to_doc()),
+        ];
+
+        doc_indent_many(Doc::text("constraint"), children)
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -173,7 +180,11 @@ impl Sexp for RuleBody<String> {
 
 impl Sexp for ConstraintKind {
     fn to_doc(&self) -> Doc {
-        todo!()
+        match self {
+            ConstraintKind::Cardinality { kind, threshold } => {
+                doc_indent_two(Doc::text("Cardinality"), kind.to_doc(), threshold.to_doc())
+            }
+        }
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -188,7 +199,12 @@ impl Sexp for ConstraintKind {
 
 impl Sexp for ConstraintWeight {
     fn to_doc(&self) -> Doc {
-        todo!()
+        match self {
+            ConstraintWeight::Hard => doc_list(Doc::text("Hard")),
+            ConstraintWeight::Soft(weight) => {
+                doc_indent(Doc::text("Soft"), Doc::text(weight.to_string()))
+            }
+        }
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
