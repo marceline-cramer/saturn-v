@@ -37,10 +37,7 @@ use rustsat::{
 };
 use smallvec::{smallvec, SmallVec};
 
-use crate::{
-    partial::{PartialEncoder, PartialValue},
-    *,
-};
+use crate::{partial::*, *};
 
 #[derive(Default)]
 pub struct SatSolver<S> {
@@ -80,7 +77,7 @@ where
         let mut cost_totalizer: DynamicPolyWatchdog = opts
             .soft
             .iter()
-            .flat_map(|(value, weight)| value.variable().map(|lit| (lit, *weight)))
+            .flat_map(|(value, weight)| value.as_variable().map(|lit| (lit, *weight)))
             .map(|(lit, weight)| (!self.get_lit(lit), weight as usize))
             .collect();
 
@@ -315,6 +312,63 @@ macro_rules! term {
     };
 }
 
+impl PartialPbEncoder for SatModelInner {
+    fn none_of(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr {
+        // initialize force-true clause, force-false clauses, and literals
+        let mut force_true = smallvec![term!(output)];
+        let mut clauses = SmallVec::new();
+        let mut literals = SmallVec::new();
+
+        // encode each clause
+        for (idx, term) in terms.into_iter().enumerate() {
+            // add literal
+            literals.push(term);
+
+            // literal clause term
+            let lit = GateTerm::Literal {
+                variable: idx as u32,
+                polarity: true,
+            };
+
+            // add force-true clause term
+            force_true.push(lit);
+
+            // add force-false clause
+            clauses.push(smallvec![!lit, term!(~output)]);
+        }
+
+        // add force-true clause to total clauses
+        clauses.push(force_true);
+
+        // create gate for entire constraint
+        let gate = Gate { literals, clauses };
+
+        // return output of encoded gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+
+    fn card_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        todo!()
+    }
+
+    fn pb_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = (Self::Repr, u32)>,
+    ) -> Self::Repr {
+        todo!()
+    }
+}
+
 impl PartialEncoder<bool> for SatModelInner {
     type Repr = SatLit;
 
@@ -420,6 +474,22 @@ pub enum GateTerm {
         /// The polarity of this output in a clause.
         polarity: bool,
     },
+}
+
+impl Not for GateTerm {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        match self {
+            GateTerm::Literal { variable, polarity } => GateTerm::Literal {
+                variable,
+                polarity: !polarity,
+            },
+            GateTerm::Output { polarity } => GateTerm::Output {
+                polarity: !polarity,
+            },
+        }
+    }
 }
 
 /// A SAT literal.

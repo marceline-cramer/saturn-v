@@ -32,13 +32,124 @@ impl<C, V> PartialValue<C, V> {
         }
     }
 
+    /// Filter out variables.
+    pub fn as_const(self) -> Option<C> {
+        match self {
+            PartialValue::Const(value) => Some(value),
+            PartialValue::Variable(_) => None,
+        }
+    }
+
     /// Filter out constants.
-    pub fn variable(self) -> Option<V> {
+    pub fn as_variable(self) -> Option<V> {
         match self {
             PartialValue::Const(_) => None,
             PartialValue::Variable(var) => Some(var),
         }
     }
+}
+
+impl<E: PartialPbEncoder> PbEncoder for E {
+    fn pb(&self, kind: PbKind, thresh: i32, terms: &[(&Bool<E>, i32)]) -> Bool<Self> {
+        use PartialValue::*;
+        use PbKind::*;
+
+        // remove sign from weights
+        let terms = terms.iter().map(|(value, weight)| {
+            let weight: u32 = (*weight).try_into().expect("weights must be non-negative");
+            (value.to_owned(), weight)
+        });
+
+        // assert non-negative weight
+        let thresh: u32 = thresh.try_into().expect("threshold must be non-negative");
+
+        // calculate a constant lower bound on the PB sum
+        let lb: u32 = terms
+            .clone()
+            .filter(|(value, _)| value.to_owned().to_owned().as_const().unwrap_or(false))
+            .map(|(_value, weight)| weight)
+            .sum();
+
+        // calculate a constant lower bound on the PB sum
+        let ub: u32 = terms
+            .clone()
+            .filter(|(value, _)| value.to_owned().to_owned().as_const().unwrap_or(true))
+            .map(|(_value, weight)| weight)
+            .sum();
+
+        // early constant evaluation
+        if lb == ub {
+            let const_eval = match kind {
+                Eq => ub == thresh,
+                Le => ub <= thresh,
+                Ge => ub >= thresh,
+            };
+
+            return Const(const_eval);
+        }
+
+        // extract variable-only terms
+        let var_terms = terms.clone().flat_map(|(value, weight)| {
+            value.clone().clone().as_variable().map(|var| (var, weight))
+        });
+
+        // if all variable term weights are one, this is a cardinality constraint
+        let is_card = var_terms.clone().all(|(_var, weight)| weight == 1);
+
+        // extract variables from variable-only terms
+        let vars = var_terms.clone().map(|(var, _weight)| var);
+
+        // negate variables
+        let not_vars = vars
+            .clone()
+            .map(|var| self.unary_op_variable(BoolUnaryOp::Not, var));
+
+        // select best fine-grained encoding based on constant lower bound
+        match kind {
+            // if bounds have exceeded range of constraint, return const false
+            Eq | Le if lb > thresh => return Const(false),
+            Eq | Ge if ub < thresh => return Const(false),
+
+            // if bounds are always within range, return const true
+            Ge if lb >= thresh => return Const(true),
+            Le if ub <= thresh => return Const(true),
+
+            // if only extrema of bounds are within range, constrain all variables
+            Eq | Ge if ub == thresh => Variable(self.none_of(not_vars)),
+            Eq | Le if lb == thresh => Variable(self.none_of(vars)),
+
+            // encode non-trivial constraints
+            _ => {
+                if is_card {
+                    Variable(self.card_nontrivial(kind, (thresh - lb).try_into().unwrap(), vars))
+                } else {
+                    Variable(self.pb_nontrivial(kind, (thresh - lb).try_into().unwrap(), var_terms))
+                }
+            }
+        }
+    }
+}
+
+/// A pseudo-Boolean constraint encoder that does preprocessing on partial evaluation.
+pub trait PartialPbEncoder: PartialEncoder<bool> {
+    /// Encodes a Boolean "nor" operation of arbitrary arity.
+    fn none_of(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr;
+
+    /// Encodes a non-trivial cardinality constraint.
+    fn card_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr;
+
+    /// Encodes a non-trivial pseudo-Boolean constraint.
+    fn pb_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = (Self::Repr, u32)>,
+    ) -> Self::Repr;
 }
 
 impl<E: PartialEncoder<bool>> Encoder<bool> for E {

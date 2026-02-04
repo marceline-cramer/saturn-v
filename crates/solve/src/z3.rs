@@ -89,11 +89,11 @@ pub struct Z3Model {}
 impl Model for Z3Model {}
 
 impl PbEncoder for Z3Model {
-    fn pb(&self, kind: PbKind, thresh: usize, terms: PbTerms<Self>) -> Bool<Self> {
+    fn pb(&self, kind: PbKind, thresh: i32, terms: &[(&Bool<Z3Model>, i32)]) -> Bool<Self> {
         match kind {
-            PbKind::Eq => ast::Bool::pb_eq(terms, thresh as i32),
-            PbKind::Le => ast::Bool::pb_le(terms, thresh as i32),
-            PbKind::Ge => ast::Bool::pb_ge(terms, thresh as i32),
+            PbKind::Eq => ast::Bool::pb_eq(terms, thresh),
+            PbKind::Le => ast::Bool::pb_le(terms, thresh),
+            PbKind::Ge => ast::Bool::pb_ge(terms, thresh),
         }
     }
 }

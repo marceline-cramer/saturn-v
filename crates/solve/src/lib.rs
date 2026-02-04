@@ -109,12 +109,15 @@ pub trait Model: PbEncoder + Encoder<bool> {}
 /// An interface to encode pseudo-Boolean constraints.
 pub trait PbEncoder: Encoder<bool> {
     /// Encodes a value representing if a pseudo-Boolean constraint is met.
-    fn pb(&self, kind: PbKind, thresh: usize, terms: PbTerms<Self>) -> Bool<Self>;
+    // TODO(marceline-cramer): TDD support for negative weights
+    fn pb(&self, kind: PbKind, thresh: i32, terms: &[(&Bool<Self>, i32)]) -> Bool<Self>;
 }
 
-/// The type of terms in a pseudo-Boolean constraint.
-// TODO(marceline-cramer): unit tests for negative weights
-pub type PbTerms<'a, E> = &'a [(&'a Bool<E>, i32)];
+impl<E: PbEncoder> PbEncoder for Arc<E> {
+    fn pb(&self, kind: PbKind, thresh: i32, terms: &[(&Bool<Self>, i32)]) -> Bool<Self> {
+        self.as_ref().pb(kind, thresh, terms)
+    }
+}
 
 /// Kinds of pseudo-Boolean constraints.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
