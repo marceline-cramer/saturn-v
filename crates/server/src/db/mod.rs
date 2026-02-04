@@ -16,7 +16,7 @@
 
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     hash::{DefaultHasher, Hash, Hasher},
     path::Path,
@@ -148,6 +148,48 @@ pub struct FjallTransaction<D> {
 
     /// A handle to the dataflow entrypoint to commit to.
     dataflow: D,
+}
+
+impl<D: CommitDataflow> TxHandle<GetProgram> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: GetProgram) -> ServerResult<Program> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<SetProgram> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: SetProgram) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<ListRelations> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<GetTuples> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<CheckTuples> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: CheckTuples) -> ServerResult<Vec<bool>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<UpdateInput> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: UpdateInput) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> TxHandle<ClearInput> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: ClearInput) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
 }
 
 impl<D: CommitDataflow> Transaction for FjallTransaction<D> {

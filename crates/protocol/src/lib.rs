@@ -36,7 +36,9 @@ pub trait Rpc:
     + HandleTx<SetProgram>
     + HandleTx<ListRelations>
     + HandleTx<GetTuples>
+    + HandleTx<CheckTuples>
     + HandleTx<UpdateInput>
+    + HandleTx<ClearInput>
 {
 }
 
@@ -72,6 +74,12 @@ impl<T: TxRequest, H> HandleTx<T> for H where
 pub trait Handle<T: Request> {
     /// Handles a given request.
     fn on_request(&self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
+}
+
+/// Implements a request handler for a particular transaction request type.
+pub trait TxHandle<T: TxRequest> {
+    /// Handles a given request.
+    fn on_request(&mut self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
 }
 
 /// Retrieves the current loaded program.
@@ -119,6 +127,21 @@ impl TxRequest for UpdateInput {
     }
 }
 
+/// Removes all tuples from an input relation.
+#[derive(Deserialize, Serialize)]
+pub struct ClearInput {
+    /// The ID of the input relation to update.
+    pub id: String,
+}
+
+impl TxRequest for ClearInput {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "ClearInput".into()
+    }
+}
+
 /// Lists the information on each loaded relation.
 #[derive(Deserialize, Serialize)]
 pub struct ListRelations {}
@@ -143,6 +166,24 @@ impl TxRequest for GetTuples {
 
     fn name() -> Cow<'static, str> {
         "GetTuples".into()
+    }
+}
+
+/// Checks which of some set of tuples are in a relation.
+#[derive(Deserialize, Serialize)]
+pub struct CheckTuples {
+    /// The ID of the relation.
+    pub id: String,
+
+    /// The set of tuples to check.
+    pub tuples: Vec<StructuredValue>,
+}
+
+impl TxRequest for CheckTuples {
+    type Response = Vec<bool>;
+
+    fn name() -> Cow<'static, str> {
+        "CheckTuples".into()
     }
 }
 
