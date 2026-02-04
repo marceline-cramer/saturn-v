@@ -39,6 +39,7 @@ pub trait Rpc:
     + HandleTx<CheckTuples>
     + HandleTx<UpdateInput>
     + HandleTx<ClearInput>
+    + HandleSubscribe<WatchRelation>
 {
 }
 
@@ -49,10 +50,12 @@ pub trait HandleSubscribe<T: Subscription> {
     /// The future lasts the duration of the subscription if successful or
     /// will return with an error if either subscribing or unsubscribing is
     /// unsuccessful.
+    ///
+    /// The callback may return `false` at any point to unsubscribe.
     fn on_subscribe(
         &self,
         request: T,
-        on_update: impl FnMut(T::Response) + Send,
+        on_update: impl FnMut(T::Response) -> bool + Send,
     ) -> impl Future<Output = ServerResult<()>> + Send;
 }
 
@@ -184,6 +187,21 @@ impl TxRequest for CheckTuples {
 
     fn name() -> Cow<'static, str> {
         "CheckTuples".into()
+    }
+}
+
+/// Subscribes to updates on tuples in a relation.
+#[derive(Deserialize, Serialize)]
+pub struct WatchRelation {
+    /// The ID of the relation.
+    pub id: String,
+}
+
+impl Subscription for WatchRelation {
+    type Response = TupleUpdate<StructuredValue>;
+
+    fn name() -> Cow<'static, str> {
+        "WatchTuples".into()
     }
 }
 

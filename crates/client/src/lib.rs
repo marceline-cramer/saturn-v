@@ -20,10 +20,8 @@
 
 use std::{fmt::Debug, future::Future, ops::Deref, str::FromStr, sync::Arc};
 
-use futures_util::{Stream, StreamExt, TryStreamExt};
+use futures_util::{Stream, TryStreamExt};
 use parking_lot::Mutex;
-use reqwest::{Method, RequestBuilder, Url};
-use reqwest_eventsource::{Event, RequestBuilderExt};
 use saturn_v_protocol::*;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
@@ -36,8 +34,7 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 #[wasm_bindgen]
 pub struct Client {
-    server: Url,
-    web: reqwest::Client,
+    rpc: Arc<JsonRpcClient>,
 }
 
 #[wasm_bindgen]
@@ -45,18 +42,19 @@ impl Client {
     /// Creates a client to the Saturn V server at the given base URL.
     #[wasm_bindgen(constructor)]
     pub fn js_new(base: String) -> std::result::Result<Self, String> {
-        Url::parse(&base)
-            .map(Self::new)
-            .map_err(|err| err.to_string())
+        todo!()
     }
 
     /// Gets a list of all inputs currently on the server.
     #[wasm_bindgen(js_name = "getInputs")]
     pub async fn get_inputs(&self) -> Result<Vec<Input>> {
         Ok(self
-            .get_json::<Vec<RelationInfo>>("inputs/list")
+            .rpc
+            .on_request(ListRelations {})
             .await?
+            .response
             .into_iter()
+            .filter(|info| info.is_input)
             .map(|info| Input {
                 client: self.clone(),
                 info,
@@ -79,9 +77,12 @@ impl Client {
     #[wasm_bindgen(js_name = "getOutputs")]
     pub async fn get_outputs(&self) -> Result<Vec<Output>> {
         Ok(self
-            .get_json::<Vec<RelationInfo>>("outputs/list")
+            .rpc
+            .on_request(ListRelations {})
             .await?
+            .response
             .into_iter()
+            .filter(|info| !info.is_input)
             .map(|info| Output {
                 client: self.clone(),
                 info,
@@ -103,54 +104,24 @@ impl Client {
 
 impl Client {
     /// Creates a client to the Saturn V server at the given base URL.
-    pub fn new(base: Url) -> Self {
-        Self {
-            server: base,
-            web: reqwest::Client::new(),
-        }
+    pub fn new(base: url::Url) -> Self {
+        todo!()
     }
 
     /// Gets the program currently loaded.
     pub async fn get_program(&self) -> Result<Program> {
-        self.get_json("/program").await
+        Ok(self.rpc.on_request(GetProgram {}).await?.response)
     }
 
     /// Replaces the program currently loaded with a new program.
     pub async fn set_program(&self, program: &Program) -> Result<()> {
-        self.post_json("/program", program).await
-    }
-
-    /// Builds a request to the server with specified method and path.
-    ///
-    /// Automatically adds client-wide headers such as authentication.
-    pub(crate) fn begin_request(&self, method: Method, path: &str) -> RequestBuilder {
-        let url = self.server.join(path).unwrap();
-        self.web.request(method, url)
-    }
-
-    /// Makes a GET request and parses it to JSON.
-    pub(crate) async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T> {
-        let response: ServerResult<T> = self
-            .begin_request(Method::GET, path)
-            .send()
+        Ok(self
+            .rpc
+            .on_request(SetProgram {
+                program: program.to_owned(),
+            })
             .await?
-            .json()
-            .await?;
-
-        Ok(response?)
-    }
-
-    /// POSTs a JSON payload.
-    pub(crate) async fn post_json<T: Serialize>(&self, path: &str, json: &T) -> Result<()> {
-        let response: ServerResult<()> = self
-            .begin_request(Method::POST, path)
-            .json(json)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        Ok(response?)
+            .response)
     }
 }
 
@@ -215,10 +186,14 @@ impl Input {
         val.check_value(&self.ty)?;
 
         let value = val.into_value();
-        let body = vec![TupleUpdate { state, value }];
+        let updates = vec![TupleUpdate { state, value }];
 
         self.client
-            .post_json(&format!("input/{}/update", self.id), &body)
+            .rpc
+            .on_request(UpdateInput {
+                id: self.id.clone(),
+                updates,
+            })
             .await?;
 
         Ok(())
@@ -226,8 +201,6 @@ impl Input {
 }
 
 impl ImplQueryRelation for Input {
-    const ENDPOINT: &'static str = "input";
-
     fn client(&self) -> &Client {
         &self.client
     }
@@ -265,7 +238,7 @@ impl Input {
     #[wasm_bindgen(js_name = subscribe)]
     pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
         let stream = self
-            .subscribe::<JsValue>()
+            .subscribe::<StructuredValue>()
             .await?
             .map_ok(JsValue::from)
             .map_err(JsValue::from);
@@ -291,8 +264,6 @@ impl Deref for Output {
 }
 
 impl ImplQueryRelation for Output {
-    const ENDPOINT: &'static str = "output";
-
     fn client(&self) -> &Client {
         &self.client
     }
@@ -312,7 +283,7 @@ impl Output {
     #[wasm_bindgen(js_name = subscribe)]
     pub async fn js_subscribe(&self) -> Result<wasm_streams::readable::sys::ReadableStream> {
         let stream = self
-            .subscribe::<JsValue>()
+            .subscribe::<StructuredValue>()
             .await?
             .map_ok(JsValue::from)
             .map_err(JsValue::from);
@@ -333,16 +304,13 @@ pub trait QueryRelation {
 
     /// Subscribes to live updates on values in this output.
     #[allow(async_fn_in_trait)]
-    async fn subscribe<T: FromValue + 'static>(
+    async fn subscribe<T: FromValue + Send + 'static>(
         &self,
     ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static>;
 }
 
 /// A utility trait to implement [QueryRelation].
 trait ImplQueryRelation: Deref<Target = RelationInfo> + Send + Sync {
-    /// The HTTP path of this relation's operations.
-    const ENDPOINT: &'static str;
-
     /// Gets the client on this relation.
     fn client(&self) -> &Client;
 }
@@ -354,51 +322,43 @@ impl<R: ImplQueryRelation> QueryRelation for R {
 
         Ok(self
             .client()
-            .get_json::<Vec<StructuredValue>>(&format!("{}/{}", R::ENDPOINT, self.id))
+            .rpc
+            .on_request(GetTuples {
+                id: self.id.clone(),
+            })
             .await?
+            .response
             .into_iter()
             .map(|val| T::from_value(val))
             .collect())
     }
 
     /// Subscribes to live updates on values in this output.
-    async fn subscribe<T: FromValue + 'static>(
+    async fn subscribe<T: FromValue + Send + 'static>(
         &self,
     ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static> {
         T::check_ty(&self.ty)?;
 
-        let path = format!("{}/{}/subscribe", R::ENDPOINT, self.id);
+        let (tx, rx) = flume::unbounded::<Result<TupleUpdate<T>>>();
 
-        // send request for subscription
-        let mut src = self
-            .client()
-            .begin_request(Method::GET, &path)
-            .eventsource()
-            .map_err(|_| Error::CannotCloneRequest)?;
+        let request = WatchRelation {
+            id: self.id.clone(),
+        };
 
-        // wait for ready event
-        // avoids client-side race conditions
-        match src.next().await {
-            Some(Ok(Event::Open)) => {}
-            _ => todo!(),
-        }
+        let on_update = {
+            let tx = tx.clone();
+            move |update: TupleUpdate| tx.send(Ok(update.map(T::from_value))).is_ok()
+        };
 
-        // transform incoming events into tuple updates
-        Ok(src.filter_map(|ev| {
-            std::future::ready(match ev {
-                Ok(Event::Open) => None,
-                Err(err) => Some(Err(Error::EventSource(Box::new(err)))),
-                Ok(Event::Message(msg)) => Some(
-                    match serde_json::from_reader::<_, ServerResult<TupleUpdate>>(
-                        msg.data.as_bytes(),
-                    ) {
-                        Ok(Ok(update)) => Ok(update.map(T::from_value)),
-                        Ok(Err(err)) => Err(Error::Server(err)),
-                        Err(err) => Err(Error::Parse(err)),
-                    },
-                ),
-            })
-        }))
+        let rpc = self.client().rpc.to_owned();
+
+        tokio::spawn(async move {
+            if let Err(err) = rpc.on_subscribe(request, on_update).await {
+                let _ = tx.send(Err(err.into())).is_err();
+            }
+        });
+
+        Ok(rx.into_stream())
     }
 }
 
@@ -412,10 +372,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error(transparent)]
     Server(#[from] ServerError),
-    #[error(transparent)]
-    Request(#[from] reqwest::Error),
-    #[error(transparent)]
-    EventSource(#[from] Box<reqwest_eventsource::Error>),
     #[error(transparent)]
     Parse(#[from] serde_json::Error),
     #[error("cannot clone request")]
@@ -442,6 +398,7 @@ impl From<Error> for JsValue {
 }
 
 /// A JSON-RPC client.
+#[derive(Debug)]
 pub struct JsonRpcClient {
     /// A table matching request IDs to senders to their recipients.
     requests: Mutex<Slab<flume::Sender<serde_json::Value>>>,
@@ -459,7 +416,7 @@ impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
     async fn on_subscribe(
         &self,
         request: T,
-        mut on_update: impl FnMut(T::Response) + Send,
+        mut on_update: impl FnMut(T::Response) -> bool + Send,
     ) -> ServerResult<()> {
         // create event handler channel and insert into table
         let (req_tx, req_rx) = flume::unbounded();
@@ -481,7 +438,9 @@ impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
             // deserialize object
             // TODO: log error if parse fails
             if let Ok(ev) = serde_json::from_value(value) {
-                on_update(ev);
+                if !on_update(ev) {
+                    break;
+                }
             }
         }
 
