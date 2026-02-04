@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -79,8 +79,49 @@ pub type LoadHead = (Key<Relation>, LoadMask, FixedValues);
 
 /// The type of a "load mask": a selection of which columns of a relation to join by in load operations.
 ///
-/// A `true` represents a variable binding and a `false` represents a static value.
-pub type LoadMask = bitvec::boxed::BitBox;
+/// The representation is a bit vector that prefers to live in a non-dynamic
+/// unsigned int. The width of the bit vector is not encoded because the
+/// load mask is never keyed apart from each relation (which are of constant
+/// cardinality). A `true` represents a variable binding and a `false`
+/// represents a static value.
+pub type LoadMask = tinyvec::TinyVec<[LoadMaskElement; 1]>;
+
+/// The storage type used for atomic entries in [LoadMask].
+pub type LoadMaskElement = usize;
+
+/// Creates a load mask for a given query.
+pub fn make_load_mask(query: &[Option<Value>]) -> LoadMask {
+    let mut mask = LoadMask::default();
+    let mut entry: LoadMaskElement = 0;
+    let mut insert_at = 0b1;
+
+    for term in query.iter() {
+        if term.is_none() {
+            entry |= insert_at;
+        }
+
+        insert_at <<= 1;
+
+        if insert_at == 0 {
+            mask.push(entry);
+            insert_at = 0b1;
+        }
+    }
+
+    if insert_at != 0b1 {
+        mask.push(entry);
+    }
+
+    mask
+}
+
+/// Looks up a bit in a load mask.
+pub fn get_load_mask(mask: &LoadMask, index: usize) -> bool {
+    let el_idx = index / LoadMaskElement::BITS as usize;
+    let bit_idx = index % LoadMaskElement::BITS as usize;
+    let bit = mask[el_idx] & (1 << bit_idx);
+    bit != 0
+}
 
 /// Everyday, mutable value storage in a node, typically in [Tuple].
 pub type Values = Vec<Value>;
@@ -111,6 +152,13 @@ impl Node {
         match self.output {
             NodeOutput::Constraint { weight, kind, .. } => Some((weight, kind)),
             _ => None,
+        }
+    }
+
+    pub fn stratum(&self) -> u32 {
+        match self.output {
+            NodeOutput::Antijoin { stratum, .. } => stratum,
+            _ => 0,
         }
     }
 }
@@ -197,9 +245,7 @@ impl NodeSource {
 
     pub fn relation_mask(self) -> Option<(Key<Relation>, LoadMask)> {
         match self {
-            NodeSource::Relation { relation, query } => {
-                Some((relation, query.iter().map(Option::is_none).collect()))
-            }
+            NodeSource::Relation { relation, query } => Some((relation, make_load_mask(&query))),
             _ => None,
         }
     }
@@ -208,7 +254,7 @@ impl NodeSource {
         match self {
             NodeSource::Relation { relation, query } => Some((
                 relation,
-                query.iter().map(Option::is_none).collect(),
+                make_load_mask(&query),
                 query.iter().flatten().cloned().collect(),
             )),
             _ => None,
@@ -228,6 +274,11 @@ pub enum NodeOutput {
 
         /// A fully-populated query to project tuples to.
         query: Arc<[QueryTerm]>,
+
+        /// The negation stratum blocking this antijoin operation.
+        ///
+        /// Antijoin cannot proceed until this negation stratum is reached.
+        stratum: u32,
     },
 
     /// Stores a node's output tuples into a relation.
@@ -268,6 +319,9 @@ pub struct Relation {
 
     /// The IO of this relation.
     pub io: RelationIO,
+
+    /// The negation stratum of this relation.
+    pub stratum: u32,
 }
 
 impl Relation {

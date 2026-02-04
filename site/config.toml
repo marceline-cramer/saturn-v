@@ -1,21 +1,16 @@
-# The URL the site will be built for
 base_url = "https://marceline-cramer.github.io/saturn-v"
-
-# Whether to automatically compile all Sass files in the sass directory
 compile_sass = true
-
-# Whether to build a search index to be used later on by a JavaScript library
 build_search_index = true
-
 title = "Saturn V"
-
 theme = "tabi"
 
 [markdown]
 bottom_footnotes = true
-highlight_code = true
-highlight_theme = "css"
-extra_syntaxes_and_themes = ["syntaxes"]
+
+[markdown.highlighting]
+theme = "catppuccin-frappe"
+style = "class"
+extra_grammars = ["../vscode-ext/syntaxes/kerolox.tmGrammar.json"]
 
 [extra]
 # override_serif_with_sans = true
@@ -30,11 +25,25 @@ mermaid = true
 footnote_backlinks = true
 
 allowed_domains = [
-    { directive = "font-src", domains = ["'self'", "data:"] },
-    { directive = "img-src", domains = ["'self'", "https://*", "data:"] },
-    { directive = "script-src", domains = ["'self' 'wasm-unsafe-eval'"] },
-    { directive = "style-src", domains = ["'self'"] },
-    { directive = "frame-src", domains = ["player.vimeo.com", "https://www.youtube-nocookie.com"] },
+    { directive = "font-src", domains = [
+        "'self'",
+        "data:",
+    ] },
+    { directive = "img-src", domains = [
+        "'self'",
+        "https://*",
+        "data:",
+    ] },
+    { directive = "script-src", domains = [
+        "'self' 'wasm-unsafe-eval'",
+    ] },
+    { directive = "style-src", domains = [
+        "'self'",
+    ] },
+    { directive = "frame-src", domains = [
+        "player.vimeo.com",
+        "https://www.youtube-nocookie.com",
+    ] },
 ]
 
 [[extra.menu]]
@@ -71,4 +80,4 @@ enable_reactions = 1
 comment_box_above_comments = true
 light_theme = "noborder_light"
 dark_theme = "noborder_dark"
-lang = ""  # Leave blank to match the page's language.
+lang = ""                            # Leave blank to match the page's language.

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -188,7 +188,7 @@ pub fn relation_is_conditional<'db>(db: &'db dyn Database, rel: RelationDefiniti
 
 /// Finds the negation stratum of a relation.
 #[salsa::tracked]
-pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> usize {
+pub fn relation_stratum<'db>(db: &'db dyn Database, rel: RelationDefinition<'db>) -> u32 {
     // find all transitive non-monotonic dependencies
     let nm_deps = relation_indirect_nm_deps(db, rel);
 
@@ -432,5 +432,28 @@ impl BasicDiagnostic for NonMonotonicCycle {
 
     fn notes(&self) -> Vec<WithAst<String>> {
         vec![]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct NonMonotonicQuery {
+    pub at: WithAst<String>,
+}
+
+impl BasicDiagnostic for NonMonotonicQuery {
+    fn range(&self) -> std::ops::Range<AstNode> {
+        self.at.ast..self.at.ast
+    }
+
+    fn message(&self) -> String {
+        format!("non-monotonic queries are not fully supported")
+    }
+
+    fn kind(&self) -> DiagnosticKind {
+        DiagnosticKind::Warning
+    }
+
+    fn is_fatal(&self) -> bool {
+        false
     }
 }

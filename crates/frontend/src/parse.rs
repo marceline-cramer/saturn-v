@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -49,19 +49,6 @@ pub struct RelationDefinition<'db> {
 
     /// This relation's abstract type (pure syntax).
     #[return_ref]
-    pub ty: WithAst<AbstractType>,
-}
-
-/// A definition of a type alias.
-#[salsa::tracked]
-pub struct TypeAlias<'db> {
-    /// The AST node this type alias corresponds to.
-    pub ast: AstNode,
-
-    /// The name of this type alias.
-    pub name: String,
-
-    /// The alias's abstract type (pure syntax).
     pub ty: WithAst<AbstractType>,
 }
 
@@ -212,6 +199,7 @@ pub fn file_items<'db>(db: &'db dyn Database, file: File) -> Vec<Item<'db>> {
             }
             // parse each main item kind
             "import" => Import,
+            "type_alias" => TypeAlias,
             "definition" => Definition,
             "rule" => Rule,
             "constraint" => Constraint,
@@ -251,6 +239,7 @@ pub struct Item<'db> {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ItemKind {
     Import,
+    TypeAlias,
     Definition,
     Rule,
     Constraint,
@@ -277,6 +266,38 @@ pub fn abstract_import<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractI
 
     // assemble the whole import
     AbstractImport::new(db, ast, path, items)
+}
+
+/// An abstract type alias (syntax representation).
+#[salsa::tracked]
+#[derive(Debug)]
+pub struct AbstractTypeAlias<'db> {
+    /// The AST node of this type alias.
+    pub ast: AstNode,
+
+    /// The type alias's name.
+    #[return_ref]
+    pub name: WithAst<String>,
+
+    /// The type alias's abstract type.
+    #[return_ref]
+    pub ty: WithAst<AbstractType>,
+}
+
+/// Parses an abstract type alias from an AST.
+#[salsa::tracked]
+pub fn abstract_type_alias<'db>(db: &'db dyn Database, item: Item<'db>) -> AbstractTypeAlias<'db> {
+    // extract the item's AST
+    let ast = item.ast(db);
+
+    // parse the alias's name
+    let name = ast.expect_field(db, "name").with_contents(db);
+
+    // parse the alias's abstract type
+    let ty = parse_abstract_type(db, ast.expect_field(db, "type"));
+
+    // assemble the type alias
+    AbstractTypeAlias::new(db, ast, name, ty)
 }
 
 /// An abstract item import (syntax representation).

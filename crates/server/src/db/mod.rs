@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Marceline Cramer
+// Copyright (C) 2025-2026 Marceline Cramer
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Saturn V is free software: you can redistribute it and/or modify it under
@@ -32,6 +32,7 @@ use saturn_v_eval::{
 };
 use saturn_v_protocol::{ir::RelationIO, *};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tracing::error;
 
 #[cfg(test)]
 mod tests;
@@ -72,8 +73,8 @@ pub trait Transaction {
 
 /// Maintains atomic transactions on Saturn V state and inputs.
 pub struct Database {
-    keyspace: TransactionalKeyspace,
-    partition: TransactionalPartitionHandle,
+    db: OptimisticTxDatabase,
+    keyspace: OptimisticTxKeyspace,
 }
 
 impl Database {
@@ -81,7 +82,7 @@ impl Database {
     ///
     /// Returns [`anyhow`] errors because initialization should not present database errors to clients.
     pub fn new(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        Self::new_inner(Config::new(path))
+        Self::new_inner(OptimisticTxDatabase::builder(path.as_ref()))
     }
 
     /// Creates a temporary database.
@@ -90,38 +91,36 @@ impl Database {
             .context("failed to create temporary directory")?
             .keep();
 
-        Self::new_inner(Config::new(path).temporary(true))
+        Self::new_inner(OptimisticTxDatabase::builder(&path).temporary(true))
     }
 
-    fn new_inner(config: Config) -> anyhow::Result<Self> {
-        // open a keyspace using the provided config
-        let keyspace = config
-            .open_transactional()
-            .context("failed to open keyspace")?;
+    fn new_inner(builder: DatabaseBuilder<OptimisticTxDatabase>) -> anyhow::Result<Self> {
+        // open the database using the provided builder and configuration
+        let db = builder.open().context("failed to open keyspace")?;
 
-        // create a partition for all transactions with default config
-        let partition = keyspace
-            .open_partition("main", Default::default())
-            .context("failed to open partition")?;
+        // create a keyspace for all transactions with default config
+        let keyspace = db
+            .keyspace("main", Default::default)
+            .context("failed to create keyspace")?;
 
         // successful creation
-        Ok(Self {
-            keyspace,
-            partition,
-        })
+        Ok(Self { db, keyspace })
     }
 
     /// Attempts to begin a transaction using this database.
     pub fn transaction<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<FjallTransaction<D>> {
         // begin a serializable transaction
-        let tx = self.keyspace.write_tx().map_err(db_error)?;
+        let tx = self.db.write_tx().map_err(|err| {
+            error!("failed to begin tx: {err:?}");
+            ServerError::DatabaseError
+        })?;
 
         // create transaction structure without input map
         let mut tx = FjallTransaction {
             tx,
             dataflow,
             key_buf: Vec::with_capacity(1024),
-            partition: self.partition.clone(),
+            keyspace: self.keyspace.clone(),
             program_map: Default::default(),
             events: Vec::with_capacity(128),
         };
@@ -135,9 +134,11 @@ impl Database {
 }
 
 pub struct FjallTransaction<D> {
-    tx: WriteTransaction,
+    tx: OptimisticWriteTx,
+    keyspace: OptimisticTxKeyspace,
+
+    /// Reusable buffer for quickly serializing database keys.
     key_buf: Vec<u8>,
-    partition: TransactionalPartitionHandle,
 
     /// Cache [ProgramMap] to avoid ser/de and DB overhead.
     program_map: ProgramMap,
@@ -253,7 +254,11 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         let prefix = key.as_path(&mut self.key_buf);
 
         // fetch all items (cannot reborrow for remove)
-        let items: Vec<_> = self.tx.prefix(&self.partition, prefix).collect();
+        let items: Vec<_> = self
+            .tx
+            .prefix(&self.keyspace, prefix)
+            .map(|kv| kv.into_inner())
+            .collect();
 
         // delete the whole prefix
         for item in items {
@@ -271,7 +276,7 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
             }
 
             // delete entry
-            self.tx.remove(&self.partition, key.as_ref());
+            self.tx.remove(&self.keyspace, key.as_ref());
         }
 
         // success!
@@ -333,7 +338,11 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         let prefix = key.as_path(&mut self.key_buf);
 
         // fetch all items (cannot reborrow for remove)
-        let items: Vec<_> = self.tx.prefix(&self.partition, prefix).collect();
+        let items: Vec<_> = self
+            .tx
+            .prefix(&self.keyspace, prefix)
+            .map(|kv| kv.into_inner())
+            .collect();
 
         // gather values from all buckets
         let mut values = Vec::new();
@@ -371,21 +380,19 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         Ok(results)
     }
 
-    fn commit(mut self) -> impl Future<Output = ServerResult<SequenceId>> + Send {
-        async move {
-            // perform actual commit
-            // first error is IO, second error is SSI conflict
-            self.tx
-                .commit()
-                .map_err(db_error)?
-                .map_err(|_| ServerError::Conflict)?;
+    async fn commit(mut self) -> ServerResult<SequenceId> {
+        // perform actual commit
+        // first error is IO, second error is SSI conflict
+        self.tx
+            .commit()
+            .map_err(db_error)?
+            .map_err(|_| ServerError::Conflict)?;
 
-            // send dataflow inputs
-            let sequence = self.dataflow.commit(self.program_map, self.events).await;
+        // send dataflow inputs
+        let sequence = self.dataflow.commit(self.program_map, self.events).await;
 
-            // done!
-            Ok(sequence)
-        }
+        // done!
+        Ok(sequence)
     }
 }
 
@@ -395,7 +402,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
         let path = key.as_path(&mut self.key_buf);
 
         // perform the actual get operation
-        self.tx.get(&self.partition, path).map_err(db_error)
+        self.tx.get(&self.keyspace, path).map_err(db_error)
     }
 
     pub fn get<T: DeserializeOwned>(&mut self, key: &Key) -> ServerResult<Option<T>> {
@@ -409,7 +416,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
         let path = key.as_path(&mut self.key_buf);
 
         // perform the actual insertion operation
-        self.tx.insert(&self.partition, path.as_ref(), value);
+        self.tx.insert(&self.keyspace, path.as_ref(), value);
     }
 
     pub fn insert<T: Serialize>(&mut self, key: &Key, value: &T) -> ServerResult<()> {
@@ -428,7 +435,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 
         // perform the actual fetch-update operation
         self.tx
-            .fetch_update(&self.partition, path.as_ref(), f)
+            .fetch_update(&self.keyspace, path.as_ref(), f)
             .map_err(db_error)
     }
 

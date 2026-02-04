@@ -13,9 +13,12 @@ crate-type = ["rlib", "cdylib"]
 glam = { version = "0.30", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
-console_error_panic_hook.workspace = true
 
 [dependencies.leptos]
+workspace = true
+optional = true
+
+[dependencies.console_error_panic_hook]
 workspace = true
 optional = true
 
@@ -44,7 +47,7 @@ workspace = true
 features = ["CanvasRenderingContext2d", "Performance", "Window"]
 
 [features]
-leptos = ["dep:leptos"]
+leptos = ["dep:leptos", "dep:console_error_panic_hook"]
 simulate = ["dep:rayon", "dep:rustfft", "dep:toml", "dep:tracing", "dep:tracing-subscriber"]
 
 [[bin]]

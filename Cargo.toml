@@ -9,7 +9,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-or-later"
 edition = "2021"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Marceline Cramer <cramermarceline@gmail.com>"]
 repository = "https://github.com/marceline-cramer/saturn-v"
 
@@ -21,8 +21,8 @@ chumsky = "0.12"
 console_error_panic_hook = "0.1"
 differential-dataflow = "0.18"
 either = "1.15"
-flume = "0.11"
-futures-util = "0.3"
+flume = "0.12"
+futures-util = { version = "0.3", default-features = false }
 indexmap = "2.8"
 leptos = { version = "0.8", features = ["csr"] }
 ordered-float = { version = "4", features = ["serde"] }
@@ -36,6 +36,7 @@ smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 timely = "0.25"
+tinyvec = { version = "1.10", features = ["alloc"] }
 tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
