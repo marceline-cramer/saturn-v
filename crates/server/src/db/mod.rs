@@ -16,7 +16,7 @@
 
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     future::Future,
     hash::{DefaultHasher, Hash, Hasher},
     path::Path,
@@ -148,6 +148,48 @@ pub struct FjallTransaction<D> {
 
     /// A handle to the dataflow entrypoint to commit to.
     dataflow: D,
+}
+
+impl<D: CommitDataflow> HandleTx<GetProgram> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: GetProgram) -> ServerResult<Program> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<SetProgram> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: SetProgram) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<ListRelations> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<GetTuples> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<CheckTuples> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: CheckTuples) -> ServerResult<Vec<bool>> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<UpdateInput> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: UpdateInput) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
+}
+
+impl<D: CommitDataflow> HandleTx<ClearInput> for FjallTransaction<D> {
+    async fn on_request(&mut self, request: ClearInput) -> ServerResult<()> {
+        Err(ServerError::DatabaseError)
+    }
 }
 
 impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
@@ -484,7 +526,7 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             .input_relations
             .get(input)
             .cloned()
-            .ok_or(ServerError::NoSuchInput(input.to_string()))
+            .ok_or(ServerError::NoSuchRelation(input.to_string()))
     }
 
     /// Loads the current state of the database into the dataflow.
@@ -548,6 +590,7 @@ impl InputRelation {
             name: self.name.clone(),
             id: self.id.clone(),
             ty: self.ty.clone(),
+            is_input: true,
         }
     }
 
@@ -617,6 +660,7 @@ impl OutputRelation {
             name: self.name.clone(),
             id: self.id.clone(),
             ty: self.ty.clone(),
+            is_input: false,
         }
     }
 }

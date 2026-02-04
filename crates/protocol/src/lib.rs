@@ -18,11 +18,342 @@
 
 #![warn(missing_docs)]
 
+use std::{borrow::Cow, collections::BTreeSet, future::Future, marker::PhantomData};
+
 use ordered_float::OrderedFloat;
-pub use saturn_v_ir::{self as ir, StructuredType};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
+
+pub use saturn_v_ir::{self as ir, StructuredType};
+
+/// A trait that bounds the handling of the entire server RPC interface.
+///
+/// This is used server-side to bound the server but also client-side to bound
+/// a complete RPC protocol implementation.
+pub trait Rpc:
+    HandleTxMethod<GetProgram>
+    + HandleTxMethod<SetProgram>
+    + HandleTxMethod<ListRelations>
+    + HandleTxMethod<GetTuples>
+    + HandleTxMethod<CheckTuples>
+    + HandleTxMethod<UpdateInput>
+    + HandleTxMethod<ClearInput>
+    + HandleSubscribe<WatchRelation>
+{
+}
+
+/// Implements a subscription handler for a subscription type.
+pub trait HandleSubscribe<T: Subscription> {
+    /// Handles a whole subscription lifetime.
+    ///
+    /// The future lasts the duration of the subscription if successful or
+    /// will return with an error if either subscribing or unsubscribing is
+    /// unsuccessful.
+    ///
+    /// The callback may return `false` at any point to unsubscribe.
+    fn on_subscribe(
+        &self,
+        request: T,
+        on_update: impl FnMut(T::Response) -> bool + Send,
+    ) -> impl Future<Output = ServerResult<()>> + Send;
+}
+
+/// Trait alias for request handlers on both one-shot commits and as transaction methods.
+pub trait HandleTxMethod<T: TxRequest>:
+    Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
+{
+}
+
+impl<T: TxRequest, H> HandleTxMethod<T> for H where
+    H: Handle<T> + Handle<BeginTx> + Handle<CommitTx> + Handle<TxMethod<T>>
+{
+}
+
+/// Implements a request handler for a particular request type.
+pub trait Handle<T: Request> {
+    /// Handles a given request.
+    fn on_request(&self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
+}
+
+/// Implements a request handler for a particular transaction request type.
+pub trait HandleTx<T: TxRequest> {
+    /// Handles a given request.
+    fn on_request(&mut self, request: T) -> impl Future<Output = ServerResult<T::Response>> + Send;
+}
+
+/// Retrieves the current loaded program.
+#[derive(Deserialize, Serialize)]
+pub struct GetProgram {}
+
+impl TxRequest for GetProgram {
+    type Response = Program;
+
+    fn name() -> Cow<'static, str> {
+        "GetProgram".into()
+    }
+}
+
+/// Sets the current program.
+#[derive(Deserialize, Serialize)]
+pub struct SetProgram {
+    /// The program to set.
+    pub program: Program,
+}
+
+impl TxRequest for SetProgram {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "SetProgram".into()
+    }
+}
+
+/// Applies updates to the contents of an input relation.
+#[derive(Deserialize, Serialize)]
+pub struct UpdateInput {
+    /// The ID of the input relation to update.
+    pub id: String,
+
+    /// A list of tuple updates to apply to the input.
+    pub updates: Vec<TupleUpdate>,
+}
+
+impl TxRequest for UpdateInput {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "UpdateInput".into()
+    }
+}
+
+/// Removes all tuples from an input relation.
+#[derive(Deserialize, Serialize)]
+pub struct ClearInput {
+    /// The ID of the input relation to update.
+    pub id: String,
+}
+
+impl TxRequest for ClearInput {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "ClearInput".into()
+    }
+}
+
+/// Lists the information on each loaded relation.
+#[derive(Deserialize, Serialize)]
+pub struct ListRelations {}
+
+impl TxRequest for ListRelations {
+    type Response = Vec<RelationInfo>;
+
+    fn name() -> Cow<'static, str> {
+        "ListRelations".into()
+    }
+}
+
+/// Retrieves all tuples currently occupying a relation.
+#[derive(Deserialize, Serialize)]
+pub struct GetTuples {
+    /// The ID of the relation.
+    pub id: String,
+}
+
+impl TxRequest for GetTuples {
+    type Response = BTreeSet<StructuredValue>;
+
+    fn name() -> Cow<'static, str> {
+        "GetTuples".into()
+    }
+}
+
+/// Checks which of some set of tuples are in a relation.
+#[derive(Deserialize, Serialize)]
+pub struct CheckTuples {
+    /// The ID of the relation.
+    pub id: String,
+
+    /// The set of tuples to check.
+    pub tuples: Vec<StructuredValue>,
+}
+
+impl TxRequest for CheckTuples {
+    type Response = Vec<bool>;
+
+    fn name() -> Cow<'static, str> {
+        "CheckTuples".into()
+    }
+}
+
+/// Subscribes to updates on tuples in a relation.
+#[derive(Deserialize, Serialize)]
+pub struct WatchRelation {
+    /// The ID of the relation.
+    pub id: String,
+}
+
+impl Subscription for WatchRelation {
+    type Response = TupleUpdate<StructuredValue>;
+
+    fn name() -> Cow<'static, str> {
+        "WatchTuples".into()
+    }
+}
+
+/// An RPC request to create a [Subscription].
+#[derive(Deserialize, Serialize)]
+pub struct Subscribe<T> {
+    /// The request parameters to the subscription.
+    pub param: T,
+
+    /// The ID of the new subscription object.
+    pub id: usize,
+}
+
+impl<T: Subscription> Request for Subscribe<T> {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        format!("Subscribe{}", T::name()).into()
+    }
+}
+
+/// An RPC request to unsubscribe from and destroy an subscription object.
+#[derive(Deserialize, Serialize)]
+pub struct Unsubscribe<T> {
+    /// The ID of the subscription object.
+    pub id: usize,
+
+    /// Ignore the type of the subscription.
+    pub _phantom: PhantomData<T>,
+}
+
+impl<T: Subscription> Request for Unsubscribe<T> {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        format!("Unsubscribe{}", T::name()).into()
+    }
+}
+
+/// The type of a subscription response notification.
+#[derive(Deserialize, Serialize)]
+pub struct SubscriptionEvent<T> {
+    /// The ID of the subscription object.
+    pub id: usize,
+
+    /// The contents of the event.
+    pub event: T,
+}
+
+/// An RPC subscription schema.
+///
+/// The `Self` type is the contents of the intial subscription request.
+pub trait Subscription: DeserializeOwned + Serialize + Send + Sync {
+    /// The name of this subscription object.
+    fn name() -> Cow<'static, str>;
+
+    /// The type of each element in the subscription's response.
+    type Response: DeserializeOwned + Serialize + Sync;
+}
+
+/// Begins an atomic transaction.
+#[derive(Deserialize, Serialize)]
+pub struct BeginTx {
+    /// The ID of this transaction.
+    pub tx: usize,
+}
+
+impl Request for BeginTx {
+    type Response = ();
+
+    fn name() -> Cow<'static, str> {
+        "BeginTx".into()
+    }
+}
+
+/// Atomically commits a transaction with rollback on failure.
+#[derive(Deserialize, Serialize)]
+pub struct CommitTx {
+    /// The ID of the transaction.
+    pub tx: usize,
+}
+
+impl Request for CommitTx {
+    type Response = TxOutput;
+
+    fn name() -> Cow<'static, str> {
+        "CommitTx".into()
+    }
+}
+
+/// An RPC server request to the ambient request context.
+pub trait Request: DeserializeOwned + Serialize + Send + Sync {
+    /// The name of this request method.
+    fn name() -> Cow<'static, str>;
+
+    /// The type of this request's response.
+    ///
+    /// This is implicitly wrapped in [ServerResult].
+    type Response: DeserializeOwned + Serialize + Send + Sync;
+}
+
+impl<T: TxRequest> Request for T {
+    type Response = TxResponse<T::Response>;
+
+    fn name() -> Cow<'static, str> {
+        T::name()
+    }
+}
+
+/// Adds [TxOutput] to a response type.
+#[derive(Deserialize, Serialize)]
+pub struct TxResponse<T> {
+    /// The output of the transactional commit.
+    pub tx: TxOutput,
+
+    /// The response to the particular method.
+    pub response: T,
+}
+
+/// The result of a transactional commit.
+#[derive(Deserialize, Serialize)]
+pub struct TxOutput {}
+
+/// Wraps a request with a transaction ID for context, making it a transaction method.
+#[derive(Deserialize, Serialize)]
+pub struct TxMethod<T> {
+    /// The ID of this transaction.
+    pub tx: usize,
+
+    /// The inner method request.
+    pub request: T,
+}
+
+impl<T: TxRequest> Request for TxMethod<T> {
+    type Response = T::Response;
+
+    fn name() -> Cow<'static, str> {
+        format!("Tx{}", T::name()).into()
+    }
+}
+
+/// A trait for transactional requests.
+///
+/// Transactional requests can be invoked as a transaction method to yield
+/// their result or standalone outside of a method to receive their result and
+/// the output of a one-shot committed transaction.
+pub trait TxRequest: DeserializeOwned + Serialize + Send + Sync {
+    /// The name of this request method.
+    fn name() -> Cow<'static, str>;
+
+    /// The type of this request's response.
+    ///
+    /// This is implicitly wrapped in [ServerResult].
+    type Response: DeserializeOwned + Serialize + Send + Sync;
+}
 
 /// A type alias for results that only have [ServerError] for errors.
 pub type ServerResult<T> = std::result::Result<T, ServerError>;
@@ -38,11 +369,8 @@ pub enum ServerError {
     #[error("no program is loaded")]
     NoProgramLoaded,
 
-    #[error("input with ID {0:?} does not exist")]
-    NoSuchInput(String),
-
-    #[error("output with ID {0:?} does not exist")]
-    NoSuchOutput(String),
+    #[error("relation with ID {0:?} does not exist")]
+    NoSuchRelation(String),
 
     #[error("type mismatch: expected {expected}, got {got}")]
     TypeMismatch {
@@ -104,6 +432,9 @@ pub struct RelationInfo {
 
     /// The type of this relation.
     pub ty: StructuredType,
+
+    /// True if this relation is an input and can be modified.
+    pub is_input: bool,
 }
 
 /// A monotonically increasing identifier for input transaction results.
@@ -111,7 +442,7 @@ pub struct RelationInfo {
 pub struct SequenceId(pub u64);
 
 /// A Saturn V-compatible value type.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StructuredValue {
     /// A nested list of other values.
@@ -339,4 +670,23 @@ impl<T: IntoValue> From<TupleUpdate<T>> for JsValue {
     fn from(value: TupleUpdate<T>) -> Self {
         serde_wasm_bindgen::to_value(&value.map(T::into_value)).unwrap()
     }
+}
+
+/// A type schema for a JSON-RPC request.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcRequest<T> {
+    /// Must always be "2.0".
+    // TODO: is there a serde annotation to deserialize and assert this?
+    pub jsonrpc: String,
+
+    /// The name of the method.
+    pub method: String,
+
+    /// The ID of the request.
+    ///
+    /// If not JSON null, this request must be responded to.
+    pub id: serde_json::Value,
+
+    /// The parameter payload of the request.
+    pub param: T,
 }

@@ -47,7 +47,7 @@ pub use axum;
 #[cfg(test)]
 pub mod tests;
 
-pub fn route(server: State) -> Router {
+pub fn route(server: Server) -> Router {
     Router::new()
         .route("/program", get(get_program).post(post_program))
         .route("/inputs/list", get(inputs_list))
@@ -61,13 +61,12 @@ pub fn route(server: State) -> Router {
 }
 
 async fn get_program(server: ExtractState) -> ServerResponse<Program> {
-    Server::make_transaction(server.0, |tx| tx.get_program())
-        .await
-        .into()
+    server.make_transaction(|tx| tx.get_program()).await.into()
 }
 
 async fn post_program(server: ExtractState, Json(program): Json<Program>) -> ServerResponse<()> {
-    Server::make_transaction(server.0, |tx| tx.set_program(program))
+    server
+        .make_transaction(|tx| tx.set_program(program))
         .await
         .into()
 }
@@ -110,7 +109,8 @@ async fn input_update(
     input: Path<String>,
     Json(updates): Json<Vec<TupleUpdate>>,
 ) -> ServerResponse<()> {
-    Server::make_transaction(server.0, |tx| tx.update_input(input.as_str(), &updates))
+    server
+        .make_transaction(|tx| tx.update_input(input.as_str(), &updates))
         .await
         .into()
 }
@@ -126,6 +126,7 @@ async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>>
             name: name.clone(),
             id: name.clone(),
             ty: output.ty.clone(),
+            is_input: false,
         })
         .collect())
     .into()
@@ -154,7 +155,7 @@ async fn subscribe_to_output(
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
 
-pub async fn start_server(database: Database) -> anyhow::Result<State> {
+pub async fn start_server(database: Database) -> anyhow::Result<Server> {
     let config = timely::Config::thread();
     let routers = saturn_v_eval::DataflowRouters::default();
 
@@ -172,36 +173,38 @@ pub async fn start_server(database: Database) -> anyhow::Result<State> {
 
     let (inputs, solver, output_rx) = routers.split();
 
-    let server = Arc::new(Mutex::new(Server {
+    let server = Server(Arc::new(Mutex::new(ServerInner {
         database,
         inputs,
         sequence: 0,
         program_map: Default::default(),
         relations: HashMap::new(),
-    }));
+    })));
 
-    Server::make_transaction(server.clone(), |tx| tx.load_dataflow())
+    server
+        .make_transaction(|tx| tx.load_dataflow())
         .await
         .context("failed to load database into dataflow")?;
 
-    tokio::spawn(Server::handle_dataflow(server.clone(), solver, output_rx));
+    tokio::spawn(server.clone().handle_dataflow(solver, output_rx));
 
     Ok(server)
 }
 
-pub type ExtractState = axum::extract::State<State>;
+pub type ExtractState = axum::extract::State<Server>;
 
-pub type State = Arc<Mutex<Server>>;
+#[derive(Clone)]
+pub struct Server(pub Arc<Mutex<ServerInner>>);
 
-pub struct Server {
-    database: Database,
-    inputs: DataflowInputs,
-    sequence: u64,
-    program_map: ProgramMap,
-    relations: HashMap<String, RelationBag>,
+impl Deref for Server {
+    type Target = Mutex<ServerInner>;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
 }
 
-impl CommitDataflow for State {
+impl CommitDataflow for Server {
     async fn commit(&mut self, program_map: ProgramMap, events: Vec<InputEvent>) -> SequenceId {
         // acquire lock
         let mut server = self.lock().await;
@@ -259,17 +262,85 @@ impl CommitDataflow for State {
     }
 }
 
+impl<T: TxRequest> Handle<T> for Server
+where
+    FjallTransaction<Self>: HandleTx<T>,
+{
+    async fn on_request(&self, request: T) -> ServerResult<TxResponse<T::Response>> {
+        let mut tx = self.lock().await.database.transaction(self.to_owned())?;
+        let result = tx.on_request(request).await?;
+        tx.commit().await?;
+
+        Ok(TxResponse {
+            tx: TxOutput {},
+            response: result,
+        })
+    }
+}
+
 impl Server {
     pub async fn make_transaction<T>(
-        server: State,
-        inner: impl FnOnce(&mut FjallTransaction<State>) -> ServerResult<T>,
+        &self,
+        inner: impl FnOnce(&mut FjallTransaction<Server>) -> ServerResult<T>,
     ) -> ServerResult<T> {
-        let mut tx = server.lock().await.database.transaction(server.clone())?;
+        let mut tx = self.lock().await.database.transaction(self.to_owned())?;
         let result = inner(&mut tx)?;
         tx.commit().await?;
         Ok(result)
     }
 
+    pub async fn handle_dataflow(
+        self,
+        mut solver: Solver,
+        output_rx: flume::Receiver<Update<Fact>>,
+    ) {
+        let mut running = true;
+        while running {
+            let _ = solver.step().await;
+
+            let mut outputs = Vec::new();
+            loop {
+                match output_rx.recv_async().await {
+                    Ok(Update::Push(output, state)) => outputs.push((output, state)),
+                    Ok(Update::Flush) => break,
+                    Err(_) => {
+                        running = false;
+                        break;
+                    }
+                }
+            }
+
+            if outputs.is_empty() {
+                continue;
+            }
+
+            let mut server = self.lock().await;
+
+            let mut relations: BTreeMap<_, _> = server
+                .relations
+                .values_mut()
+                .filter(|rel| rel.io == RelationIO::Output)
+                .map(|output| (output.rel, output))
+                .collect();
+
+            for (value, state) in outputs {
+                let relation = relations.get_mut(&value.relation).unwrap();
+                let value = relation.structure_values(&mut value.values.iter());
+                relation.push(TupleUpdate { value, state });
+            }
+        }
+    }
+}
+
+pub struct ServerInner {
+    database: Database,
+    inputs: DataflowInputs,
+    sequence: u64,
+    program_map: ProgramMap,
+    relations: HashMap<String, RelationBag>,
+}
+
+impl ServerInner {
     /// Updates the current program map after a transaction.
     fn update_program(&mut self, program_map: ProgramMap) {
         // if map has not changed, do not do anything
@@ -294,48 +365,6 @@ impl Server {
         for (name, output) in self.program_map.output_relations.iter() {
             self.relations
                 .insert(name.clone(), RelationBag::make_output(output));
-        }
-    }
-
-    pub async fn handle_dataflow(
-        server: State,
-        mut solver: Solver,
-        output_rx: flume::Receiver<Update<Fact>>,
-    ) {
-        let mut running = true;
-        while running {
-            let _ = solver.step().await;
-
-            let mut outputs = Vec::new();
-            loop {
-                match output_rx.recv_async().await {
-                    Ok(Update::Push(output, state)) => outputs.push((output, state)),
-                    Ok(Update::Flush) => break,
-                    Err(_) => {
-                        running = false;
-                        break;
-                    }
-                }
-            }
-
-            if outputs.is_empty() {
-                continue;
-            }
-
-            let mut server = server.lock().await;
-
-            let mut relations: BTreeMap<_, _> = server
-                .relations
-                .values_mut()
-                .filter(|rel| rel.io == RelationIO::Output)
-                .map(|output| (output.rel, output))
-                .collect();
-
-            for (value, state) in outputs {
-                let relation = relations.get_mut(&value.relation).unwrap();
-                let value = relation.structure_values(&mut value.values.iter());
-                relation.push(TupleUpdate { value, state });
-            }
         }
     }
 
@@ -374,16 +403,10 @@ impl Server {
     }
 
     fn get_relation(&mut self, name: &str, io: RelationIO) -> ServerResult<&mut RelationBag> {
-        let error = match io {
-            RelationIO::Input => ServerError::NoSuchInput(name.to_string()),
-            RelationIO::Output => ServerError::NoSuchOutput(name.to_string()),
-            _ => unreachable!(),
-        };
-
         self.relations
             .get_mut(name)
             .filter(|rel| rel.io == io)
-            .ok_or(error)
+            .ok_or(ServerError::NoSuchRelation(name.to_string()))
     }
 }
 
@@ -512,3 +535,28 @@ impl<T: Clone + std::fmt::Debug + Hash + Eq> Bag<T> {
         }
     }
 }
+
+/// A JSON-RPC server.
+pub struct JsonRpcServer {
+    /// A map of method names to their handlers.
+    handlers: BTreeMap<String, DynHandler>,
+
+    /// A sender of serialized JSON values to the outgoing transport.
+    tx: flume::Sender<String>,
+}
+
+impl JsonRpcServer {
+    /// Adds a handler for a request by its state.
+    pub fn add_handler<T: Request>(&mut self, state: impl Handle<T>) {
+        // initialize a dynamic-dispatch closure
+        let handler = move |value, reply| {};
+
+        // insert dynamic handler
+        self.handlers
+            .insert(T::name().to_string(), Arc::new(handler));
+    }
+}
+
+/// A boxed function for dynamic dispatch in [JsonRpcServer].
+pub type DynHandler =
+    Arc<dyn Fn(serde_json::Value, flume::Sender<serde_json::Value>) + Send + 'static>;
