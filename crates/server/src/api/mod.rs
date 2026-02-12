@@ -61,13 +61,18 @@ pub fn route(server: Server) -> Router {
 }
 
 async fn get_program(server: ExtractState) -> ServerResponse<Program> {
-    server.make_transaction(|tx| tx.get_program()).await.into()
+    server
+        .on_request(GetProgram {})
+        .await
+        .map(|tx| tx.response)
+        .into()
 }
 
 async fn post_program(server: ExtractState, Json(program): Json<Program>) -> ServerResponse<()> {
     server
-        .make_transaction(|tx| tx.set_program(program))
+        .on_request(SetProgram { program })
         .await
+        .map(|tx| tx.response)
         .into()
 }
 
@@ -106,12 +111,13 @@ async fn subscribe_to_input(
 
 async fn input_update(
     server: ExtractState,
-    input: Path<String>,
+    Path(id): Path<String>,
     Json(updates): Json<Vec<TupleUpdate>>,
 ) -> ServerResponse<()> {
     server
-        .make_transaction(|tx| tx.update_input(input.as_str(), &updates))
+        .on_request(UpdateInput { id, updates })
         .await
+        .map(|tx| tx.response)
         .into()
 }
 
@@ -264,7 +270,7 @@ impl CommitDataflow for Server {
 
 impl<T: TxRequest> Handle<T> for Server
 where
-    FjallTransaction<Self>: HandleTx<T>,
+    Transaction<Self>: HandleTx<T>,
 {
     async fn on_request(&self, request: T) -> ServerResult<TxResponse<T::Response>> {
         let mut tx = self.lock().await.database.transaction(self.to_owned())?;
@@ -281,7 +287,7 @@ where
 impl Server {
     pub async fn make_transaction<T>(
         &self,
-        inner: impl FnOnce(&mut FjallTransaction<Server>) -> ServerResult<T>,
+        inner: impl FnOnce(&mut Transaction<Server>) -> ServerResult<T>,
     ) -> ServerResult<T> {
         let mut tx = self.lock().await.database.transaction(self.to_owned())?;
         let result = inner(&mut tx)?;

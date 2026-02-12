@@ -37,40 +37,6 @@ use tracing::error;
 #[cfg(test)]
 mod tests;
 
-/// A transaction object for updating and querying the Saturn V server.
-pub trait Transaction {
-    /// Retrieves the currently running program.
-    fn get_program(&mut self) -> ServerResult<Program>;
-
-    /// Updates the currently-running program.
-    fn set_program(&mut self, program: Program) -> ServerResult<()>;
-
-    /// Clears the contents of a specific input.
-    fn clear_input(&mut self, input: &str) -> ServerResult<()>;
-
-    /// Updates the contents of a specific input. See [TupleUpdate].
-    fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()>;
-
-    /// Retrieves the set of values in an input relation.
-    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<StructuredValue>>;
-
-    /// Checks if an input contains certain values.
-    ///
-    /// The resulting list collates with input values.
-    fn check_input_values(
-        &mut self,
-        input: &str,
-        values: &[StructuredValue],
-    ) -> ServerResult<Vec<bool>>;
-
-    /// Drops this transaction and attempts to commit the changes.
-    ///
-    /// If this fails, all changes made during this transaction will be rolled back.
-    ///
-    /// Returns the sequence ID of the committed transaction.
-    fn commit(self) -> impl Future<Output = ServerResult<SequenceId>> + Send;
-}
-
 /// Maintains atomic transactions on Saturn V state and inputs.
 pub struct Database {
     db: OptimisticTxDatabase,
@@ -108,7 +74,7 @@ impl Database {
     }
 
     /// Attempts to begin a transaction using this database.
-    pub fn transaction<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<FjallTransaction<D>> {
+    pub fn transaction<D: CommitDataflow>(&self, dataflow: D) -> ServerResult<Transaction<D>> {
         // begin a serializable transaction
         let tx = self.db.write_tx().map_err(|err| {
             error!("failed to begin tx: {err:?}");
@@ -116,7 +82,7 @@ impl Database {
         })?;
 
         // create transaction structure without input map
-        let mut tx = FjallTransaction {
+        let mut tx = Transaction {
             tx,
             dataflow,
             key_buf: Vec::with_capacity(1024),
@@ -133,7 +99,8 @@ impl Database {
     }
 }
 
-pub struct FjallTransaction<D> {
+/// A transaction object for ACID updates and queries to the Saturn V server.
+pub struct Transaction<D> {
     tx: OptimisticWriteTx,
     keyspace: OptimisticTxKeyspace,
 
@@ -150,55 +117,18 @@ pub struct FjallTransaction<D> {
     dataflow: D,
 }
 
-impl<D: CommitDataflow> HandleTx<GetProgram> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: GetProgram) -> ServerResult<Program> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<SetProgram> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: SetProgram) -> ServerResult<()> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<ListRelations> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<GetTuples> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<CheckTuples> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: CheckTuples) -> ServerResult<Vec<bool>> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<UpdateInput> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: UpdateInput) -> ServerResult<()> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> HandleTx<ClearInput> for FjallTransaction<D> {
-    async fn on_request(&mut self, request: ClearInput) -> ServerResult<()> {
-        Err(ServerError::DatabaseError)
-    }
-}
-
-impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
-    fn get_program(&mut self) -> ServerResult<Program> {
+impl<D: CommitDataflow> HandleTx<GetProgram> for Transaction<D> {
+    async fn on_request(&mut self, _request: GetProgram) -> ServerResult<Program> {
         self.get(&Key::Program)
             .and_then(|program| program.ok_or(ServerError::NoProgramLoaded))
     }
+}
 
-    fn set_program(&mut self, program: Program) -> ServerResult<()> {
+impl<D: CommitDataflow> HandleTx<SetProgram> for Transaction<D> {
+    async fn on_request(&mut self, request: SetProgram) -> ServerResult<()> {
+        // extract new program parameter
+        let program = &request.program;
+
         // validate the program
         program.validate().map_err(ServerError::InvalidProgram)?;
 
@@ -288,47 +218,42 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
         // success!
         Ok(())
     }
+}
 
-    fn clear_input(&mut self, input: &str) -> ServerResult<()> {
-        // construct prefix from key
-        let input = self.get_input(input)?;
-        let key = Key::Input { input: input.index };
-        let prefix = key.as_path(&mut self.key_buf);
+impl<D: CommitDataflow> HandleTx<ListRelations> for Transaction<D> {
+    async fn on_request(&mut self, request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
+        Err(ServerError::DatabaseError)
+    }
+}
 
-        // fetch all items (cannot reborrow for remove)
-        let items: Vec<_> = self
-            .tx
-            .prefix(&self.keyspace, prefix)
-            .map(|kv| kv.into_inner())
-            .collect();
+impl<D: CommitDataflow> HandleTx<GetTuples> for Transaction<D> {
+    async fn on_request(&mut self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
+        self.get_input_values(&request.id)
+    }
+}
 
-        // delete the whole prefix
-        for item in items {
-            // handle database error and extract key-value
-            let (key, val) = item.map_err(db_error)?;
-
-            // deserialize bucket
-            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
-
-            // remove each entry in the bucket from dataflow
-            for item in bucket {
-                let fact = input.make_fact(item)?;
-                let ev = InputEvent::Remove(InputEventKind::Fact(fact));
-                self.events.push(ev);
-            }
-
-            // delete entry
-            self.tx.remove(&self.keyspace, key.as_ref());
+impl<D: CommitDataflow> HandleTx<CheckTuples> for Transaction<D> {
+    async fn on_request(&mut self, request: CheckTuples) -> ServerResult<Vec<bool>> {
+        // TODO: validate value types
+        let input_idx = self.get_input(&request.id)?.index;
+        let mut results = Vec::with_capacity(request.tuples.len());
+        for value in request.tuples.iter() {
+            results.push(
+                self.get(&Key::bucket(input_idx, value))?
+                    .map(|bucket: Bucket| bucket.contains(value))
+                    .unwrap_or(false),
+            );
         }
 
-        // success!
-        Ok(())
+        Ok(results)
     }
+}
 
-    fn update_input(&mut self, input: &str, updates: &[TupleUpdate]) -> ServerResult<()> {
-        let input = self.get_input(input)?;
+impl<D: CommitDataflow> HandleTx<UpdateInput> for Transaction<D> {
+    async fn on_request(&mut self, request: UpdateInput) -> ServerResult<()> {
+        let input = self.get_input(&request.id)?;
 
-        for TupleUpdate { state, value } in updates.iter().cloned() {
+        for TupleUpdate { state, value } in request.updates.iter().cloned() {
             // construct fact for dataflow input and type-check value
             let fact = input.make_fact(value.clone())?;
 
@@ -372,73 +297,15 @@ impl<D: CommitDataflow> Transaction for FjallTransaction<D> {
 
         Ok(())
     }
+}
 
-    fn get_input_values(&mut self, input: &str) -> ServerResult<Vec<StructuredValue>> {
-        // construct prefix from key
-        let input = self.get_input(input)?;
-        let key = Key::Input { input: input.index };
-        let prefix = key.as_path(&mut self.key_buf);
-
-        // fetch all items (cannot reborrow for remove)
-        let items: Vec<_> = self
-            .tx
-            .prefix(&self.keyspace, prefix)
-            .map(|kv| kv.into_inner())
-            .collect();
-
-        // gather values from all buckets
-        let mut values = Vec::new();
-        for item in items {
-            // handle database error and extract key-value
-            let (_key, val) = item.map_err(db_error)?;
-
-            // deserialize bucket
-            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
-
-            // add bucket contents
-            values.extend(bucket);
-        }
-
-        // success!
-        Ok(values)
-    }
-
-    fn check_input_values(
-        &mut self,
-        input: &str,
-        values: &[StructuredValue],
-    ) -> ServerResult<Vec<bool>> {
-        // TODO: validate value types
-        let input_idx = self.get_input(input)?.index;
-        let mut results = Vec::with_capacity(values.len());
-        for value in values.iter() {
-            results.push(
-                self.get(&Key::bucket(input_idx, value))?
-                    .map(|bucket: Bucket| bucket.contains(value))
-                    .unwrap_or(false),
-            );
-        }
-
-        Ok(results)
-    }
-
-    async fn commit(mut self) -> ServerResult<SequenceId> {
-        // perform actual commit
-        // first error is IO, second error is SSI conflict
-        self.tx
-            .commit()
-            .map_err(db_error)?
-            .map_err(|_| ServerError::Conflict)?;
-
-        // send dataflow inputs
-        let sequence = self.dataflow.commit(self.program_map, self.events).await;
-
-        // done!
-        Ok(sequence)
+impl<D: CommitDataflow> HandleTx<ClearInput> for Transaction<D> {
+    async fn on_request(&mut self, request: ClearInput) -> ServerResult<()> {
+        self.clear_input(&request.id)
     }
 }
 
-impl<D: CommitDataflow> FjallTransaction<D> {
+impl<D: CommitDataflow> Transaction<D> {
     pub fn get_raw(&mut self, key: &Key) -> ServerResult<Option<UserValue>> {
         // construct path from key and borrow inner buffer
         let path = key.as_path(&mut self.key_buf);
@@ -529,6 +396,74 @@ impl<D: CommitDataflow> FjallTransaction<D> {
             .ok_or(ServerError::NoSuchRelation(input.to_string()))
     }
 
+    /// Get all tuples in a relation.
+    pub fn get_input_values(&mut self, input: &str) -> ServerResult<BTreeSet<StructuredValue>> {
+        // construct prefix from key
+        let input = self.get_input(input)?;
+        let key = Key::Input { input: input.index };
+        let prefix = key.as_path(&mut self.key_buf);
+
+        // fetch all items (cannot reborrow for remove)
+        let items: Vec<_> = self
+            .tx
+            .prefix(&self.keyspace, prefix)
+            .map(|kv| kv.into_inner())
+            .collect();
+
+        // gather values from all buckets
+        let mut values = BTreeSet::new();
+        for item in items {
+            // handle database error and extract key-value
+            let (_key, val) = item.map_err(db_error)?;
+
+            // deserialize bucket
+            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
+
+            // add bucket contents
+            values.extend(bucket);
+        }
+
+        // success!
+        Ok(values)
+    }
+
+    /// Deletes all tuples in an input.
+    pub fn clear_input(&mut self, input: &str) -> ServerResult<()> {
+        // construct prefix from key
+        let input = self.get_input(input)?;
+        let key = Key::Input { input: input.index };
+        let prefix = key.as_path(&mut self.key_buf);
+
+        // fetch all items (cannot reborrow for remove)
+        let items: Vec<_> = self
+            .tx
+            .prefix(&self.keyspace, prefix)
+            .map(|kv| kv.into_inner())
+            .collect();
+
+        // delete the whole prefix
+        for item in items {
+            // handle database error and extract key-value
+            let (key, val) = item.map_err(db_error)?;
+
+            // deserialize bucket
+            let bucket: Bucket = serde_json::from_slice(&val).map_err(db_error)?;
+
+            // remove each entry in the bucket from dataflow
+            for item in bucket {
+                let fact = input.make_fact(item)?;
+                let ev = InputEvent::Remove(InputEventKind::Fact(fact));
+                self.events.push(ev);
+            }
+
+            // delete entry
+            self.tx.remove(&self.keyspace, key.as_ref());
+        }
+
+        // success!
+        Ok(())
+    }
+
     /// Loads the current state of the database into the dataflow.
     pub(crate) fn load_dataflow(&mut self) -> ServerResult<()> {
         // load dataflow state from the loader
@@ -549,6 +484,26 @@ impl<D: CommitDataflow> FjallTransaction<D> {
 
         // done
         Ok(())
+    }
+
+    /// Drops this transaction and attempts to commit the changes.
+    ///
+    /// If this fails, all changes made during this transaction will be rolled back.
+    ///
+    /// Returns the sequence ID of the committed transaction.
+    pub async fn commit(mut self) -> ServerResult<SequenceId> {
+        // perform actual commit
+        // first error is IO, second error is SSI conflict
+        self.tx
+            .commit()
+            .map_err(db_error)?
+            .map_err(|_| ServerError::Conflict)?;
+
+        // send dataflow inputs
+        let sequence = self.dataflow.commit(self.program_map, self.events).await;
+
+        // done!
+        Ok(sequence)
     }
 }
 

@@ -110,17 +110,17 @@ fn create_tx() {
     let _tx = db.transaction(dataflow).unwrap();
 }
 
-#[test]
-fn test_get_program_no_program_loaded() {
+#[tokio::test]
+async fn test_get_program_no_program_loaded() {
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
     let mut tx = db.transaction(dataflow).unwrap();
-    let result = tx.get_program();
+    let result = tx.on_request(GetProgram {}).await;
     assert_eq!(result.unwrap_err(), ServerError::NoProgramLoaded);
 }
 
-#[test]
-fn test_set_program_invalid_program() {
+#[tokio::test]
+async fn test_set_program_invalid_program() {
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
     let mut tx = db.transaction(dataflow).unwrap();
@@ -136,13 +136,18 @@ fn test_set_program_invalid_program() {
         rules: vec![],
     });
 
-    let result = tx.set_program(program.clone());
+    let result = tx
+        .on_request(SetProgram {
+            program: program.clone(),
+        })
+        .await;
+
     let expected_error = ServerError::InvalidProgram(program.validate().err().unwrap());
     assert_eq!(result.unwrap_err(), expected_error);
 }
 
-#[test]
-fn test_set_and_get_program_success() {
+#[tokio::test]
+async fn test_set_and_get_program_success() {
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
     let mut tx = db.transaction(dataflow).unwrap();
@@ -159,14 +164,18 @@ fn test_set_and_get_program_success() {
     });
 
     // set the program
-    tx.set_program(program.clone()).unwrap();
+    tx.on_request(SetProgram {
+        program: program.clone(),
+    })
+    .await
+    .unwrap();
 
     // get the program and verify it matches
-    assert_eq!(program, tx.get_program().unwrap());
+    assert_eq!(program, tx.on_request(GetProgram {}).await.unwrap());
 }
 
-#[test]
-fn test_get_input_contains_values() {
+#[tokio::test]
+async fn test_get_input_contains_values() {
     use StructuredValue::String;
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
@@ -184,7 +193,7 @@ fn test_get_input_contains_values() {
         rules: vec![],
     });
 
-    tx.set_program(program).unwrap();
+    tx.on_request(SetProgram { program }).await.unwrap();
 
     // Insert some values into the input
     let updates = vec![
@@ -197,7 +206,13 @@ fn test_get_input_contains_values() {
             value: String("world".to_string()),
         },
     ];
-    tx.update_input("TestInput", &updates).unwrap();
+
+    tx.on_request(UpdateInput {
+        id: "TestInput".to_string(),
+        updates,
+    })
+    .await
+    .unwrap();
 
     // Test checking for values
     let values_to_check = vec![
@@ -207,25 +222,33 @@ fn test_get_input_contains_values() {
     ];
 
     let results = tx
-        .check_input_values("TestInput", &values_to_check)
+        .on_request(CheckTuples {
+            id: "TestInput".to_string(),
+            tuples: values_to_check,
+        })
+        .await
         .unwrap();
 
     assert_eq!(results, vec![true, false, true]);
 }
 
-#[test]
-fn test_no_such_input_error() {
+#[tokio::test]
+async fn test_no_such_input_error() {
     let db = Database::temporary().unwrap();
     let dataflow = MockDataflow::default();
     let mut tx = db.transaction(dataflow).unwrap();
 
     // create a program with no input relations
     let program = Program::default();
-    tx.set_program(program).unwrap();
+    tx.on_request(SetProgram { program }).await.unwrap();
 
     // try to access a non-existent input
-    let values = vec![StructuredValue::String("test".to_string())];
-    let result = tx.check_input_values("NonExistentInput", &values);
+    let result = tx
+        .on_request(CheckTuples {
+            id: "NonExistentInput".to_string(),
+            tuples: vec![StructuredValue::String("test".to_string())],
+        })
+        .await;
 
     assert_eq!(
         result.unwrap_err(),
