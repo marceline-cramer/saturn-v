@@ -199,6 +199,89 @@ pub async fn start_server(database: Database) -> anyhow::Result<Server> {
 
 pub type ExtractState = axum::extract::State<Server>;
 
+/// A stateful connection from a client.
+pub struct Connection {
+    /// The server the connection is accessing.
+    pub server: Server,
+
+    /// A map of each of the client's transaction handles to actual transactions.
+    pub transactions: Mutex<BTreeMap<usize, Transaction<Server>>>,
+}
+
+impl HandleSubscribe<WatchRelation> for Connection {
+    async fn on_subscribe(
+        &self,
+        request: WatchRelation,
+        on_update: impl FnMut(TupleUpdate) -> bool + Send,
+    ) -> ServerResult<()> {
+        todo!()
+    }
+}
+
+impl Handle<BeginTx> for Connection {
+    async fn on_request(&self, request: BeginTx) -> ServerResult<()> {
+        let mut transactions = self.transactions.lock().await;
+
+        use std::collections::btree_map::Entry;
+        let Entry::Vacant(entry) = transactions.entry(request.tx) else {
+            return Err(ServerError::ExistingTransaction);
+        };
+
+        let tx = self
+            .server
+            .lock()
+            .await
+            .database
+            .transaction(self.server.clone())?;
+
+        entry.insert(tx);
+
+        Ok(())
+    }
+}
+
+impl Handle<CommitTx> for Connection {
+    async fn on_request(&self, request: CommitTx) -> ServerResult<TxOutput> {
+        self.transactions
+            .lock()
+            .await
+            .remove(&request.tx)
+            .ok_or(ServerError::UnknownTransaction)?
+            .commit()
+            .await
+            .map(|_| TxOutput {})
+    }
+}
+
+impl<T: TxRequest> Handle<TxMethod<T>> for Connection
+where
+    Transaction<Server>: HandleTx<T>,
+{
+    async fn on_request(
+        &self,
+        request: TxMethod<T>,
+    ) -> ServerResult<<TxMethod<T> as Request>::Response> {
+        self.transactions
+            .lock()
+            .await
+            .get_mut(&request.tx)
+            .ok_or(ServerError::UnknownTransaction)?
+            .on_request(request.request)
+            .await
+    }
+}
+
+impl<T: TxRequest> Handle<T> for Connection
+where
+    Server: Handle<T>,
+{
+    async fn on_request(&self, request: T) -> ServerResult<<T as Request>::Response> {
+        self.server.on_request(request).await
+    }
+}
+
+impl Rpc for Connection {}
+
 #[derive(Clone)]
 pub struct Server(pub Arc<Mutex<ServerInner>>);
 

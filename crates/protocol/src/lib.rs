@@ -372,6 +372,12 @@ pub enum ServerError {
     #[error("relation with ID {0:?} does not exist")]
     NoSuchRelation(String),
 
+    #[error("the transaction ID was not recognized")]
+    UnknownTransaction,
+
+    #[error("the transaction ID is already bound")]
+    ExistingTransaction,
+
     #[error("type mismatch: expected {expected}, got {got}")]
     TypeMismatch {
         expected: StructuredType,
