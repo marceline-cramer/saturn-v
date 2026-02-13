@@ -618,26 +618,42 @@ impl<T: Clone + std::fmt::Debug + Hash + Eq> Bag<T> {
 }
 
 /// A JSON-RPC server.
-pub struct JsonRpcServer {
+pub struct JsonRpcServer<T> {
+    /// The server's state.
+    state: Arc<T>,
+
     /// A map of method names to their handlers.
-    handlers: BTreeMap<String, DynHandler>,
+    handlers: BTreeMap<String, DynHandler<T>>,
 
     /// A sender of serialized JSON values to the outgoing transport.
     tx: flume::Sender<String>,
 }
 
-impl JsonRpcServer {
+impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     /// Adds a handler for a request by its state.
-    pub fn add_handler<T: Request>(&mut self, state: impl Handle<T>) {
+    pub fn add_handler<R: Request + 'static>(&mut self)
+    where
+        T: Handle<R>,
+    {
         // initialize a dynamic-dispatch closure
-        let handler = move |value, reply| {};
+        let handler = move |state: Arc<T>, value, reply: flume::Sender<serde_json::Value>| {
+            let request = match serde_json::from_value(value) {
+                Ok(request) => request,
+                Err(_) => return, // TODO: reply with deserialize error
+            };
+
+            tokio::spawn(async move {
+                let result = state.on_request(request).await;
+                let _ = reply.send(serde_json::to_value(result).unwrap());
+            });
+        };
 
         // insert dynamic handler
         self.handlers
-            .insert(T::name().to_string(), Arc::new(handler));
+            .insert(R::name().to_string(), Arc::new(handler));
     }
 }
 
 /// A boxed function for dynamic dispatch in [JsonRpcServer].
-pub type DynHandler =
-    Arc<dyn Fn(serde_json::Value, flume::Sender<serde_json::Value>) + Send + 'static>;
+pub type DynHandler<T> =
+    Arc<dyn Fn(Arc<T>, serde_json::Value, flume::Sender<serde_json::Value>) + Send + 'static>;
