@@ -24,7 +24,6 @@ tracing.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
 wasm-streams.workspace = true
-url.workspace = true
 
 [dependencies.gloo-net]
 version = "0.6"
