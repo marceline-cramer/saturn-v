@@ -3006,6 +3006,7 @@ dependencies = [
  "slab",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",

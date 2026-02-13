@@ -24,6 +24,7 @@ use futures_util::{Stream, TryStreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
 use slab::Slab;
+use tracing::error;
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
@@ -442,10 +443,15 @@ impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
         // stream subscription events into callback
         while let Ok(value) = req_rx.recv_async().await {
             // deserialize object
-            // TODO: log error if parse fails
-            if let Ok(ev) = serde_json::from_value(value) {
-                if !on_update(ev) {
-                    break;
+            match serde_json::from_value(value) {
+                Ok(ev) => {
+                    if !on_update(ev) {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    error!("failed to deserialize subscription event: {err:?}");
+                    continue;
                 }
             }
         }
@@ -519,14 +525,17 @@ impl JsonRpcClient {
         use serde_json::*;
 
         // deserialize the incoming JSON object
-        let Ok(value) = Map::<String, Value>::from_str(&message) else {
-            // TODO: log errors
-            return;
+        let value = match Map::<String, Value>::from_str(&message) {
+            Ok(value) => value,
+            Err(err) => {
+                error!("failed to deserialize incoming JSON object: {err:?}");
+                return;
+            }
         };
 
         // confirm that the incoming value is marked as JSON-RPC
         if value.get("jsonrpc") != Some(&Value::String("2.0".to_string())) {
-            // TODO: log error
+            error!("incoming JSON object was not marked as jsonrpc = 2.0");
             return;
         }
 
@@ -538,9 +547,12 @@ impl JsonRpcClient {
             // deserialize the request
             // ignore the method name since the notif will have the ID
             // TODO: handle incoming requests with IDs somehow
-            let Ok(request) = serde_json::from_value::<Event>(value.into()) else {
-                // TODO: log error
-                return;
+            let request = match serde_json::from_value::<Event>(value.into()) {
+                Ok(request) => request,
+                Err(err) => {
+                    error!("failed to deserialize request: {err:?}");
+                    return;
+                }
             };
 
             // send subscription event to corresponding subscription ID
@@ -549,6 +561,31 @@ impl JsonRpcClient {
                 .lock()
                 .get(request.param.id)
                 .map(|tx| tx.send(request.param.event));
+        } else {
+            // otherwise, it's a response
+            let response: JsonRpcSuccess<Value> = match serde_json::from_value(value.into()) {
+                Ok(request) => request,
+                Err(err) => {
+                    error!("failed to deserialize response: {err:?}");
+                    return;
+                }
+            };
+
+            // extract request ID
+            let Some(request_id) = response.id.as_u64() else {
+                error!("expected request ID to be int, got {:?}", response.id);
+                return;
+            };
+
+            // retrieve pending request sender
+            let mut requests = self.requests.lock();
+            let Some(response_tx) = requests.try_remove(request_id as usize) else {
+                error!("unknown request ID {request_id}");
+                return;
+            };
+
+            // send response
+            let _ = response_tx.send(response.result);
         }
     }
 }

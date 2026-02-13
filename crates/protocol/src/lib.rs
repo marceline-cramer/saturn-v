@@ -696,3 +696,17 @@ pub struct JsonRpcRequest<T> {
     /// The parameter payload of the request.
     pub param: T,
 }
+
+/// A type schema for a successful JSON-RPC response.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcSuccess<T> {
+    /// Must always be "2.0".
+    // TODO: is there a serde annotation to deserialize and assert this?
+    pub jsonrpc: String,
+
+    /// The ID of the request this response is for.
+    pub id: serde_json::Value,
+
+    /// The result of the method call.
+    pub result: T,
+}

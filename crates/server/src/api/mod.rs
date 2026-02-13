@@ -669,24 +669,29 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     where
         T: Handle<R>,
     {
+        // initialize a dynamic-dispatch closure
+        let handler = move |state: Arc<T>, id, value, reply: flume::Sender<String>| {
+            let request = match serde_json::from_value(value) {
+                Ok(request) => request,
+                Err(_) => return, // TODO: reply with deserialize error
+            };
+
+            tokio::spawn(async move {
+                let success = JsonRpcSuccess {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: state.on_request(request).await,
+                };
+
+                let response = serde_json::to_string(&success).unwrap(); // TODO: replace unwrap
+                let _ = reply.send(response);
+            });
+        };
+
         // handlers are type-keyed, so ignore if handler already exists
         self.handlers
             .entry(R::name().to_string())
-            .or_insert_with(|| {
-                // initialize a dynamic-dispatch closure
-                Arc::new(move |state: Arc<T>, value, reply: flume::Sender<String>| {
-                    let request = match serde_json::from_value(value) {
-                        Ok(request) => request,
-                        Err(_) => return, // TODO: reply with deserialize error
-                    };
-
-                    tokio::spawn(async move {
-                        let result = state.on_request(request).await;
-                        let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
-                        let _ = reply.send(response);
-                    });
-                })
-            });
+            .or_insert_with(|| Arc::new(handler));
     }
 
     /// Serves this JSON-RPC server.
@@ -705,11 +710,15 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
             };
 
             // invoke handler
-            (*handler)(self.state.clone(), request.param, tx.clone());
+            (*handler)(self.state.clone(), request.id, request.param, tx.clone());
         }
     }
 }
 
 /// A boxed function for dynamic dispatch in [JsonRpcServer].
-pub type DynHandler<T> =
-    Arc<dyn Fn(Arc<T>, serde_json::Value, flume::Sender<String>) + Send + Sync + 'static>;
+pub type DynHandler<T> = Arc<
+    dyn Fn(Arc<T>, serde_json::Value, serde_json::Value, flume::Sender<String>)
+        + Send
+        + Sync
+        + 'static,
+>;
