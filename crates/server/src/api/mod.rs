@@ -92,21 +92,14 @@ async fn get_input(
     server: ExtractState,
     Path(input): Path<String>,
 ) -> ServerResponse<HashSet<StructuredValue>> {
-    server
-        .lock()
-        .await
-        .get_relation_values(&input, RelationIO::Input)
-        .into()
+    server.lock().await.get_relation_values(&input).into()
 }
 
 async fn subscribe_to_input(
     server: ExtractState,
     Path(input): Path<String>,
 ) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
-    server
-        .lock()
-        .await
-        .subscribe_to_relation(&input, RelationIO::Input)
+    server.lock().await.subscribe_to_relation(&input)
 }
 
 async fn input_update(
@@ -142,21 +135,14 @@ async fn get_output(
     server: ExtractState,
     Path(output): Path<String>,
 ) -> ServerResponse<HashSet<StructuredValue>> {
-    server
-        .lock()
-        .await
-        .get_relation_values(&output, RelationIO::Output)
-        .into()
+    server.lock().await.get_relation_values(&output).into()
 }
 
 async fn subscribe_to_output(
     server: ExtractState,
     Path(output): Path<String>,
 ) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
-    server
-        .lock()
-        .await
-        .subscribe_to_relation(&output, RelationIO::Output)
+    server.lock().await.subscribe_to_relation(&output)
 }
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
@@ -212,9 +198,21 @@ impl HandleSubscribe<WatchRelation> for Connection {
     async fn on_subscribe(
         &self,
         request: WatchRelation,
-        on_update: impl FnMut(TupleUpdate) -> bool + Send,
+        mut on_update: impl FnMut(TupleUpdate) -> bool + Send,
     ) -> ServerResult<()> {
-        todo!()
+        let mut rx = self
+            .server
+            .lock()
+            .await
+            .get_relation(&request.id)?
+            .watcher
+            .subscribe();
+
+        while let Ok(update) = rx.recv().await {
+            on_update(update);
+        }
+
+        Ok(())
     }
 }
 
@@ -457,20 +455,15 @@ impl ServerInner {
         }
     }
 
-    pub fn get_relation_values(
-        &mut self,
-        name: &str,
-        io: RelationIO,
-    ) -> ServerResult<HashSet<StructuredValue>> {
-        self.get_relation(name, io).map(|rel| rel.state.clone())
+    pub fn get_relation_values(&mut self, name: &str) -> ServerResult<HashSet<StructuredValue>> {
+        self.get_relation(name).map(|rel| rel.state.clone())
     }
 
     pub fn subscribe_to_relation(
         &mut self,
         name: &str,
-        io: RelationIO,
     ) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
-        match self.get_relation(name, io) {
+        match self.get_relation(name) {
             Ok(rel) => Sse::new(
                 BroadcastStream::new(rel.watcher.subscribe())
                     .map(move |update| match update {
@@ -491,10 +484,9 @@ impl ServerInner {
         }
     }
 
-    fn get_relation(&mut self, name: &str, io: RelationIO) -> ServerResult<&mut RelationBag> {
+    pub fn get_relation(&mut self, name: &str) -> ServerResult<&mut RelationBag> {
         self.relations
             .get_mut(name)
-            .filter(|rel| rel.io == io)
             .ok_or(ServerError::NoSuchRelation(name.to_string()))
     }
 }
