@@ -334,7 +334,6 @@ impl<R: ImplQueryRelation> QueryRelation for R {
                 id: self.id.clone(),
             })
             .await?
-            .response
             .into_iter()
             .map(|val| T::from_value(val))
             .collect())

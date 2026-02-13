@@ -35,10 +35,10 @@ pub trait Rpc:
     HandleTxMethod<GetProgram>
     + HandleTxMethod<SetProgram>
     + HandleTxMethod<ListRelations>
-    + HandleTxMethod<GetTuples>
     + HandleTxMethod<CheckTuples>
     + HandleTxMethod<UpdateInput>
     + HandleTxMethod<ClearInput>
+    + Handle<GetTuples>
     + HandleSubscribe<WatchRelation>
 {
 }
@@ -161,7 +161,7 @@ pub struct GetTuples {
     pub id: String,
 }
 
-impl TxRequest for GetTuples {
+impl Request for GetTuples {
     type Response = BTreeSet<StructuredValue>;
 
     fn name() -> Cow<'static, str> {

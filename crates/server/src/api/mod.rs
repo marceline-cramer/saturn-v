@@ -15,9 +15,8 @@
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     convert::Infallible,
-    hash::Hash,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -91,7 +90,7 @@ async fn inputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> 
 async fn get_input(
     server: ExtractState,
     Path(input): Path<String>,
-) -> ServerResponse<HashSet<StructuredValue>> {
+) -> ServerResponse<BTreeSet<StructuredValue>> {
     server.lock().await.get_relation_values(&input).into()
 }
 
@@ -134,7 +133,7 @@ async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>>
 async fn get_output(
     server: ExtractState,
     Path(output): Path<String>,
-) -> ServerResponse<HashSet<StructuredValue>> {
+) -> ServerResponse<BTreeSet<StructuredValue>> {
     server.lock().await.get_relation_values(&output).into()
 }
 
@@ -192,6 +191,12 @@ pub struct Connection {
 
     /// A map of each of the client's transaction handles to actual transactions.
     pub transactions: Mutex<BTreeMap<usize, Transaction<Server>>>,
+}
+
+impl Handle<GetTuples> for Connection {
+    async fn on_request(&self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
+        self.server.lock().await.get_relation_values(&request.id)
+    }
 }
 
 impl HandleSubscribe<WatchRelation> for Connection {
@@ -426,10 +431,10 @@ impl Server {
 
         let mut jsonrpc = JsonRpcServer::new(conn);
         // TODO: WatchRelation
+        jsonrpc.handle::<GetTuples>();
         jsonrpc.handle_tx::<GetProgram>();
         jsonrpc.handle_tx::<SetProgram>();
         jsonrpc.handle_tx::<ListRelations>();
-        jsonrpc.handle_tx::<GetTuples>();
         jsonrpc.handle_tx::<CheckTuples>();
         jsonrpc.handle_tx::<UpdateInput>();
         jsonrpc.handle_tx::<ClearInput>();
@@ -473,7 +478,7 @@ impl ServerInner {
         }
     }
 
-    pub fn get_relation_values(&mut self, name: &str) -> ServerResult<HashSet<StructuredValue>> {
+    pub fn get_relation_values(&mut self, name: &str) -> ServerResult<BTreeSet<StructuredValue>> {
         self.get_relation(name).map(|rel| rel.state.clone())
     }
 
@@ -597,7 +602,7 @@ impl RelationBag {
 /// A structure for maintaining incremental, observable "bags" of data (e.g. relation contents).
 pub struct Bag<T> {
     /// The instantaneous state of this bag.
-    pub state: HashSet<T>,
+    pub state: BTreeSet<T>,
 
     /// A broadcast sender to send updates to this bag.
     pub watcher: broadcast::Sender<TupleUpdate<T>>,
@@ -621,7 +626,7 @@ impl<T: Clone> Default for Bag<T> {
     }
 }
 
-impl<T: Clone + std::fmt::Debug + Hash + Eq> Bag<T> {
+impl<T: Clone + std::fmt::Debug + Ord> Bag<T> {
     /// Pushes a [TupleUpdate] to this bag.
     pub fn push(&mut self, update: TupleUpdate<T>) {
         let changed = match update.state {

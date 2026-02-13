@@ -233,12 +233,6 @@ impl<D: CommitDataflow> HandleTx<ListRelations> for Transaction<D> {
     }
 }
 
-impl<D: CommitDataflow> HandleTx<GetTuples> for Transaction<D> {
-    async fn on_request(&mut self, request: GetTuples) -> ServerResult<BTreeSet<StructuredValue>> {
-        self.get_input_values(&request.id)
-    }
-}
-
 impl<D: CommitDataflow> HandleTx<CheckTuples> for Transaction<D> {
     async fn on_request(&mut self, request: CheckTuples) -> ServerResult<Vec<bool>> {
         // TODO: validate value types
