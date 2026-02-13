@@ -23,7 +23,6 @@ use std::{fmt::Debug, future::Future, ops::Deref, str::FromStr, sync::Arc};
 use futures_util::{Stream, TryStreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
-use serde::{Deserialize, Serialize};
 use slab::Slab;
 use wasm_bindgen::prelude::*;
 
@@ -108,6 +107,13 @@ impl Client {
         todo!()
     }
 
+    /// Creates a client to a Saturn V server with a raw transport.
+    pub fn from_transport(tx: flume::Sender<String>, rx: flume::Receiver<String>) -> Self {
+        Self {
+            rpc: JsonRpcClient::new(tx, rx),
+        }
+    }
+
     /// Gets the program currently loaded.
     pub async fn get_program(&self) -> Result<Program> {
         Ok(self.rpc.on_request(GetProgram {}).await?.response)
@@ -115,13 +121,13 @@ impl Client {
 
     /// Replaces the program currently loaded with a new program.
     pub async fn set_program(&self, program: &Program) -> Result<()> {
-        Ok(self
-            .rpc
+        self.rpc
             .on_request(SetProgram {
                 program: program.to_owned(),
             })
-            .await?
-            .response)
+            .await
+            .map(|tx| tx.response)
+            .map_err(Into::into)
     }
 }
 

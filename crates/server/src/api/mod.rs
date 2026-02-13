@@ -417,6 +417,24 @@ impl Server {
             }
         }
     }
+
+    pub fn connect(self) -> JsonRpcServer<Connection> {
+        let conn = Connection {
+            server: self,
+            transactions: Default::default(),
+        };
+
+        let mut jsonrpc = JsonRpcServer::new(conn);
+        // TODO: WatchRelation
+        jsonrpc.handle_tx::<GetProgram>();
+        jsonrpc.handle_tx::<SetProgram>();
+        jsonrpc.handle_tx::<ListRelations>();
+        jsonrpc.handle_tx::<GetTuples>();
+        jsonrpc.handle_tx::<CheckTuples>();
+        jsonrpc.handle_tx::<UpdateInput>();
+        jsonrpc.handle_tx::<ClearInput>();
+        jsonrpc
+    }
 }
 
 pub struct ServerInner {
@@ -624,36 +642,74 @@ pub struct JsonRpcServer<T> {
 
     /// A map of method names to their handlers.
     handlers: BTreeMap<String, DynHandler<T>>,
-
-    /// A sender of serialized JSON values to the outgoing transport.
-    tx: flume::Sender<String>,
 }
 
 impl<T: Send + Sync + 'static> JsonRpcServer<T> {
+    /// Creates a blank JSON-RPC server.
+    pub fn new(state: T) -> Self {
+        Self {
+            state: Arc::new(state),
+            handlers: Default::default(),
+        }
+    }
+
+    /// Adds a handler for a transactional method.
+    pub fn handle_tx<R: TxRequest + 'static>(&mut self)
+    where
+        T: HandleTxMethod<R>,
+    {
+        self.handle::<R>();
+        self.handle::<BeginTx>();
+        self.handle::<CommitTx>();
+        self.handle::<TxMethod<R>>();
+    }
+
     /// Adds a handler for a request by its state.
-    pub fn add_handler<R: Request + 'static>(&mut self)
+    pub fn handle<R: Request + 'static>(&mut self)
     where
         T: Handle<R>,
     {
-        // initialize a dynamic-dispatch closure
-        let handler = move |state: Arc<T>, value, reply: flume::Sender<serde_json::Value>| {
-            let request = match serde_json::from_value(value) {
+        // handlers are type-keyed, so ignore if handler already exists
+        self.handlers
+            .entry(R::name().to_string())
+            .or_insert_with(|| {
+                // initialize a dynamic-dispatch closure
+                Arc::new(move |state: Arc<T>, value, reply: flume::Sender<String>| {
+                    let request = match serde_json::from_value(value) {
+                        Ok(request) => request,
+                        Err(_) => return, // TODO: reply with deserialize error
+                    };
+
+                    tokio::spawn(async move {
+                        let result = state.on_request(request).await;
+                        let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
+                        let _ = reply.send(response);
+                    });
+                })
+            });
+    }
+
+    /// Serves this JSON-RPC server.
+    pub async fn serve(self, tx: flume::Sender<String>, rx: flume::Receiver<String>) {
+        while let Ok(request) = rx.recv_async().await {
+            // deserialize request
+            // TODO: confirm jsonrpc field is "2.0"
+            let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&request) {
                 Ok(request) => request,
-                Err(_) => return, // TODO: reply with deserialize error
+                Err(_) => continue, // TODO: deserialization error
             };
 
-            tokio::spawn(async move {
-                let result = state.on_request(request).await;
-                let _ = reply.send(serde_json::to_value(result).unwrap());
-            });
-        };
+            // lookup appropriate handler
+            let Some(handler) = self.handlers.get(&request.method) else {
+                continue; // TODO: unknown method error
+            };
 
-        // insert dynamic handler
-        self.handlers
-            .insert(R::name().to_string(), Arc::new(handler));
+            // invoke handler
+            (*handler)(self.state.clone(), request.param, tx.clone());
+        }
     }
 }
 
 /// A boxed function for dynamic dispatch in [JsonRpcServer].
 pub type DynHandler<T> =
-    Arc<dyn Fn(Arc<T>, serde_json::Value, flume::Sender<serde_json::Value>) + Send + 'static>;
+    Arc<dyn Fn(Arc<T>, serde_json::Value, flume::Sender<String>) + Send + Sync + 'static>;

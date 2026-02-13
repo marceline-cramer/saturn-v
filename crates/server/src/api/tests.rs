@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses>.
 
-use std::sync::atomic::AtomicU32;
-
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use saturn_v_client::*;
@@ -27,21 +25,16 @@ use super::*;
 async fn local_client() -> Result<Client> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    static PORT: AtomicU32 = AtomicU32::new(4000);
-
-    let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let database = Database::temporary().unwrap();
-    let state = start_server(database).await?;
-    let router = route(state).into_make_service();
-    let host = format!("localhost:{port}");
-    let listener = tokio::net::TcpListener::bind(&host).await?;
+    let server = start_server(database).await?;
 
-    tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
+    let (client_tx, client_rx) = flume::unbounded();
+    let (server_tx, server_rx) = flume::unbounded();
 
-    let url = format!("http://{host}").as_str().try_into().unwrap();
-    let client = Client::new(url);
+    tokio::spawn(server.connect().serve(server_tx, client_rx));
+
+    let client = Client::from_transport(client_tx, server_rx);
+
     Ok(client)
 }
 
