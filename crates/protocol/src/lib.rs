@@ -363,6 +363,9 @@ pub type ServerResult<T> = std::result::Result<T, ServerError>;
 #[derive(Clone, Debug, PartialEq, Eq, Error, Deserialize, Serialize)]
 #[allow(missing_docs)]
 pub enum ServerError {
+    #[error("there was a JSON-RPC error (code {code}): {message}")]
+    JsonRpcError { code: i64, message: String },
+
     #[error("program did not pass validation. error: {0}")]
     InvalidProgram(ir::validate::Error<String>),
 
@@ -709,4 +712,28 @@ pub struct JsonRpcSuccess<T> {
 
     /// The result of the method call.
     pub result: T,
+}
+
+/// A type schema for an unsuccessful JSON-RPC response.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcFailure {
+    /// Must always be "2.0".
+    // TODO: is there a serde annotation to deserialize and assert this?
+    pub jsonrpc: String,
+
+    /// The ID of the request this response is for.
+    pub id: serde_json::Value,
+
+    /// The error payload for this method.
+    pub error: JsonRpcError,
+}
+
+/// A type schema for JSON-RPC errors.
+#[derive(Deserialize, Serialize)]
+pub struct JsonRpcError {
+    /// The numeric error code.
+    pub code: i64,
+
+    /// A concise error message.
+    pub message: String,
 }

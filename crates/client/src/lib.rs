@@ -560,31 +560,55 @@ impl JsonRpcClient {
                 .lock()
                 .get(request.param.id)
                 .map(|tx| tx.send(request.param.event));
+        } else if value.get("error").is_some() {
+            // if there is an error field, this is a failure response
+            let response: JsonRpcFailure = match serde_json::from_value(value.into()) {
+                Ok(request) => request,
+                Err(err) => {
+                    error!("failed to deserialize failure response: {err:?}");
+                    return;
+                }
+            };
+
+            // convert RPC error to ServerResult
+            let result: ServerResult<()> = Err(ServerError::JsonRpcError {
+                code: response.error.code,
+                message: response.error.message,
+            });
+
+            // forward result to handler
+            self.on_response(response.id, serde_json::to_value(result).unwrap());
         } else {
             // otherwise, it's a response
             let response: JsonRpcSuccess<Value> = match serde_json::from_value(value.into()) {
                 Ok(request) => request,
                 Err(err) => {
-                    error!("failed to deserialize response: {err:?}");
+                    error!("failed to deserialize success response: {err:?}");
                     return;
                 }
             };
 
-            // extract request ID
-            let Some(request_id) = response.id.as_u64() else {
-                error!("expected request ID to be int, got {:?}", response.id);
-                return;
-            };
-
-            // retrieve pending request sender
-            let mut requests = self.requests.lock();
-            let Some(response_tx) = requests.try_remove(request_id as usize) else {
-                error!("unknown request ID {request_id}");
-                return;
-            };
-
-            // send response
-            let _ = response_tx.send(response.result);
+            // forward result to handler
+            self.on_response(response.id, response.result);
         }
+    }
+
+    /// Delivers a response to a request handle by ID.
+    fn on_response(&self, id: serde_json::Value, result: serde_json::Value) {
+        // extract request ID
+        let Some(request_id) = id.as_u64() else {
+            error!("expected request ID to be int, got {id:?}");
+            return;
+        };
+
+        // retrieve pending request sender
+        let mut requests = self.requests.lock();
+        let Some(response_tx) = requests.try_remove(request_id as usize) else {
+            error!("unknown request ID {request_id}");
+            return;
+        };
+
+        // send response
+        let _ = response_tx.send(result);
     }
 }

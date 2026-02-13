@@ -38,6 +38,7 @@ use saturn_v_eval::{
 use saturn_v_protocol::{ir::RelationIO, *};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::BroadcastStream;
+use tracing::error;
 
 use crate::db::*;
 
@@ -678,7 +679,21 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
         let handler = move |state: Arc<T>, id, value, reply: flume::Sender<String>| {
             let request = match serde_json::from_value(value) {
                 Ok(request) => request,
-                Err(_) => return, // TODO: reply with deserialize error
+                Err(err) => {
+                    let result = JsonRpcFailure {
+                        jsonrpc: "2.0".to_string(),
+                        id,
+                        error: JsonRpcError {
+                            code: -32700,
+                            message: format!("Invalid JSON received: {err:?}"),
+                        },
+                    };
+
+                    let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
+                    let _ = reply.send(response);
+
+                    return;
+                }
             };
 
             tokio::spawn(async move {
@@ -706,12 +721,27 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
             // TODO: confirm jsonrpc field is "2.0"
             let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&request) {
                 Ok(request) => request,
-                Err(_) => continue, // TODO: deserialization error
+                Err(err) => {
+                    error!("failed to deserialize incoming JSON-RPC object: {err:?}");
+                    continue;
+                }
             };
 
             // lookup appropriate handler
             let Some(handler) = self.handlers.get(&request.method) else {
-                continue; // TODO: unknown method error
+                let result = JsonRpcFailure {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    error: JsonRpcError {
+                        code: -32601,
+                        message: "Method not found.".to_string(),
+                    },
+                };
+
+                let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
+                let _ = tx.send(response);
+
+                continue;
             };
 
             // invoke handler
