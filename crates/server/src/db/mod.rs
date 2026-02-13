@@ -221,8 +221,15 @@ impl<D: CommitDataflow> HandleTx<SetProgram> for Transaction<D> {
 }
 
 impl<D: CommitDataflow> HandleTx<ListRelations> for Transaction<D> {
-    async fn on_request(&mut self, request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
-        Err(ServerError::DatabaseError)
+    async fn on_request(&mut self, _request: ListRelations) -> ServerResult<Vec<RelationInfo>> {
+        let map: ProgramMap = self
+            .get(&Key::ProgramMap)?
+            .ok_or(ServerError::NoProgramLoaded)?;
+
+        let inputs = map.input_relations.values().map(|rel| rel.to_info());
+        let outputs = map.output_relations.values().map(|rel| rel.to_info());
+
+        Ok(inputs.chain(outputs).collect())
     }
 }
 
