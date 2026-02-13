@@ -26,6 +26,11 @@ wasm-bindgen-futures.workspace = true
 wasm-streams.workspace = true
 url.workspace = true
 
+[dependencies.gloo-net]
+version = "0.6"
+default-features = false
+features = ["websocket"]
+
 [dependencies.tokio]
 workspace = true
 default-features = false

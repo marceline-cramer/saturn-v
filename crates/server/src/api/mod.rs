@@ -659,6 +659,13 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
         }
     }
 
+    /// Adds subscription handlers.
+    pub fn handle_subscription<R: Subscription + 'static>(&mut self)
+    where
+        T: HandleSubscribe<R>,
+    {
+    }
+
     /// Adds a handler for a transactional method.
     pub fn handle_tx<R: TxRequest + 'static>(&mut self)
     where
@@ -676,7 +683,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
         T: Handle<R>,
     {
         // initialize a dynamic-dispatch closure
-        let handler = move |state: Arc<T>, id, value, reply: flume::Sender<String>| {
+        let handler = move |state: Arc<T>, id, value, reply: flume::Sender<Vec<u8>>| {
             let request = match serde_json::from_value(value) {
                 Ok(request) => request,
                 Err(err) => {
@@ -689,7 +696,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                         },
                     };
 
-                    let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
+                    let response = serde_json::to_vec(&result).unwrap(); // TODO: replace unwrap
                     let _ = reply.send(response);
 
                     return;
@@ -703,7 +710,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                     result: state.on_request(request).await,
                 };
 
-                let response = serde_json::to_string(&success).unwrap(); // TODO: replace unwrap
+                let response = serde_json::to_vec(&success).unwrap(); // TODO: replace unwrap
                 let _ = reply.send(response);
             });
         };
@@ -715,11 +722,12 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     }
 
     /// Serves this JSON-RPC server.
-    pub async fn serve(self, tx: flume::Sender<String>, rx: flume::Receiver<String>) {
+    pub async fn serve(self, tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) {
         while let Ok(request) = rx.recv_async().await {
             // deserialize request
             // TODO: confirm jsonrpc field is "2.0"
-            let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_str(&request) {
+            let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_slice(&request)
+            {
                 Ok(request) => request,
                 Err(err) => {
                     error!("failed to deserialize incoming JSON-RPC object: {err:?}");
@@ -738,7 +746,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                     },
                 };
 
-                let response = serde_json::to_string(&result).unwrap(); // TODO: replace unwrap
+                let response = serde_json::to_vec(&result).unwrap(); // TODO: replace unwrap
                 let _ = tx.send(response);
 
                 continue;
@@ -752,7 +760,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
 
 /// A boxed function for dynamic dispatch in [JsonRpcServer].
 pub type DynHandler<T> = Arc<
-    dyn Fn(Arc<T>, serde_json::Value, serde_json::Value, flume::Sender<String>)
+    dyn Fn(Arc<T>, serde_json::Value, serde_json::Value, flume::Sender<Vec<u8>>)
         + Send
         + Sync
         + 'static,

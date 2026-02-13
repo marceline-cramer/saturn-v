@@ -18,7 +18,7 @@
 
 #![warn(missing_docs)]
 
-use std::{fmt::Debug, future::Future, ops::Deref, str::FromStr, sync::Arc};
+use std::{fmt::Debug, future::Future, ops::Deref, sync::Arc};
 
 use futures_util::{Stream, TryStreamExt};
 use parking_lot::Mutex;
@@ -39,10 +39,52 @@ pub struct Client {
 
 #[wasm_bindgen]
 impl Client {
-    /// Creates a client to the Saturn V server at the given base URL.
+    /// Creates a client to the Saturn V server at the given RPC URL.
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(constructor)]
-    pub fn js_new(base: String) -> std::result::Result<Self, String> {
-        todo!()
+    pub fn new(url: &str) -> std::result::Result<Self, JsError> {
+        use futures_util::{SinkExt, StreamExt};
+        use gloo_net::websocket::*;
+
+        // open initial WebSocket connection
+        let ws = futures::WebSocket::open(&url)?;
+
+        // split WebSocket into write and read halves
+        let (mut source, mut sink) = ws.split();
+
+        // adapt WS source to Flume channel
+        let (source_tx, source_rx) = flume::unbounded();
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Ok(msg) = source_rx.recv_async().await {
+                if source.feed(Message::Bytes(msg)).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        // adapt WS sink to Flume channel
+        let (sink_tx, sink_rx) = flume::unbounded();
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Some(msg) = sink.next().await {
+                let msg = match msg {
+                    Ok(Message::Text(json)) => json.into_bytes(),
+                    Ok(Message::Bytes(json)) => json,
+                    Err(err) => {
+                        error!("WebSocket error: {err:?}");
+                        continue;
+                    }
+                };
+
+                if sink_tx.send(msg).is_err() {
+                    return;
+                }
+            }
+        });
+
+        // construct JSON-RPC client
+        let rpc = JsonRpcClient::new(source_tx, sink_rx);
+
+        Ok(Self { rpc })
     }
 
     /// Gets a list of all inputs currently on the server.
@@ -103,13 +145,14 @@ impl Client {
 }
 
 impl Client {
-    /// Creates a client to the Saturn V server at the given base URL.
-    pub fn new(base: url::Url) -> Self {
+    /// Creates a client to the Saturn V server at the given RPC URL.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(url: &str) -> Result<Self> {
         todo!()
     }
 
     /// Creates a client to a Saturn V server with a raw transport.
-    pub fn from_transport(tx: flume::Sender<String>, rx: flume::Receiver<String>) -> Self {
+    pub fn from_transport(tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) -> Self {
         Self {
             rpc: JsonRpcClient::new(tx, rx),
         }
@@ -413,7 +456,7 @@ pub struct JsonRpcClient {
     subscriptions: Mutex<Slab<flume::Sender<serde_json::Value>>>,
 
     /// A sender of serialized JSON values to the outgoing transport.
-    tx: flume::Sender<String>,
+    tx: flume::Sender<Vec<u8>>,
 }
 
 impl Rpc for JsonRpcClient {}
@@ -482,7 +525,7 @@ impl<T: Request> Handle<T> for JsonRpcClient {
         };
 
         // send the request to the transport
-        let request = serde_json::to_string(&request_json).unwrap();
+        let request = serde_json::to_vec(&request_json).unwrap();
 
         // TODO: handle channel send error without unwrapping?
         self.tx.send_async(request).await.unwrap();
@@ -497,7 +540,7 @@ impl<T: Request> Handle<T> for JsonRpcClient {
 
 impl JsonRpcClient {
     /// Creates a JSON-RPC client over the given duplex message channel.
-    pub fn new(tx: flume::Sender<String>, rx: flume::Receiver<String>) -> Arc<Self> {
+    pub fn new(tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) -> Arc<Self> {
         // create shared client handle
         let client = Arc::new(Self {
             requests: Default::default(),
@@ -520,11 +563,11 @@ impl JsonRpcClient {
     }
 
     /// Handle a single incoming message.
-    fn handle_incoming(&self, message: String) {
+    fn handle_incoming(&self, message: Vec<u8>) {
         use serde_json::*;
 
         // deserialize the incoming JSON object
-        let value = match Map::<String, Value>::from_str(&message) {
+        let value: Map<String, Value> = match serde_json::from_slice(&message) {
             Ok(value) => value,
             Err(err) => {
                 error!("failed to deserialize incoming JSON object: {err:?}");
