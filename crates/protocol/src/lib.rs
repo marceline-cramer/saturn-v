@@ -682,7 +682,7 @@ impl<T: IntoValue> From<TupleUpdate<T>> for JsValue {
 }
 
 /// A type schema for a JSON-RPC request.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcRequest<T> {
     /// Must always be "2.0".
     // TODO: is there a serde annotation to deserialize and assert this?
@@ -701,7 +701,7 @@ pub struct JsonRpcRequest<T> {
 }
 
 /// A type schema for a successful JSON-RPC response.
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct JsonRpcSuccess<T> {
     /// Must always be "2.0".
     // TODO: is there a serde annotation to deserialize and assert this?

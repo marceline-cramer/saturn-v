@@ -180,7 +180,7 @@ async fn main() -> anyhow::Result<()> {
                 .context("failed to run server")
         }
         Command::Client { cmd } => {
-            static DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
+            static DEFAULT_SERVER: &str = "ws://127.0.0.1:3000/ws";
             let server = std::env::var("SATURN_V_SERVER").unwrap_or(DEFAULT_SERVER.to_string());
             let client = Client::new(&server).await?;
 

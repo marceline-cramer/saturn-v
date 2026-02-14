@@ -24,7 +24,7 @@ use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
 use slab::Slab;
-use tracing::error;
+use tracing::{error, trace};
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
@@ -55,7 +55,7 @@ impl Client {
         let (source_tx, source_rx) = flume::unbounded();
         wasm_bindgen_futures::spawn_local(async move {
             while let Ok(msg) = source_rx.recv_async().await {
-                if source.feed(Message::Bytes(msg)).await.is_err() {
+                if source.send(Message::Bytes(msg)).await.is_err() {
                     return;
                 }
             }
@@ -159,7 +159,8 @@ impl Client {
         let (source_tx, source_rx) = flume::unbounded::<Vec<u8>>();
         tokio::spawn(async move {
             while let Ok(msg) = source_rx.recv_async().await {
-                if source.feed(Message::Binary(msg.into())).await.is_err() {
+                if let Err(err) = source.send(Message::Binary(msg.into())).await {
+                    error!("WebSocket TX error: {err:?}");
                     return;
                 }
             }
@@ -172,15 +173,18 @@ impl Client {
                 let msg = match msg {
                     Ok(Message::Text(json)) => Bytes::from(json).to_vec(),
                     Ok(Message::Binary(json)) => json.to_vec(),
-                    Ok(_) => continue, // tungstenite handles everything else
+                    Ok(msg) => {
+                        trace!("received server message: {msg:?}");
+                        continue; // tungstenite handles everything else
+                    }
                     Err(err) => {
-                        error!("WebSocket error: {err:?}");
+                        error!("WebSocket RX error: {err:?}");
                         continue;
                     }
                 };
 
                 if sink_tx.send(msg).is_err() {
-                    return;
+                    return; // RPC was dropped; silently abort
                 }
             }
         });
@@ -560,12 +564,16 @@ impl<T: Request> Handle<T> for JsonRpcClient {
         let request_id = self.requests.lock().insert(req_tx);
 
         // create the JSON-RPC request body
-        let request_json = JsonRpcRequest {
+        let request_json = serde_json::to_value(JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             method: T::name().to_string(),
             id: serde_json::Value::from(request_id),
             param: request,
-        };
+        })
+        .unwrap();
+
+        // log request
+        trace!("request: {request_json:?}");
 
         // send the request to the transport
         let request = serde_json::to_vec(&request_json).unwrap();
@@ -617,6 +625,9 @@ impl JsonRpcClient {
                 return;
             }
         };
+
+        // log incoming message
+        trace!("received: {value:?}");
 
         // confirm that the incoming value is marked as JSON-RPC
         if value.get("jsonrpc") != Some(&Value::String("2.0".to_string())) {

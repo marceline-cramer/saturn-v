@@ -39,7 +39,7 @@ use saturn_v_eval::{
 use saturn_v_protocol::{ir::RelationIO, *};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::BroadcastStream;
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::db::*;
 
@@ -75,7 +75,7 @@ async fn websocket(server: ExtractState, ws: WebSocketUpgrade) -> axum::response
                     Ok(Message::Binary(json)) => json.to_vec(),
                     Ok(_) => continue, // axum handles everything else
                     Err(err) => {
-                        error!("WebSocket error: {err:?}");
+                        error!("WebSocket RX error: {err:?}");
                         return;
                     }
                 };
@@ -89,7 +89,8 @@ async fn websocket(server: ExtractState, ws: WebSocketUpgrade) -> axum::response
         let (outgoing_tx, outgoing_rx) = flume::unbounded::<Vec<u8>>();
         tokio::spawn(async move {
             while let Ok(msg) = outgoing_rx.recv_async().await {
-                if tx.feed(Message::Binary(msg.into())).await.is_err() {
+                if let Err(err) = tx.send(Message::Binary(msg.into())).await {
+                    error!("WebSocket TX error: {err:?}");
                     return;
                 }
             }
@@ -773,6 +774,9 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                     continue;
                 }
             };
+
+            // log request
+            trace!("recv: {request:?}");
 
             // lookup appropriate handler
             let Some(handler) = self.handlers.get(&request.method) else {
