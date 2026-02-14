@@ -20,7 +20,7 @@
 
 use std::{fmt::Debug, future::Future, marker::PhantomData, ops::Deref, sync::Arc};
 
-use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
+use futures_util::{SinkExt, Stream, StreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
 use slab::Slab;
@@ -42,7 +42,7 @@ impl Client {
     /// Creates a client to the Saturn V server at the given RPC URL.
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(constructor)]
-    pub async fn new(url: &str) -> std::result::Result<Self, JsError> {
+    pub fn new(url: &str) -> std::result::Result<Self, JsError> {
         use gloo_net::websocket::*;
 
         // open initial WebSocket connection
