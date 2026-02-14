@@ -24,11 +24,12 @@ use futures_util::{SinkExt, Stream, StreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
 use slab::Slab;
+use thiserror::Error;
 use tracing::{error, trace};
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
-use thiserror::Error;
+pub use saturn_v_protocol::{FromValue, IntoValue, ServerError, StructuredValue, TupleUpdate};
 
 /// A client to a Saturn V server.
 #[derive(Clone, Debug)]
