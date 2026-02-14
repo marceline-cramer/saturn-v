@@ -29,7 +29,9 @@ use tracing::{error, trace};
 use wasm_bindgen::prelude::*;
 
 pub use ir::StructuredType;
-pub use saturn_v_protocol::{FromValue, IntoValue, ServerError, StructuredValue, TupleUpdate};
+pub use saturn_v_protocol::{
+    FromValue, IntoValue, ServerError, StructuredValue, Symbol, TupleUpdate,
+};
 
 /// A client to a Saturn V server.
 #[derive(Clone, Debug)]
