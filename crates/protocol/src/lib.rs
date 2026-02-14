@@ -363,7 +363,7 @@ pub type ServerResult<T> = std::result::Result<T, ServerError>;
 #[derive(Clone, Debug, PartialEq, Eq, Error, Deserialize, Serialize)]
 #[allow(missing_docs)]
 pub enum ServerError {
-    #[error("there was a JSON-RPC error (code {code}): {message}")]
+    #[error("JSON-RPC error (code {code}): {message}")]
     JsonRpcError { code: i64, message: String },
 
     #[error("program did not pass validation. error: {0}")]
