@@ -3152,6 +3152,7 @@ dependencies = [
 name = "saturn-v-protocol"
 version = "0.2.0"
 dependencies = [
+ "futures-util",
  "ordered-float 4.6.0",
  "saturn-v-ir",
  "serde",

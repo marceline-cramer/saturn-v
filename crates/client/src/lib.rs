@@ -18,7 +18,7 @@
 
 #![warn(missing_docs)]
 
-use std::{fmt::Debug, future::Future, ops::Deref, sync::Arc};
+use std::{fmt::Debug, future::Future, marker::PhantomData, ops::Deref, sync::Arc};
 
 use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
@@ -34,7 +34,7 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 #[wasm_bindgen]
 pub struct Client {
-    rpc: Arc<JsonRpcClient>,
+    rpc: JsonRpcClient,
 }
 
 #[wasm_bindgen]
@@ -334,8 +334,8 @@ impl Input {
         let stream = self
             .subscribe::<StructuredValue>()
             .await?
-            .map_ok(JsValue::from)
-            .map_err(JsValue::from);
+            .map(JsValue::from)
+            .map(Ok);
 
         Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
     }
@@ -379,8 +379,8 @@ impl Output {
         let stream = self
             .subscribe::<StructuredValue>()
             .await?
-            .map_ok(JsValue::from)
-            .map_err(JsValue::from);
+            .map(JsValue::from)
+            .map(Ok);
 
         Ok(wasm_streams::ReadableStream::from_stream(stream).into_raw())
     }
@@ -400,7 +400,7 @@ pub trait QueryRelation {
     #[allow(async_fn_in_trait)]
     async fn subscribe<T: FromValue + Send + 'static>(
         &self,
-    ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static>;
+    ) -> Result<impl Stream<Item = TupleUpdate<T>> + 'static>;
 }
 
 /// A utility trait to implement [QueryRelation].
@@ -429,29 +429,23 @@ impl<R: ImplQueryRelation> QueryRelation for R {
     /// Subscribes to live updates on values in this output.
     async fn subscribe<T: FromValue + Send + 'static>(
         &self,
-    ) -> Result<impl Stream<Item = Result<TupleUpdate<T>>> + 'static> {
+    ) -> Result<impl Stream<Item = TupleUpdate<T>> + 'static> {
         T::check_ty(&self.ty)?;
-
-        let (tx, rx) = flume::unbounded::<Result<TupleUpdate<T>>>();
 
         let request = WatchRelation {
             id: self.id.clone(),
         };
 
-        let on_update = {
-            let tx = tx.clone();
-            move |update: TupleUpdate| tx.send(Ok(update.map(T::from_value))).is_ok()
-        };
+        let stream = self
+            .client()
+            .rpc
+            .to_owned()
+            .on_subscribe(request)
+            .await?
+            .map(move |update| update.map(T::from_value))
+            .boxed();
 
-        let rpc = self.client().rpc.to_owned();
-
-        tokio::spawn(async move {
-            if let Err(err) = rpc.on_subscribe(request, on_update).await {
-                let _ = tx.send(Err(err.into())).is_err();
-            }
-        });
-
-        Ok(rx.into_stream())
+        Ok(stream)
     }
 }
 
@@ -494,8 +488,20 @@ impl From<Error> for JsValue {
 }
 
 /// A JSON-RPC client.
+#[derive(Clone, Debug)]
+pub struct JsonRpcClient(Arc<JsonRpcClientInner>);
+
+impl Deref for JsonRpcClient {
+    type Target = JsonRpcClientInner;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// The inner JSON-RPC state machine.
 #[derive(Debug)]
-pub struct JsonRpcClient {
+pub struct JsonRpcClientInner {
     /// A table matching request IDs to senders to their recipients.
     requests: Mutex<Slab<flume::Sender<serde_json::Value>>>,
 
@@ -508,52 +514,83 @@ pub struct JsonRpcClient {
 
 impl Rpc for JsonRpcClient {}
 
-impl<T: Subscription> HandleSubscribe<T> for JsonRpcClient {
+impl<T: Subscription + 'static> HandleSubscribe<T> for JsonRpcClient {
     async fn on_subscribe(
         &self,
         request: T,
-        mut on_update: impl FnMut(T::Response) -> bool + Send,
-    ) -> ServerResult<()> {
+    ) -> ServerResult<impl Stream<Item = T::Response> + Unpin + Send + 'static> {
         // create event handler channel and insert into table
         let (req_tx, req_rx) = flume::unbounded();
         let subscription_id = self.subscriptions.lock().insert(req_tx);
 
         // send initial subscription request
-        self.on_request(Subscribe {
-            param: request,
-            id: subscription_id,
-        })
-        .await
-        .inspect_err(|_| {
-            // clean up subscription ID if request failed
-            self.subscriptions.lock().remove(subscription_id);
-        })?;
+        let () = self
+            .on_request(Subscribe {
+                param: request,
+                id: subscription_id,
+            })
+            .await
+            .inspect_err(|_| {
+                // clean up subscription ID if request failed
+                self.subscriptions.lock().remove(subscription_id);
+            })?;
 
-        // stream subscription events into callback
-        while let Ok(value) = req_rx.recv_async().await {
-            // deserialize object
-            match serde_json::from_value(value) {
-                Ok(ev) => {
-                    if !on_update(ev) {
-                        break;
-                    }
-                }
+        // convert channel into stream of responses
+        let stream = req_rx.into_stream().filter_map(|value| async move {
+            match serde_json::from_value::<T::Response>(value) {
+                Ok(ev) => Some(ev),
                 Err(err) => {
                     error!("failed to deserialize subscription event: {err:?}");
-                    continue;
+                    None
                 }
             }
-        }
+        });
 
-        // remove subscription sender
-        self.subscriptions.lock().remove(subscription_id);
-
-        // return result of unsubscription request
-        self.on_request(Unsubscribe {
+        // wrap stream in automatic unsubscriber
+        Ok(SubscribeStream {
+            inner: Box::pin(stream),
             id: subscription_id,
-            _phantom: std::marker::PhantomData::<T>,
+            rpc: self.clone(),
+            _request: PhantomData::<T>,
         })
-        .await
+    }
+}
+
+/// A stream that automatically unsubscribes from the server when dropped.
+pub struct SubscribeStream<S, T: Subscription> {
+    inner: S,
+    id: usize,
+    rpc: JsonRpcClient,
+    _request: PhantomData<T>,
+}
+
+impl<S, T: Subscription> Drop for SubscribeStream<S, T> {
+    fn drop(&mut self) {
+        let rpc = self.rpc.clone();
+        let id = self.id;
+        tokio::spawn(async move {
+            let _ = rpc
+                .on_request(Unsubscribe::<T> {
+                    id,
+                    _phantom: PhantomData,
+                })
+                .await;
+
+            rpc.subscriptions.lock().remove(id);
+        });
+    }
+}
+
+impl<S: Unpin, T: Subscription> Unpin for SubscribeStream<S, T> {}
+
+impl<S: Stream + Unpin, T: Subscription> Stream for SubscribeStream<S, T> {
+    type Item = S::Item;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        S::poll_next(std::pin::Pin::new(&mut self.inner), cx)
     }
 }
 
@@ -595,13 +632,13 @@ impl<T: Request> Handle<T> for JsonRpcClient {
 
 impl JsonRpcClient {
     /// Creates a JSON-RPC client over the given duplex message channel.
-    pub fn new(tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) -> Arc<Self> {
+    pub fn new(tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) -> Self {
         // create shared client handle
-        let client = Arc::new(Self {
+        let client = Self(Arc::new(JsonRpcClientInner {
             requests: Default::default(),
             subscriptions: Default::default(),
             tx,
-        });
+        }));
 
         // spawn event pump for incoming messages
         tokio::spawn({
