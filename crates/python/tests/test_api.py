@@ -100,7 +100,7 @@ def server_url():
 
 
 @pytest.fixture
-def client(server_url):
+async def client(server_url):
     return await connect(server_url)
 
 
