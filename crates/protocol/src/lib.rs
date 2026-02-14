@@ -550,6 +550,25 @@ impl<T: CheckType + From<StructuredValue>> FromValue for T {
     }
 }
 
+/// A simple marker type for strings that correspond to symbols.
+///
+/// In protocol terms, there is no difference between strings and symbols, so
+/// we just wrap it using this.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub struct Symbol(pub String);
+
+impl From<String> for Symbol {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Symbol> for String {
+    fn from(value: Symbol) -> Self {
+        value.0
+    }
+}
+
 macro_rules! impl_typed_primitive {
     ($ty:ty, $name:ident) => {
         impl Typed for $ty {
@@ -575,6 +594,7 @@ macro_rules! impl_typed_primitive {
     };
 }
 
+impl_typed_primitive!(Symbol, Symbol);
 impl_typed_primitive!(String, String);
 impl_typed_primitive!(bool, Boolean);
 impl_typed_primitive!(i64, Integer);
