@@ -401,7 +401,7 @@ pub trait QueryRelation {
     #[allow(async_fn_in_trait)]
     async fn subscribe<T: FromValue + Send + 'static>(
         &self,
-    ) -> Result<impl Stream<Item = TupleUpdate<T>> + 'static>;
+    ) -> Result<impl Stream<Item = TupleUpdate<T>> + Unpin + 'static>;
 }
 
 /// A utility trait to implement [QueryRelation].
