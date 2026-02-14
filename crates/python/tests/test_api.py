@@ -95,7 +95,7 @@ def server_url():
     )
 
     time.sleep(1)
-    yield f"http://127.0.0.1:{port}"
+    yield f"ws://127.0.0.1:{port}/ws"
     proc.terminate()
 
 
