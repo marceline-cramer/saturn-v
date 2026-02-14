@@ -20,7 +20,7 @@
 
 use std::{fmt::Debug, future::Future, ops::Deref, sync::Arc};
 
-use futures_util::{Stream, TryStreamExt};
+use futures_util::{SinkExt, Stream, StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use saturn_v_protocol::*;
 use slab::Slab;
@@ -42,8 +42,7 @@ impl Client {
     /// Creates a client to the Saturn V server at the given RPC URL.
     #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(constructor)]
-    pub fn new(url: &str) -> std::result::Result<Self, JsError> {
-        use futures_util::{SinkExt, StreamExt};
+    pub async fn new(url: &str) -> std::result::Result<Self, JsError> {
         use gloo_net::websocket::*;
 
         // open initial WebSocket connection
@@ -147,8 +146,49 @@ impl Client {
 impl Client {
     /// Creates a client to the Saturn V server at the given RPC URL.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(url: &str) -> Result<Self> {
-        todo!()
+    pub async fn new(url: &str) -> Result<Self> {
+        use tokio_tungstenite::tungstenite::{Bytes, Message};
+
+        // connect to WebSocket
+        let (ws, _response) = tokio_tungstenite::connect_async(url).await?;
+
+        // split WebSocket into write and read halves
+        let (mut source, mut sink) = ws.split();
+
+        // adapt WS source to Flume channel
+        let (source_tx, source_rx) = flume::unbounded::<Vec<u8>>();
+        tokio::spawn(async move {
+            while let Ok(msg) = source_rx.recv_async().await {
+                if source.feed(Message::Binary(msg.into())).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        // adapt WS sink to Flume channel
+        let (sink_tx, sink_rx) = flume::unbounded();
+        tokio::spawn(async move {
+            while let Some(msg) = sink.next().await {
+                let msg = match msg {
+                    Ok(Message::Text(json)) => Bytes::from(json).to_vec(),
+                    Ok(Message::Binary(json)) => json.to_vec(),
+                    Ok(_) => continue, // tungstenite handles everything else
+                    Err(err) => {
+                        error!("WebSocket error: {err:?}");
+                        continue;
+                    }
+                };
+
+                if sink_tx.send(msg).is_err() {
+                    return;
+                }
+            }
+        });
+
+        // construct JSON-RPC client
+        let rpc = JsonRpcClient::new(source_tx, sink_rx);
+
+        Ok(Self { rpc })
     }
 
     /// Creates a client to a Saturn V server with a raw transport.
@@ -425,6 +465,9 @@ pub enum Error {
     Parse(#[from] serde_json::Error),
     #[error("cannot clone request")]
     CannotCloneRequest,
+    #[cfg(not(target_arch = "wasm32"))]
+    #[error(transparent)]
+    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 }
 
 impl Error {

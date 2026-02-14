@@ -182,7 +182,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Client { cmd } => {
             static DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
             let server = std::env::var("SATURN_V_SERVER").unwrap_or(DEFAULT_SERVER.to_string());
-            let client = Client::new(&server)?;
+            let client = Client::new(&server).await?;
 
             match cmd {
                 ClientCommands::Push { path } => {

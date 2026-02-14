@@ -3043,6 +3043,7 @@ dependencies = [
  "slab",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "wasm-bindgen",
  "wasm-bindgen-futures",
