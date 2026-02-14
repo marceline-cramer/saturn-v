@@ -218,7 +218,7 @@ async fn test_input_subscription_values() -> Result<()> {
     let mut rx = input.subscribe().await?;
     let value = "test".to_string();
     input.insert(value.clone()).await?;
-    let received = rx.next().await.unwrap()?;
+    let received = rx.next().await.unwrap();
     assert_eq!(received, TupleUpdate::insert(value));
     Ok(())
 }
@@ -294,7 +294,7 @@ async fn test_output_subscription() -> Result<()> {
     let mut rx = output.subscribe().await?;
     let value = "test".to_string();
     input.insert(value.clone()).await?;
-    let received = rx.next().await.unwrap()?;
+    let received = rx.next().await.unwrap();
     assert_eq!(received, TupleUpdate::insert(value));
     Ok(())
 }
@@ -305,8 +305,7 @@ async fn test_subscription_no_output() -> Result<()> {
     let name = "NotAnOutput".to_string();
     let ty = StructuredType::Primitive(Type::String);
     let output = client.get_invalid_output(&name, ty);
-    let mut rx = output.subscribe::<String>().await?;
-    let response = rx.next().await.unwrap();
+    let response = output.subscribe::<String>().await;
     assert_eq!(server_error(response)?, ServerError::NoSuchRelation(name));
     Ok(())
 }

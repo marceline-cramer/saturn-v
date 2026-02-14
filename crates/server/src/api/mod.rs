@@ -17,6 +17,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     convert::Infallible,
+    future::Future,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -29,7 +30,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use futures_util::{stream::BoxStream, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{stream::BoxStream, SinkExt, Stream, StreamExt, TryStreamExt};
 use saturn_v_eval::{
     solve::Solver,
     types::{Fact, Relation},
@@ -151,9 +152,8 @@ impl HandleSubscribe<WatchRelation> for Connection {
     async fn on_subscribe(
         &self,
         request: WatchRelation,
-        mut on_update: impl FnMut(TupleUpdate) -> bool + Send,
-    ) -> ServerResult<()> {
-        let mut rx = self
+    ) -> ServerResult<impl Stream<Item = TupleUpdate> + Unpin + Send + 'static> {
+        let rx = self
             .server
             .lock()
             .await
@@ -161,11 +161,9 @@ impl HandleSubscribe<WatchRelation> for Connection {
             .watcher
             .subscribe();
 
-        while let Ok(update) = rx.recv().await {
-            on_update(update);
-        }
-
-        Ok(())
+        Ok(BroadcastStream::new(rx)
+            .filter_map(move |ev| async move { ev.ok() })
+            .boxed())
     }
 }
 
@@ -378,7 +376,7 @@ impl Server {
         };
 
         let mut jsonrpc = JsonRpcServer::new(conn);
-        // TODO: WatchRelation
+        jsonrpc.handle_subscription::<WatchRelation>();
         jsonrpc.handle::<GetTuples>();
         jsonrpc.handle_tx::<GetProgram>();
         jsonrpc.handle_tx::<SetProgram>();
@@ -593,8 +591,11 @@ pub struct JsonRpcServer<T> {
     /// The server's state.
     state: Arc<T>,
 
+    /// A slab of subscription thread cancellation tokens.
+    cancel_tokens: Arc<Mutex<BTreeMap<usize, flume::Sender<()>>>>,
+
     /// A map of method names to their handlers.
-    handlers: BTreeMap<String, DynHandler<T>>,
+    handlers: BTreeMap<String, DynHandler>,
 }
 
 impl<T: Send + Sync + 'static> JsonRpcServer<T> {
@@ -603,6 +604,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
         Self {
             state: Arc::new(state),
             handlers: Default::default(),
+            cancel_tokens: Default::default(),
         }
     }
 
@@ -611,6 +613,55 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     where
         T: HandleSubscribe<R>,
     {
+        // register subscription request
+        let state = self.state.clone();
+        let cancel_tokens = self.cancel_tokens.clone();
+        self.add_handler(move |request: Subscribe<R>, tx| {
+            let state = state.clone();
+            let cancel_tokens = cancel_tokens.clone();
+            async move {
+                // invoke subscription handler
+                let stream = state.on_subscribe(request.param).await?;
+
+                // prepare subscription registration
+                let mut cancel_tokens = cancel_tokens.lock().await;
+
+                // ensure token ID is not taken
+                use std::collections::btree_map::Entry;
+                let Entry::Vacant(entry) = cancel_tokens.entry(request.id) else {
+                    return Err(ServerError::ExistingTransaction);
+                };
+
+                // create cancellation token channel
+                let (cancel_tx, cancel_rx) = flume::bounded(0);
+
+                // register cancellation token
+                entry.insert(cancel_tx);
+
+                // asynchronously notify client of events
+                tokio::spawn(serve_subscription::<R>(request.id, stream, cancel_rx, tx));
+
+                // success!
+                Ok(())
+            }
+        });
+
+        // register unsubscription request
+        let cancel_tokens = self.cancel_tokens.clone();
+        self.add_handler(move |request: Unsubscribe<R>, _tx| {
+            let cancel_tokens = cancel_tokens.clone();
+            async move {
+                // attempt to cancel subscription
+                cancel_tokens
+                    .lock()
+                    .await
+                    .remove(&request.id)
+                    .ok_or(ServerError::UnknownSubscription)?;
+
+                // success
+                Ok(())
+            }
+        });
     }
 
     /// Adds a handler for a transactional method.
@@ -629,8 +680,25 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     where
         T: Handle<R>,
     {
+        let state = self.state.clone();
+        self.add_handler(move |request, _tx| {
+            let state = state.clone();
+            async move { state.on_request(request).await }
+        });
+    }
+
+    /// Adds a handler closure for a request.
+    pub fn add_handler<R: Request + 'static, Fut>(
+        &mut self,
+        handler: impl Fn(R, flume::Sender<Vec<u8>>) -> Fut + Send + Sync + 'static,
+    ) where
+        Fut: Future<Output = Result<R::Response, ServerError>> + Send,
+    {
+        // wrap handler in arc so it can be invoked multiple times
+        let handler = Arc::new(handler);
+
         // initialize a dynamic-dispatch closure
-        let handler = move |state: Arc<T>, id, value, reply: flume::Sender<Vec<u8>>| {
+        let handler = move |id, value, reply: flume::Sender<Vec<u8>>| {
             let request = match serde_json::from_value(value) {
                 Ok(request) => request,
                 Err(err) => {
@@ -650,11 +718,18 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                 }
             };
 
+            let handler = handler.clone();
             tokio::spawn(async move {
+                let result = handler(request, reply.clone()).await;
+
+                if id.is_null() {
+                    return;
+                }
+
                 let success = JsonRpcSuccess {
                     jsonrpc: "2.0".to_string(),
                     id,
-                    result: state.on_request(request).await,
+                    result,
                 };
 
                 let response = serde_json::to_vec(&success).unwrap();
@@ -708,15 +783,45 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
             };
 
             // invoke handler
-            (*handler)(self.state.clone(), request.id, request.param, tx.clone());
+            (*handler)(request.id, request.param, tx.clone());
         }
     }
 }
 
 /// A boxed function for dynamic dispatch in [JsonRpcServer].
-pub type DynHandler<T> = Arc<
-    dyn Fn(Arc<T>, serde_json::Value, serde_json::Value, flume::Sender<Vec<u8>>)
-        + Send
-        + Sync
-        + 'static,
+pub type DynHandler = Arc<
+    dyn Fn(serde_json::Value, serde_json::Value, flume::Sender<Vec<u8>>) + Send + Sync + 'static,
 >;
+
+/// Helper method to handle a subscription notification.
+pub async fn serve_subscription<R: Subscription>(
+    id: usize,
+    mut stream: impl Stream<Item = R::Response> + Unpin + Send + 'static,
+    cancel_rx: flume::Receiver<()>,
+    tx: flume::Sender<Vec<u8>>,
+) {
+    loop {
+        tokio::select! {
+            _ = cancel_rx.recv_async() => break,
+            ev = stream.next() => match ev {
+                None => break, // TODO: implement stream cancellation
+                Some(event) => {
+                    // serialize JSON-RPC notification
+                    let notification = JsonRpcRequest {
+                        jsonrpc: "2.0".to_string(),
+                        id: serde_json::Value::Null,
+                        method: R::name().to_string(),
+                        param: SubscriptionEvent {
+                            id, event
+                        },
+                    };
+
+                    // send notification to client
+                    // TODO: stream cancellation on close
+                    let message = serde_json::to_vec(&notification).unwrap();
+                    let _ = tx.send(message);
+                }
+            }
+        }
+    }
+}
