@@ -23,12 +23,13 @@ use std::{
 
 use anyhow::Context;
 use axum::{
-    extract::Path,
+    body::Bytes,
+    extract::{ws::Message, Path, WebSocketUpgrade},
     response::{sse::Event, Sse},
     routing::{get, post},
     Json, Router,
 };
-use futures_util::{stream::BoxStream, StreamExt, TryStreamExt};
+use futures_util::{stream::BoxStream, SinkExt, StreamExt, TryStreamExt};
 use saturn_v_eval::{
     solve::Solver,
     types::{Fact, Relation},
@@ -49,6 +50,7 @@ pub mod tests;
 
 pub fn route(server: Server) -> Router {
     Router::new()
+        .route("/ws", get(websocket))
         .route("/program", get(get_program).post(post_program))
         .route("/inputs/list", get(inputs_list))
         .route("/input/{input}", get(get_input))
@@ -58,6 +60,43 @@ pub fn route(server: Server) -> Router {
         .route("/output/{output}", get(get_output))
         .route("/output/{output}/subscribe", get(subscribe_to_output))
         .with_state(server)
+}
+
+async fn websocket(server: ExtractState, ws: WebSocketUpgrade) -> axum::response::Response {
+    ws.on_upgrade(move |socket| async move {
+        let rpc = server.0.connect();
+        let (mut tx, mut rx) = socket.split();
+
+        let (incoming_tx, incoming_rx) = flume::unbounded();
+        tokio::spawn(async move {
+            while let Some(msg) = rx.next().await {
+                let msg = match msg {
+                    Ok(Message::Text(json)) => Bytes::from(json).to_vec(),
+                    Ok(Message::Binary(json)) => json.to_vec(),
+                    Ok(_) => continue, // axum handles everything else
+                    Err(err) => {
+                        error!("WebSocket error: {err:?}");
+                        return;
+                    }
+                };
+
+                if incoming_tx.send(msg).is_err() {
+                    return;
+                }
+            }
+        });
+
+        let (outgoing_tx, outgoing_rx) = flume::unbounded::<Vec<u8>>();
+        tokio::spawn(async move {
+            while let Ok(msg) = outgoing_rx.recv_async().await {
+                if tx.feed(Message::Binary(msg.into())).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        tokio::spawn(rpc.serve(outgoing_tx, incoming_rx));
+    })
 }
 
 async fn get_program(server: ExtractState) -> ServerResponse<Program> {
