@@ -34,7 +34,6 @@ strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 timely = "0.25"
 tinyvec = { version = "1.10", features = ["alloc"] }
-tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -61,6 +60,10 @@ saturn-v-lsp.path = "crates/lsp"
 saturn-v-protocol.path = "crates/protocol"
 saturn-v-server.path = "crates/server"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
+
+[workspace.dependencies.tokio]
+version = "1.42"
+default-features = false
 
 [profile.release]
 lto = "thin"

@@ -32,7 +32,6 @@ features = ["websocket"]
 
 [dependencies.tokio]
 workspace = true
-default-features = false
 features = ["rt"]
 
 [features]
