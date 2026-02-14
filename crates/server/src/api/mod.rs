@@ -24,9 +24,9 @@ use std::{
 use anyhow::Context;
 use axum::{
     body::Bytes,
-    extract::{ws::Message, Path, WebSocketUpgrade},
+    extract::{ws::Message, WebSocketUpgrade},
     response::{sse::Event, Sse},
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use futures_util::{stream::BoxStream, SinkExt, StreamExt, TryStreamExt};
@@ -51,14 +51,6 @@ pub mod tests;
 pub fn route(server: Server) -> Router {
     Router::new()
         .route("/ws", get(websocket))
-        .route("/program", get(get_program).post(post_program))
-        .route("/inputs/list", get(inputs_list))
-        .route("/input/{input}", get(get_input))
-        .route("/input/{input}/subscribe", get(subscribe_to_input))
-        .route("/input/{input}/update", post(input_update))
-        .route("/outputs/list", get(outputs_list))
-        .route("/output/{output}", get(get_output))
-        .route("/output/{output}/subscribe", get(subscribe_to_output))
         .with_state(server)
 }
 
@@ -98,91 +90,6 @@ async fn websocket(server: ExtractState, ws: WebSocketUpgrade) -> axum::response
 
         tokio::spawn(rpc.serve(outgoing_tx, incoming_rx));
     })
-}
-
-async fn get_program(server: ExtractState) -> ServerResponse<Program> {
-    server
-        .on_request(GetProgram {})
-        .await
-        .map(|tx| tx.response)
-        .into()
-}
-
-async fn post_program(server: ExtractState, Json(program): Json<Program>) -> ServerResponse<()> {
-    server
-        .on_request(SetProgram { program })
-        .await
-        .map(|tx| tx.response)
-        .into()
-}
-
-async fn inputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> {
-    Ok(server
-        .lock()
-        .await
-        .program_map
-        .input_relations
-        .values()
-        .map(InputRelation::to_info)
-        .collect::<Vec<_>>())
-    .into()
-}
-
-async fn get_input(
-    server: ExtractState,
-    Path(input): Path<String>,
-) -> ServerResponse<BTreeSet<StructuredValue>> {
-    server.lock().await.get_relation_values(&input).into()
-}
-
-async fn subscribe_to_input(
-    server: ExtractState,
-    Path(input): Path<String>,
-) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
-    server.lock().await.subscribe_to_relation(&input)
-}
-
-async fn input_update(
-    server: ExtractState,
-    Path(id): Path<String>,
-    Json(updates): Json<Vec<TupleUpdate>>,
-) -> ServerResponse<()> {
-    server
-        .on_request(UpdateInput { id, updates })
-        .await
-        .map(|tx| tx.response)
-        .into()
-}
-
-async fn outputs_list(server: ExtractState) -> ServerResponse<Vec<RelationInfo>> {
-    Ok(server
-        .lock()
-        .await
-        .program_map
-        .output_relations
-        .iter()
-        .map(|(name, output)| RelationInfo {
-            name: name.clone(),
-            id: name.clone(),
-            ty: output.ty.clone(),
-            is_input: false,
-        })
-        .collect())
-    .into()
-}
-
-async fn get_output(
-    server: ExtractState,
-    Path(output): Path<String>,
-) -> ServerResponse<BTreeSet<StructuredValue>> {
-    server.lock().await.get_relation_values(&output).into()
-}
-
-async fn subscribe_to_output(
-    server: ExtractState,
-    Path(output): Path<String>,
-) -> Sse<BoxStream<'static, std::result::Result<Event, Infallible>>> {
-    server.lock().await.subscribe_to_relation(&output)
 }
 
 pub type ServerResponse<T> = Json<ServerResult<T>>;
