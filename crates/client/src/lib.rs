@@ -566,18 +566,13 @@ pub struct SubscribeStream<S, T: Subscription> {
 
 impl<S, T: Subscription> Drop for SubscribeStream<S, T> {
     fn drop(&mut self) {
-        let rpc = self.rpc.clone();
-        let id = self.id;
-        tokio::spawn(async move {
-            let _ = rpc
-                .on_request(Unsubscribe::<T> {
-                    id,
-                    _phantom: PhantomData,
-                })
-                .await;
+        // Wasm-specific: unsubscribe from stream
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(self.unsubscribe());
 
-            rpc.subscriptions.lock().remove(id);
-        });
+        // non-Wasm: spawn event pump for incoming messages
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(self.unsubscribe());
     }
 }
 
@@ -591,6 +586,23 @@ impl<S: Stream + Unpin, T: Subscription> Stream for SubscribeStream<S, T> {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         S::poll_next(std::pin::Pin::new(&mut self.inner), cx)
+    }
+}
+
+impl<S, T: Subscription> SubscribeStream<S, T> {
+    fn unsubscribe(&self) -> impl Future<Output = ()> + 'static {
+        let rpc = self.rpc.clone();
+        let id = self.id;
+        async move {
+            let _ = rpc
+                .on_request(Unsubscribe::<T> {
+                    id,
+                    _phantom: PhantomData,
+                })
+                .await;
+
+            rpc.subscriptions.lock().remove(id);
+        }
     }
 }
 
@@ -640,18 +652,26 @@ impl JsonRpcClient {
             tx,
         }));
 
-        // spawn event pump for incoming messages
-        tokio::spawn({
-            let client = client.clone();
-            async move {
-                while let Ok(json) = rx.recv_async().await {
-                    client.handle_incoming(json);
-                }
-            }
-        });
+        // Wasm-specific: spawn event pump for incoming messages
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(client.handle_all(rx));
+
+        // non-Wasm: spawn event pump for incoming messages
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(client.handle_all(rx));
 
         // return remaining client handle
         client
+    }
+
+    /// Handles all incoming messages.
+    fn handle_all(&self, rx: flume::Receiver<Vec<u8>>) -> impl Future<Output = ()> + 'static {
+        let client = self.clone();
+        async move {
+            while let Ok(json) = rx.recv_async().await {
+                client.handle_incoming(json);
+            }
+        }
     }
 
     /// Handle a single incoming message.
