@@ -577,12 +577,16 @@ impl<T: Request> Handle<T> for JsonRpcClient {
 
         // send the request to the transport
         let request = serde_json::to_vec(&request_json).unwrap();
+        self.tx
+            .send_async(request)
+            .await
+            .map_err(|_| ServerError::Disconnected)?;
 
-        // TODO: handle channel send error without unwrapping?
-        self.tx.send_async(request).await.unwrap();
-
-        // TODO: handle channel cancellation without unwrapping?
-        let response = req_rx.into_recv_async().await.unwrap();
+        // wait for response
+        let response = req_rx
+            .into_recv_async()
+            .await
+            .map_err(|_| ServerError::Disconnected)?;
 
         // TODO: handle deserialization without unwrapping?
         serde_json::from_value(response).unwrap()

@@ -643,7 +643,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                         },
                     };
 
-                    let response = serde_json::to_vec(&result).unwrap(); // TODO: replace unwrap
+                    let response = serde_json::to_vec(&result).unwrap();
                     let _ = reply.send(response);
 
                     return;
@@ -657,7 +657,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                     result: state.on_request(request).await,
                 };
 
-                let response = serde_json::to_vec(&success).unwrap(); // TODO: replace unwrap
+                let response = serde_json::to_vec(&success).unwrap();
                 let _ = reply.send(response);
             });
         };
@@ -672,7 +672,6 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
     pub async fn serve(self, tx: flume::Sender<Vec<u8>>, rx: flume::Receiver<Vec<u8>>) {
         while let Ok(request) = rx.recv_async().await {
             // deserialize request
-            // TODO: confirm jsonrpc field is "2.0"
             let request: JsonRpcRequest<serde_json::Value> = match serde_json::from_slice(&request)
             {
                 Ok(request) => request,
@@ -685,6 +684,12 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
             // log request
             trace!("recv: {request:?}");
 
+            // check that jsonrpc is set correctly
+            if request.jsonrpc != "2.0" {
+                error!("incoming JSON object was not marked as jsonrpc = 2.0");
+                continue;
+            }
+
             // lookup appropriate handler
             let Some(handler) = self.handlers.get(&request.method) else {
                 let result = JsonRpcFailure {
@@ -696,7 +701,7 @@ impl<T: Send + Sync + 'static> JsonRpcServer<T> {
                     },
                 };
 
-                let response = serde_json::to_vec(&result).unwrap(); // TODO: replace unwrap
+                let response = serde_json::to_vec(&result).unwrap();
                 let _ = tx.send(response);
 
                 continue;

@@ -366,6 +366,9 @@ pub enum ServerError {
     #[error("JSON-RPC error (code {code}): {message}")]
     JsonRpcError { code: i64, message: String },
 
+    #[error("unexpectedly disconnected")]
+    Disconnected,
+
     #[error("program did not pass validation. error: {0}")]
     InvalidProgram(ir::validate::Error<String>),
 
