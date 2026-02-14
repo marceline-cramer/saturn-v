@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses>.
 
-use std::sync::atomic::AtomicU32;
-
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use saturn_v_client::*;
@@ -27,21 +25,16 @@ use super::*;
 async fn local_client() -> Result<Client> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    static PORT: AtomicU32 = AtomicU32::new(4000);
-
-    let port = PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let database = Database::temporary().unwrap();
-    let state = start_server(database).await?;
-    let router = route(state).into_make_service();
-    let host = format!("localhost:{port}");
-    let listener = tokio::net::TcpListener::bind(&host).await?;
+    let server = start_server(database).await?;
 
-    tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
+    let (client_tx, client_rx) = flume::unbounded();
+    let (server_tx, server_rx) = flume::unbounded();
 
-    let url = format!("http://{host}").as_str().try_into().unwrap();
-    let client = Client::new(url);
+    tokio::spawn(server.connect().serve(server_tx, client_rx));
+
+    let client = Client::from_transport(client_tx, server_rx);
+
     Ok(client)
 }
 
@@ -167,7 +160,7 @@ async fn test_no_input() -> Result<()> {
     let input = client.get_invalid_input(&name, ty);
     let value = "test".to_string();
     let result = input.insert(value).await;
-    assert_eq!(server_error(result)?, ServerError::NoSuchInput(name));
+    assert_eq!(server_error(result)?, ServerError::NoSuchRelation(name));
     Ok(())
 }
 
@@ -225,7 +218,7 @@ async fn test_input_subscription_values() -> Result<()> {
     let mut rx = input.subscribe().await?;
     let value = "test".to_string();
     input.insert(value.clone()).await?;
-    let received = rx.next().await.unwrap()?;
+    let received = rx.next().await.unwrap();
     assert_eq!(received, TupleUpdate::insert(value));
     Ok(())
 }
@@ -301,7 +294,7 @@ async fn test_output_subscription() -> Result<()> {
     let mut rx = output.subscribe().await?;
     let value = "test".to_string();
     input.insert(value.clone()).await?;
-    let received = rx.next().await.unwrap()?;
+    let received = rx.next().await.unwrap();
     assert_eq!(received, TupleUpdate::insert(value));
     Ok(())
 }
@@ -312,9 +305,8 @@ async fn test_subscription_no_output() -> Result<()> {
     let name = "NotAnOutput".to_string();
     let ty = StructuredType::Primitive(Type::String);
     let output = client.get_invalid_output(&name, ty);
-    let mut rx = output.subscribe::<String>().await?;
-    let response = rx.next().await.unwrap();
-    assert_eq!(server_error(response)?, ServerError::NoSuchOutput(name));
+    let response = output.subscribe::<String>().await;
+    assert_eq!(server_error(response)?, ServerError::NoSuchRelation(name));
     Ok(())
 }
 

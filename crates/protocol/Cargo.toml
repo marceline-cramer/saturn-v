@@ -8,9 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+futures-util.workspace = true
 ordered-float.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 wasm-bindgen.workspace = true
 serde-wasm-bindgen.workspace = true

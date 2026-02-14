@@ -27,7 +27,6 @@ use tower_http::trace::TraceLayer;
 use tower_lsp::{LspService, Server};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tree_sitter::Language;
-use url::Url;
 
 /// The Saturn V command-line executable.
 #[derive(Parser)]
@@ -181,10 +180,9 @@ async fn main() -> anyhow::Result<()> {
                 .context("failed to run server")
         }
         Command::Client { cmd } => {
-            static DEFAULT_SERVER: &str = "http://127.0.0.1:3000";
+            static DEFAULT_SERVER: &str = "ws://127.0.0.1:3000/ws";
             let server = std::env::var("SATURN_V_SERVER").unwrap_or(DEFAULT_SERVER.to_string());
-            let server_url = Url::parse(&server).context("failed to parse SATURN_V_SERVER")?;
-            let client = Client::new(server_url);
+            let client = Client::new(&server).await?;
 
             match cmd {
                 ClientCommands::Push { path } => {
