@@ -20,6 +20,7 @@
 
 use std::{borrow::Cow, collections::BTreeSet, future::Future, marker::PhantomData};
 
+use futures_util::Stream;
 use ordered_float::OrderedFloat;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
@@ -46,17 +47,11 @@ pub trait Rpc:
 /// Implements a subscription handler for a subscription type.
 pub trait HandleSubscribe<T: Subscription> {
     /// Handles a whole subscription lifetime.
-    ///
-    /// The future lasts the duration of the subscription if successful or
-    /// will return with an error if either subscribing or unsubscribing is
-    /// unsuccessful.
-    ///
-    /// The callback may return `false` at any point to unsubscribe.
     fn on_subscribe(
         &self,
         request: T,
-        on_update: impl FnMut(T::Response) -> bool + Send,
-    ) -> impl Future<Output = ServerResult<()>> + Send;
+    ) -> impl Future<Output = ServerResult<impl Stream<Item = T::Response> + Unpin + Send + 'static>>
+           + Send;
 }
 
 /// Trait alias for request handlers on both one-shot commits and as transaction methods.
@@ -377,6 +372,12 @@ pub enum ServerError {
 
     #[error("relation with ID {0:?} does not exist")]
     NoSuchRelation(String),
+
+    #[error("the subscription ID was not recognized")]
+    UnknownSubscription,
+
+    #[error("the subscription ID is already bound")]
+    ExistingSubscription,
 
     #[error("the transaction ID was not recognized")]
     UnknownTransaction,
