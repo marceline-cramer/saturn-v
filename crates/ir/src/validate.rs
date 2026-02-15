@@ -293,10 +293,7 @@ impl Instruction {
         use Instruction::*;
         match self {
             Noop => Err(ErrorKind::Noop.into()),
-            Sink { rest, .. } => {
-                // TODO: just ignore sinks? where should unassigned variables be handled?
-                rest.validate(relations, variables)
-            }
+            Sink { .. } => Err(ErrorKind::Sink.into()),
             Filter { test, rest } => {
                 // validate the dependencies
                 let vars = rest.validate(relations, variables)?;
@@ -772,6 +769,9 @@ pub enum ErrorKind<R> {
 
     #[error("variable #{0} is used twice in the same query")]
     DuplicateQueryVariable(u32),
+
+    #[error("sinks are invalid")]
+    Sink,
 
     #[error("no-ops are invalid")]
     Noop,
