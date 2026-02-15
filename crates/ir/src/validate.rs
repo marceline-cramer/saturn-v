@@ -54,7 +54,7 @@ impl<R: Clone + Ord> Program<R> {
 
         // create a map of each relation to a decision relation dependency, if any
         let decision_dependencies: BTreeMap<&R, Option<&R>> = self
-            .indirect_dependencies()
+            .indirect_dependencies()?
             .into_iter()
             .map(|(dependent, dependencies)| {
                 let decision = dependencies
@@ -93,7 +93,7 @@ impl<R: Clone + Ord> Program<R> {
     }
 
     /// Create a map of each relation's indirect dependencies.
-    pub fn indirect_dependencies(&self) -> BTreeMap<&R, BTreeSet<&R>> {
+    pub fn indirect_dependencies(&self) -> Result<BTreeMap<&R, BTreeSet<&R>>, R> {
         // initialize an empty indirect dep map
         let mut indirect: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
 
@@ -116,14 +116,20 @@ impl<R: Clone + Ord> Program<R> {
                 continue;
             }
 
-            // otherwise, add the indirect dependencies to the stack
-            for indirect_dep in self.relations[dependency].direct_dependencies() {
+            // look up dependency's relation info
+            let dependency = self
+                .relations
+                .get(dependency)
+                .ok_or(ErrorKind::RelationNotFound(dependency.to_owned()))?;
+
+            // add the indirect dependencies to the stack
+            for indirect_dep in dependency.direct_dependencies() {
                 stack.push((dependent, indirect_dep));
             }
         }
 
         // we've reached a fixed point; return the complete dependency map
-        indirect
+        Ok(indirect)
     }
 }
 
