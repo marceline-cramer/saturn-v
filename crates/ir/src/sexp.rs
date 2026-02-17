@@ -161,7 +161,15 @@ impl Sexp for Rule<String> {
 
 impl Sexp for RuleBody<String> {
     fn to_doc(&self) -> Doc {
-        todo!()
+        let vars = doc_property("vars", self.vars.to_doc());
+        let loaded = doc_property("loaded", self.loaded.to_doc());
+
+        doc_indent_many(
+            Doc::text("RuleBody"),
+            [vars, loaded]
+                .into_iter()
+                .chain(Some(self.instructions.to_doc())),
+        )
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -469,6 +477,7 @@ pub enum Token {
     LParen,
     RParen,
     Quote,
+    String(String),
     Item(String),
     Keyword(String),
     Integer(i64),
@@ -693,6 +702,18 @@ impl Sexp for u32 {
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         Token::unsigned()
+    }
+}
+
+impl Sexp for String {
+    fn to_doc(&self) -> Doc {
+        Doc::text(format!("\"{}\"", self))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        select! {
+            Token::String(val) => val,
+        }
     }
 }
 
