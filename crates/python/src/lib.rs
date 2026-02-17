@@ -8,6 +8,15 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use saturn_v_client::{Client, Error, Input, Output, QueryRelation};
 use saturn_v_protocol::StructuredValue;
 
+#[pyfunction]
+pub fn connect<'py>(py: Python<'py>, url: String) -> PyResult<Bound<'py, PyAny>> {
+    future_into_py(py, async move {
+        Ok(PyClient {
+            inner: Client::new(&url).await.map_err(err_to_py)?,
+        })
+    })
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub struct PyClient {
@@ -16,18 +25,6 @@ pub struct PyClient {
 
 #[pymethods]
 impl PyClient {
-    #[new]
-    pub fn new(base: Bound<'_, PyString>) -> PyResult<Self> {
-        let url = base
-            .to_str()?
-            .parse()
-            .map_err(|e| PyValueError::new_err(format!("invalid URL: {e}")))?;
-
-        Ok(PyClient {
-            inner: Client::new(url),
-        })
-    }
-
     pub fn get_program<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let client = self.inner.clone();
         future_into_py(py, async move {
@@ -167,6 +164,7 @@ impl PyOutput {
 
 #[pymodule]
 fn saturn_v_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(connect, m)?)?;
     m.add_class::<PyClient>()?;
     m.add_class::<PyInput>()?;
     m.add_class::<PyOutput>()?;
