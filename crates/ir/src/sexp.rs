@@ -166,9 +166,7 @@ impl Sexp for RuleBody<String> {
 
         doc_indent_many(
             Doc::text("RuleBody"),
-            [vars, loaded]
-                .into_iter()
-                .chain(Some(self.instructions.to_doc())),
+            [vars, loaded, self.instructions.to_doc()],
         )
     }
 
