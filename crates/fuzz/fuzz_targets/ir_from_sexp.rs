@@ -16,7 +16,10 @@
 
 #![no_main]
 
-use chumsky::Parser;
+use chumsky::{
+    span::{SimpleSpan, Span},
+    Parser,
+};
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
     sexp::{Sexp, Token},
@@ -24,16 +27,16 @@ use saturn_v_ir::{
 };
 
 fuzz_target!(|src: Vec<Token>| {
-    let stream = chumsky::Stream::from_iter(
-        src.len()..src.len(),
-        src.iter()
-            .cloned()
-            .enumerate()
-            .map(|(idx, tok)| (tok, idx..idx)),
-    );
+    let with_spans = src
+        .clone()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, tok)| (tok, SimpleSpan::new((), idx..idx)));
+
+    let input = chumsky::input::IterInput::new(with_spans, (src.len()..src.len()).into());
 
     let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
-    let Ok(ir) = parser.parse(stream) else {
+    let Ok(ir) = parser.parse(input).into_result() else {
         return;
     };
 

@@ -29,16 +29,16 @@ fuzz_target!(|src: Program<String>| {
 
     let got = Token::lexer().parse(output.as_str()).unwrap();
 
-    let stream = chumsky::Stream::from_iter(
-        got.len()..got.len(),
-        got.iter()
-            .cloned()
+    let stream = chumsky::input::IterInput::new(
+        got.clone()
+            .into_iter()
             .enumerate()
-            .map(|(idx, tok)| (tok, idx..idx)),
+            .map(|(idx, tok)| (tok, (idx..idx).into())),
+        (got.len()..got.len()).into(),
     );
 
     let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
-    let Ok(got) = parser.parse(stream) else {
+    let Ok(got) = parser.parse(stream).into_result() else {
         return;
     };
 
