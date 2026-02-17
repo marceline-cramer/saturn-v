@@ -27,8 +27,6 @@ fuzz_target!(|src: Program<String>| {
     let mut output = String::new();
     src.to_doc().render_fmt(80, &mut output).unwrap();
 
-    eprintln!("sexp:\n{output}");
-
     let got = Token::lexer().parse(output.as_str()).unwrap();
 
     let stream = chumsky::input::IterInput::new(
