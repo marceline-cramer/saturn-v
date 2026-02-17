@@ -49,17 +49,21 @@ impl Sexp for Program<String> {
 
 impl Sexp for Relation<String> {
     fn to_doc(&self) -> Doc {
-        let store = Doc::text(self.store.clone());
-        let ty = self.ty.to_doc();
-        let kind = self.kind.to_doc();
-        let io = self.io.to_doc();
+        let store = doc_property("name", Doc::text(self.store.clone()));
+        let stratum = doc_property("stratum", self.stratum.to_doc());
+        let ty = doc_property("ty", self.ty.to_doc());
+        let kind = doc_property("kind", self.kind.to_doc());
+        let io = doc_property("io", self.io.to_doc());
 
         let facts = self.facts.iter().map(Vec::as_slice).map(doc_fact);
         let rules = self.rules.iter().map(Sexp::to_doc);
 
         doc_indent_many(
-            Doc::text("relation"),
-            [store, ty, kind, io].into_iter().chain(facts).chain(rules),
+            Doc::text("Relation"),
+            [store, stratum, ty, kind, io]
+                .into_iter()
+                .chain(facts)
+                .chain(rules),
         )
     }
 
@@ -102,7 +106,7 @@ impl Sexp for Relation<String> {
             base
         });
 
-        parse_list("relation", body)
+        parse_list("Relation", body)
     }
 }
 
@@ -115,7 +119,7 @@ impl Sexp for Constraint<String> {
             doc_property("body", self.body.to_doc()),
         ];
 
-        doc_indent_many(Doc::text("constraint"), children)
+        doc_indent_many(Doc::text("Constraint"), children)
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -132,14 +136,14 @@ impl Sexp for Constraint<String> {
             body,
         });
 
-        parse_list("constraint", body)
+        parse_list("Constraint", body)
     }
 }
 
 impl Sexp for Rule<String> {
     fn to_doc(&self) -> Doc {
         doc_pair(
-            "rule",
+            "Rule",
             QueryTerm::to_doc(self.head.iter())
                 .append(Doc::space())
                 .append(self.body.to_doc()),
@@ -151,7 +155,7 @@ impl Sexp for Rule<String> {
             .then(RuleBody::parser())
             .map(|(head, body)| Rule { head, body });
 
-        parse_list("rule", body)
+        parse_list("Rule", body)
     }
 }
 
@@ -174,7 +178,7 @@ impl Sexp for RuleBody<String> {
             instructions,
         });
 
-        parse_list("rule-body", body)
+        parse_list("RuleBody", body)
     }
 }
 
