@@ -40,6 +40,8 @@ fuzz_target!(|src: Vec<Token>| {
         return;
     };
 
+    eprintln!("program:\n{ir:#?}");
+
     let mut output = String::new();
     ir.to_doc().render_fmt(80, &mut output).unwrap();
     let got = Token::lexer().parse(output.as_str()).unwrap();
