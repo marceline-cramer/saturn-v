@@ -16,7 +16,10 @@
 
 use std::{fmt::Debug, str::FromStr};
 
-use chumsky::{input::ValueInput, prelude::*};
+use chumsky::{
+    input::{IterInput, ValueInput},
+    prelude::*,
+};
 use either::Either;
 
 use crate::*;
@@ -482,8 +485,41 @@ pub enum Token {
     Real(OrderedFloat<f64>),
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 impl Token {
-    pub fn lexer<'a>() -> impl Parser<'a, &'a str, Vec<Self>, extra::Full<Rich<'a, char>, (), ()>> {
+    /// Lexes a source string, panicking with errors if unsuccessful.
+    pub fn lex_expect(source: &str) -> impl TokenInput {
+        parse_expect(source, Self::lex(source))
+    }
+
+    /// Lexes an entire input source string.
+    pub fn lex<'a>(source: &'a str) -> Result<impl TokenInput, Vec<Rich<'a, char>>> {
+        // create lexer for whole input source
+        let lexer = Self::parser()
+            .spanned()
+            .map(|spanned| (spanned.inner, spanned.span))
+            .padded()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then_ignore(end());
+
+        // lex file
+        let tokens = lexer.parse(source).into_result()?;
+
+        // create iterator input over token spans
+        let input = IterInput::new(tokens.into_iter(), (source.len()..source.len()).into());
+
+        // return complete input
+        Ok(input)
+    }
+
+    /// Creates a parser for an individual token.
+    pub fn parser<'a>() -> impl Parser<'a, &'a str, Self, extra::Full<Rich<'a, char>, (), ()>> {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
@@ -666,6 +702,16 @@ impl<T: SexpVariant> Sexp for T {
 
 pub type Doc = RcDoc<'static, ()>;
 
+pub trait SexpExt: Sexp {
+    fn parse_expect(source: &str) -> Self {
+        let tokens = Token::lex_expect(source);
+        let parser = Self::parser().then_ignore(chumsky::primitive::end());
+        parse_expect(source, parser.parse(tokens).into_result())
+    }
+}
+
+impl<T: Sexp> SexpExt for T {}
+
 pub trait Sexp: Sized {
     fn to_doc(&self) -> Doc;
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self>;
@@ -727,3 +773,25 @@ type ParserExtra = extra::Full<Rich<'static, Token>, (), ()>;
 pub trait TokenInput: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
 
 impl<I> TokenInput for I where I: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
+
+/// Helper function to panic with parse errors on parse failure.
+pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>) -> T {
+    use ariadne::{Color, Label, Report, ReportKind, Source};
+    result.unwrap_or_else(|errs| {
+        for e in errs {
+            Report::build(ReportKind::Error, ((), e.span().into_range()))
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                .with_message(e.to_string())
+                .with_label(
+                    Label::new(((), e.span().into_range()))
+                        .with_message(e.reason().to_string())
+                        .with_color(Color::Red),
+                )
+                .finish()
+                .eprint(Source::from(&source))
+                .unwrap();
+        }
+
+        panic!("failed to lex:\n{source}");
+    })
+}

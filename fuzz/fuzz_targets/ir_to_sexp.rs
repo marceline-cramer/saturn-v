@@ -16,10 +16,9 @@
 
 #![no_main]
 
-use chumsky::Parser;
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
-    sexp::{Sexp, Token},
+    sexp::{Sexp, SexpExt},
     Program,
 };
 
@@ -27,20 +26,6 @@ fuzz_target!(|src: Program<String>| {
     let mut output = String::new();
     src.to_doc().render_fmt(80, &mut output).unwrap();
 
-    let got = Token::lexer().parse(output.as_str()).unwrap();
-
-    let stream = chumsky::input::IterInput::new(
-        got.clone()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, tok)| (tok, (idx..idx).into())),
-        (got.len()..got.len()).into(),
-    );
-
-    let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
-    let Ok(got) = parser.parse(stream).into_result() else {
-        return;
-    };
-
+    let got = Program::<String>::parse_expect(&output);
     assert_eq!(src, got);
 });

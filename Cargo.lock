@@ -3092,6 +3092,7 @@ name = "saturn-v-ir"
 version = "0.2.0"
 dependencies = [
  "arbitrary",
+ "ariadne",
  "chumsky",
  "either",
  "ordered-float 4.6.0",
