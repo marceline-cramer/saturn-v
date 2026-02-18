@@ -9,7 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+ariadne.workspace = true
 chumsky.workspace = true
+either.workspace = true
 ordered-float.workspace = true
 pretty.workspace = true
 serde.workspace = true

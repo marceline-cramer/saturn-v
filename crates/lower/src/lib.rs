@@ -84,25 +84,15 @@ pub fn lower_rule_body<R>(rule: RuleBody<R>) -> RuleBody<R> {
     }
 
     // first message is empty, second is result
-    let output = &msgs[1];
+    let output = msgs[1].to_string();
 
     // lexing should never fail
-    let tokens = Token::lexer()
-        .parse(output.to_string())
-        .expect("failed to lex");
-
-    let stream = chumsky::Stream::from_iter(
-        tokens.len()..tokens.len(),
-        tokens
-            .iter()
-            .cloned()
-            .enumerate()
-            .map(|(idx, tok)| (tok, idx..idx)),
-    );
+    let tokens = Token::lex(&output).expect("failed to lex");
 
     // parsing egglog output should never fail
     let instructions = Instruction::parser()
-        .parse(stream)
+        .parse(tokens)
+        .into_result()
         .expect("failed to parse");
 
     // return lowered body

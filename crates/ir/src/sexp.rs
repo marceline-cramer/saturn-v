@@ -14,27 +14,241 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{str::FromStr, sync::Arc};
+use std::{fmt::Debug, str::FromStr};
 
-use chumsky::prelude::*;
+use chumsky::{
+    input::{IterInput, ValueInput},
+    prelude::*,
+};
+use either::Either;
 
 use crate::*;
 
-pub type Doc = RcDoc<'static, ()>;
-
-pub trait Sexp: Sized {
-    fn to_doc(&self) -> Doc;
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>>;
-}
-
-impl Sexp for BTreeSet<u32> {
+impl Sexp for Program<String> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_string()), Doc::line());
-        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+        let relations = self.relations.values().map(|rel| rel.to_doc());
+        let constraints = self.constraints.iter().map(|cons| cons.to_doc());
+        Doc::intersperse(relations.chain(constraints), Doc::hardline())
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_list("set-of", Token::unsigned().repeated()).map(Self::from_iter)
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        Relation::<String>::parser()
+            .map(Either::Left)
+            .or(Constraint::<String>::parser().map(Either::Right))
+            .repeated()
+            .fold(Program::default(), |mut program, el| match el {
+                Either::Left(rel) => {
+                    program.insert_relation(rel);
+                    program
+                }
+
+                Either::Right(cons) => {
+                    program.constraints.insert(cons);
+                    program
+                }
+            })
+    }
+}
+
+impl Sexp for Relation<String> {
+    fn to_doc(&self) -> Doc {
+        let name = doc_property("name", Doc::text(format!("\"{}\"", self.store)));
+        let stratum = doc_property("stratum", self.stratum.to_doc());
+        let ty = doc_property("ty", self.ty.to_doc());
+        let kind = doc_property("kind", self.kind.to_doc());
+        let io = doc_property("io", self.io.to_doc());
+
+        let facts = self.facts.iter().map(Vec::as_slice).map(doc_fact);
+        let rules = self.rules.iter().map(Sexp::to_doc);
+
+        doc_indent_many(
+            Doc::text("Relation"),
+            [name, stratum, ty, kind, io]
+                .into_iter()
+                .chain(facts)
+                .chain(rules),
+        )
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        let base = set((
+            parse_property("name", Token::item()),
+            parse_property("stratum", Token::unsigned()),
+            parse_property("ty", StructuredType::parser()),
+            parse_property("kind", RelationKind::parser()),
+            parse_property("io", RelationIO::parser()),
+        ))
+        .map(|(store, stratum, ty, kind, io)| Relation {
+            store,
+            stratum,
+            ty,
+            kind,
+            io,
+            facts: vec![],
+            rules: vec![],
+        });
+
+        let fact = parse_fact().map(Either::Left);
+        let rule = Rule::<String>::parser().map(Either::Right);
+
+        let fields = fact.or(rule).repeated().fold(
+            (Vec::new(), Vec::new()),
+            |(mut facts, mut rules), field| {
+                match field {
+                    Either::Left(fact) => facts.push(fact),
+                    Either::Right(rule) => rules.push(rule),
+                };
+
+                (facts, rules)
+            },
+        );
+
+        let body = base.then(fields).map(|(mut base, (facts, rules))| {
+            base.facts = facts;
+            base.rules = rules;
+            base
+        });
+
+        parse_list("Relation", body)
+    }
+}
+
+impl Sexp for Constraint<String> {
+    fn to_doc(&self) -> Doc {
+        let children = [
+            doc_property("weight", self.weight.to_doc()),
+            doc_property("kind", self.kind.to_doc()),
+            doc_property("head", self.head.to_doc()),
+            doc_property("body", self.body.to_doc()),
+        ];
+
+        doc_indent_many(Doc::text("Constraint"), children)
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        let body = set((
+            parse_property("weight", ConstraintWeight::parser()),
+            parse_property("kind", ConstraintKind::parser()),
+            parse_property("head", Vec::<u32>::parser()),
+            parse_property("body", RuleBody::parser()),
+        ))
+        .map(|(weight, kind, head, body)| Constraint {
+            weight,
+            kind,
+            head,
+            body,
+        });
+
+        parse_list("Constraint", body)
+    }
+}
+
+impl Sexp for Rule<String> {
+    fn to_doc(&self) -> Doc {
+        doc_pair(
+            "Rule",
+            QueryTerm::to_doc(self.head.iter())
+                .append(Doc::space())
+                .append(self.body.to_doc()),
+        )
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        let body = QueryTerm::parser()
+            .then(RuleBody::parser())
+            .map(|(head, body)| Rule { head, body });
+
+        parse_list("Rule", body)
+    }
+}
+
+impl Sexp for RuleBody<String> {
+    fn to_doc(&self) -> Doc {
+        let vars = doc_property("vars", self.vars.to_doc());
+        let loaded = doc_property("loaded", self.loaded.to_doc());
+
+        doc_indent_many(
+            Doc::text("RuleBody"),
+            [vars, loaded, self.instructions.to_doc()],
+        )
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        let loaded = parse_list("vec-of", Token::item().repeated().collect());
+
+        let body = set((
+            parse_property("vars", Vec::<Type>::parser()),
+            parse_property("loaded", loaded),
+        ))
+        .then(Instruction::parser())
+        .map(|((vars, loaded), instructions)| RuleBody {
+            vars,
+            loaded,
+            instructions,
+        });
+
+        parse_list("RuleBody", body)
+    }
+}
+
+impl Sexp for ConstraintKind {
+    fn to_doc(&self) -> Doc {
+        match self {
+            ConstraintKind::Cardinality { kind, threshold } => {
+                doc_indent_two(Doc::text("Cardinality"), kind.to_doc(), threshold.to_doc())
+            }
+        }
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list(
+            "Cardinality",
+            CardinalityConstraintKind::parser()
+                .then(Token::unsigned())
+                .map(|(kind, threshold)| ConstraintKind::Cardinality { kind, threshold }),
+        )
+    }
+}
+
+impl Sexp for ConstraintWeight {
+    fn to_doc(&self) -> Doc {
+        match self {
+            ConstraintWeight::Hard => doc_list(Doc::text("Hard")),
+            ConstraintWeight::Soft(weight) => {
+                doc_indent(Doc::text("Soft"), Doc::text(weight.to_string()))
+            }
+        }
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list("Hard", empty())
+            .to(ConstraintWeight::Hard)
+            .or(parse_list(
+                "Soft",
+                Token::unsigned().to(ConstraintWeight::Hard),
+            ))
+    }
+}
+
+impl Sexp for StructuredType {
+    fn to_doc(&self) -> Doc {
+        match self {
+            StructuredType::Primitive(ty) => ty.to_doc(),
+            StructuredType::Tuple(els) => {
+                doc_indent_many(Doc::text("Tuple"), els.iter().map(Sexp::to_doc))
+            }
+        }
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        recursive(|structured_ty| {
+            let tuple = Token::expect_item("Tuple")
+                .ignore_then(structured_ty.repeated().collect())
+                .map(StructuredType::Tuple)
+                .delimited_by(just(Token::LParen), just(Token::RParen));
+
+            Type::parser().map(StructuredType::Primitive).or(tuple)
+        })
     }
 }
 
@@ -73,7 +287,7 @@ impl Sexp for Instruction {
         }
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         use Instruction::*;
         recursive(|instr| {
             // recurse helper
@@ -122,13 +336,8 @@ impl Sexp for Instruction {
                 rest,
             });
 
-            noop.or(sink)
-                .or(filter)
-                .or(from_query)
-                .or(let_)
-                .or(merge)
-                .or(join)
-                .or(antijoin)
+            // combine all options
+            choice((noop, sink, filter, from_query, let_, merge, join, antijoin))
         })
     }
 }
@@ -152,7 +361,7 @@ impl Sexp for Expr {
         }
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         recursive(|expr| {
             // recurse helper
             let expr = expr.map(Arc::new);
@@ -183,45 +392,6 @@ impl Sexp for Expr {
     }
 }
 
-impl Sexp for BinaryOpKind {
-    fn to_doc(&self) -> Doc {
-        use BinaryOpKind::*;
-        let kind = match self {
-            Add => "Add",
-            Mul => "Mul",
-            Div => "Div",
-            Concat => "Concat",
-            And => "And",
-            Or => "Or",
-            Eq => "Eq",
-            Lt => "Lt",
-            Le => "Le",
-        };
-
-        doc_list(Doc::text(kind))
-    }
-
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_tag_variant()
-    }
-}
-
-impl Sexp for UnaryOpKind {
-    fn to_doc(&self) -> Doc {
-        use UnaryOpKind::*;
-        let kind = match self {
-            Not => "Not",
-            Negate => "Negate",
-        };
-
-        doc_list(Doc::text(kind))
-    }
-
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
-        parse_tag_variant()
-    }
-}
-
 impl QueryTerm {
     pub fn to_doc<'a>(mut terms: impl Iterator<Item = &'a Self>) -> Doc {
         use QueryTerm::*;
@@ -240,7 +410,7 @@ impl QueryTerm {
         )
     }
 
-    pub fn parser() -> impl Parser<Token, Vec<Self>, Error = Simple<Token>> {
+    pub fn parser<I: TokenInput>() -> impl SexpParser<I, Vec<Self>> {
         recursive(|query| {
             let value = parse_list("QueryValue", Value::parser().then(query.clone())).map(
                 |(val, mut rest): (Value, Vec<Self>)| {
@@ -282,21 +452,17 @@ impl Sexp for Value {
         doc_inline_list([kind, &val])
     }
 
-    fn parser() -> impl Parser<Token, Self, Error = Simple<Token>> {
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let boolean =
             parse_list("Boolean", Token::item()).try_map(|item, span| match item.as_str() {
                 "True" => Ok(Value::Boolean(true)),
                 "False" => Ok(Value::Boolean(false)),
-                _ => Err(Simple::custom(span, "expected `True` or `False`")),
+                _ => Err(Rich::custom(span, "expected `True` or `False`")),
             });
 
         let integer = parse_list("Integer", Token::integer()).map(Value::Integer);
 
-        let symbol = parse_list(
-            "Symbol",
-            Token::item().delimited_by(just(Token::Quote), just(Token::Quote)),
-        )
-        .map(Value::Symbol);
+        let symbol = parse_list("Symbol", String::parser()).map(Value::Symbol);
 
         boolean.or(integer).or(symbol)
     }
@@ -307,82 +473,130 @@ impl Sexp for Value {
 pub enum Token {
     LParen,
     RParen,
-    Quote,
+    String(String),
     Item(String),
+    Keyword(String),
     Integer(i64),
     Real(OrderedFloat<f64>),
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 impl Token {
-    pub fn lexer() -> impl Parser<char, Vec<Self>, Error = Simple<char>> {
+    /// Lexes a source string, panicking with errors if unsuccessful.
+    pub fn lex_expect(source: &str) -> impl TokenInput {
+        parse_expect(source, Self::lex(source))
+    }
+
+    /// Lexes an entire input source string.
+    pub fn lex<'a>(source: &'a str) -> Result<impl TokenInput, Vec<Rich<'a, char>>> {
+        // create lexer for whole input source
+        let lexer = Self::parser()
+            .spanned()
+            .map(|spanned| (spanned.inner, spanned.span))
+            .padded()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then_ignore(end());
+
+        // lex file
+        let tokens = lexer.parse(source).into_result()?;
+
+        // create iterator input over token spans
+        let input = IterInput::new(tokens.into_iter(), (source.len()..source.len()).into());
+
+        // return complete input
+        Ok(input)
+    }
+
+    /// Creates a parser for an individual token.
+    pub fn parser<'a>() -> impl Parser<'a, &'a str, Self, extra::Full<Rich<'a, char>, (), ()>> {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
-        let quote = just("\"").to(Token::Quote);
 
         // integer
         let int = just('-')
             .or_not()
-            .then(one_of("0123456789").repeated().at_least(1))
+            .then(text::int(10))
             .try_map(|(negate, numerals), span| {
                 let mut string = String::new();
                 string.extend(negate);
-                string.extend(numerals);
+                string.push_str(numerals);
 
                 string
                     .parse()
                     .map(Token::Integer)
-                    .map_err(|_| Simple::custom(span, "failed to parse integer literal"))
+                    .map_err(|_| Rich::custom(span, "failed to parse integer literal"))
             });
 
         // alphanumeric item
-        let item = filter(|c: &char| c.is_ascii_alphabetic())
-            .then(filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-').repeated())
-            .map(|(first, rest)| {
-                let mut str = String::new();
-                str.push(first);
-                str.extend(rest);
-                Token::Item(str)
-            });
+        let item = text::ident().map(ToString::to_string).map(Token::Item);
+
+        // Lisp-style keyword
+        let kw = just(":")
+            .ignore_then(text::ident())
+            .map(ToString::to_string)
+            .map(Token::Keyword);
+
+        // string literal
+        let string = any::<&'a str, extra::Full<Rich<'a, char>, (), ()>>()
+            .repeated()
+            .collect()
+            .delimited_by(just('"'), just('"'))
+            .map(Token::String);
 
         // any of the above options (padded with whitespace)
-        lparen
-            .or(rparen)
-            .or(quote)
-            .or(int)
-            .or(item)
-            .recover_with(skip_then_retry_until([]))
-            .padded()
-            .repeated()
-            .then_ignore(end())
+        choice((lparen, rparen, int, item, kw, string))
     }
 
     /// Short-hand to expect a specific item.
-    pub fn expect_item(name: impl ToString) -> impl Parser<Token, Token, Error = Simple<Token>> {
+    pub fn expect_item<I: TokenInput>(name: impl ToString) -> impl SexpParser<I, Token> {
         just(Token::Item(name.to_string()))
     }
 
+    /// Short-hand to expect a specific keyword.
+    pub fn expect_kw<I: TokenInput>(name: impl ToString) -> impl SexpParser<I, Token> {
+        just(Token::Keyword(name.to_string()))
+    }
+
     /// Short-hand to parse an integer.
-    pub fn integer() -> impl Parser<Token, i64, Error = Simple<Token>> {
+    pub fn integer<I: TokenInput>() -> impl SexpParser<I, i64> {
         select! {
             Token::Integer(val) => val,
         }
     }
 
     /// Short-hand to parse an unsigned integer.
-    pub fn unsigned() -> impl Parser<Token, u32, Error = Simple<Token>> {
+    pub fn unsigned<I: TokenInput>() -> impl SexpParser<I, u32> {
         Self::integer().try_map(|i, span| {
             i.try_into()
-                .map_err(|_| Simple::custom(span, "expected unsigned 32-bit integer"))
+                .map_err(|_| Rich::custom(span, "expected unsigned 32-bit integer"))
         })
     }
 
     /// Short-hand to parse the contents of any item.
-    pub fn item() -> impl Parser<Token, String, Error = Simple<Token>> {
+    pub fn item<I: TokenInput>() -> impl SexpParser<I, String> {
         select! {
             Token::Item(val) => val.to_string(),
         }
     }
+}
+
+/// Creates a fact document.
+pub fn doc_fact(fact: &[Value]) -> Doc {
+    doc_indent_many(Doc::text("fact"), fact.iter().map(|fact| fact.to_doc()))
+}
+
+/// Parses a fact.
+pub fn parse_fact<I: TokenInput>() -> impl SexpParser<I, Vec<Value>> {
+    Token::expect_item("fact")
+        .ignore_then(Value::parser().repeated().collect())
+        .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
 /// Creates a paren-surrounded list with two children with smart indentation.
@@ -396,7 +610,7 @@ pub fn doc_indent(head: Doc, item: Doc) -> Doc {
 }
 
 /// Creates a paren-surrounded list with any number of children and smart indentation.
-pub fn doc_indent_many<const N: usize>(head: Doc, children: [Doc; N]) -> Doc {
+pub fn doc_indent_many(head: Doc, children: impl IntoIterator<Item = Doc>) -> Doc {
     doc_list(
         head.append(
             Doc::line()
@@ -427,29 +641,154 @@ pub fn doc_list(inner: Doc) -> Doc {
     Doc::text("(").append(inner).append(")")
 }
 
+/// Creates a keyword-indicated document property.
+pub fn doc_property(name: &'static str, value: impl Into<Doc>) -> Doc {
+    Doc::text(format!(":{name}"))
+        .append(Doc::space())
+        .append(value.into())
+}
+
+/// Parse a keyword-indicated property with the given parser.
+pub fn parse_property<I: TokenInput, T>(
+    kw: &'static str,
+    items: impl SexpParser<I, T>,
+) -> impl SexpParser<I, T> {
+    Token::expect_kw(kw).ignore_then(items)
+}
+
 /// Parse a paren-delimited list annotated with a given tag.
-pub fn parse_list<T>(
+pub fn parse_list<I: TokenInput, T>(
     tag: &'static str,
-    items: impl Parser<Token, T, Error = Simple<Token>>,
-) -> impl Parser<Token, T, Error = Simple<Token>> {
+    items: impl SexpParser<I, T>,
+) -> impl SexpParser<I, T> {
     Token::expect_item(tag)
         .ignore_then(items)
         .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
 /// Parse a unit-length tagged list.
-pub fn parse_tag(tag: &'static str) -> impl Parser<Token, (), Error = Simple<Token>> {
+pub fn parse_tag<I: TokenInput>(tag: &'static str) -> impl SexpParser<I, ()> {
     Token::expect_item(tag)
         .ignored()
         .delimited_by(just(Token::LParen), just(Token::RParen))
 }
 
-/// Parse the tag in a unit-length tagged list.
-pub fn parse_tag_variant<T: FromStr>() -> impl Parser<Token, T, Error = Simple<Token>> {
-    Token::item()
-        .try_map(|item, span| match item.parse() {
-            Ok(op) => Ok(op),
-            Err(_) => Err(Simple::custom(span, "unrecognized variant")),
-        })
-        .delimited_by(just(Token::LParen), just(Token::RParen))
+pub trait SexpVariant: FromStr + Debug + Sized {}
+
+impl SexpVariant for RelationIO {}
+impl SexpVariant for RelationKind {}
+impl SexpVariant for BinaryOpKind {}
+impl SexpVariant for UnaryOpKind {}
+impl SexpVariant for CardinalityConstraintKind {}
+impl SexpVariant for Type {}
+
+impl<T: SexpVariant> Sexp for T {
+    fn to_doc(&self) -> Doc {
+        doc_list(Doc::text(format!("{self:?}")))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        Token::item()
+            .try_map(|item, span| match item.parse() {
+                Ok(op) => Ok(op),
+                Err(_) => Err(Rich::custom(span, "unrecognized variant")),
+            })
+            .delimited_by(just(Token::LParen), just(Token::RParen))
+    }
+}
+
+pub type Doc = RcDoc<'static, ()>;
+
+pub trait SexpExt: Sexp {
+    fn parse_expect(source: &str) -> Self {
+        let tokens = Token::lex_expect(source);
+        let parser = Self::parser().then_ignore(chumsky::primitive::end());
+        parse_expect(source, parser.parse(tokens).into_result())
+    }
+}
+
+impl<T: Sexp> SexpExt for T {}
+
+pub trait Sexp: Sized {
+    fn to_doc(&self) -> Doc;
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self>;
+}
+
+impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
+    fn to_doc(&self) -> Doc {
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
+        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list("set-of", T::parser().repeated().collect())
+    }
+}
+
+impl<T: Sexp> Sexp for Vec<T> {
+    fn to_doc(&self) -> Doc {
+        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
+        doc_list(Doc::text("vec-of").append(Doc::line().append(vars).nest(4).group()))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        parse_list("vec-of", T::parser().repeated().collect())
+    }
+}
+
+impl Sexp for u32 {
+    fn to_doc(&self) -> Doc {
+        Doc::text(self.to_string())
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        Token::unsigned()
+    }
+}
+
+impl Sexp for String {
+    fn to_doc(&self) -> Doc {
+        Doc::text(format!("\"{}\"", self))
+    }
+
+    fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
+        select! {
+            Token::String(val) => val,
+        }
+    }
+}
+
+/// A utility trait alias for valid sexp parsers.
+pub trait SexpParser<I: TokenInput, T>: Parser<'static, I, T, ParserExtra> + Clone {}
+
+impl<I: TokenInput, T, P> SexpParser<I, T> for P where P: Parser<'static, I, T, ParserExtra> + Clone {}
+
+/// The type of parser extras to use throughout.
+pub type ParserExtra = extra::Full<Rich<'static, Token>, (), ()>;
+
+/// A trait alias for [ValueInput] for tokens.
+pub trait TokenInput: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
+
+impl<I> TokenInput for I where I: ValueInput<'static, Span = SimpleSpan, Token = Token> {}
+
+/// Helper function to panic with parse errors on parse failure.
+pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>) -> T {
+    use ariadne::{Color, Label, Report, ReportKind, Source};
+    result.unwrap_or_else(|errs| {
+        for e in errs {
+            Report::build(ReportKind::Error, ((), e.span().into_range()))
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                .with_message(e.to_string())
+                .with_label(
+                    Label::new(((), e.span().into_range()))
+                        .with_message(e.reason().to_string())
+                        .with_color(Color::Red),
+                )
+                .finish()
+                .eprint(Source::from(&source))
+                .unwrap();
+        }
+
+        panic!("failed to lex:\n{source}");
+    })
 }

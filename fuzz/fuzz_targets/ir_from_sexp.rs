@@ -16,29 +16,34 @@
 
 #![no_main]
 
-use chumsky::Parser;
+use chumsky::{
+    prelude::{end, just, Parser},
+    span::{SimpleSpan, Span},
+};
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
-    sexp::{Sexp, Token},
-    Instruction,
+    sexp::{parse_expect, ParserExtra, Sexp, Token},
+    Program,
 };
 
 fuzz_target!(|src: Vec<Token>| {
-    let stream = chumsky::Stream::from_iter(
-        src.len()..src.len(),
-        src.iter()
-            .cloned()
-            .enumerate()
-            .map(|(idx, tok)| (tok, idx..idx)),
-    );
+    let with_spans = src
+        .clone()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, tok)| (tok, SimpleSpan::new((), idx..idx)));
 
-    let parser = Instruction::parser().then_ignore(chumsky::primitive::end());
-    let Ok(ir) = parser.parse(stream) else {
+    let input = chumsky::input::IterInput::new(with_spans, (src.len()..src.len()).into());
+
+    let parser = Program::<String>::parser().then_ignore(chumsky::primitive::end());
+    let Ok(ir) = parser.parse(input).into_result() else {
         return;
     };
 
     let mut output = String::new();
     ir.to_doc().render_fmt(80, &mut output).unwrap();
-    let got = Token::lexer().parse(output.as_str()).unwrap();
-    assert_eq!(src, got);
+
+    let tokens = Token::lex_expect(&output);
+    let parse_src = just::<_, _, ParserExtra>(src.clone()).then(end());
+    parse_expect(&output, parse_src.parse(tokens).into_result());
 });
