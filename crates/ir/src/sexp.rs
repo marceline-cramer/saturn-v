@@ -764,7 +764,7 @@ pub trait SexpParser<I: TokenInput, T>: Parser<'static, I, T, ParserExtra> + Clo
 impl<I: TokenInput, T, P> SexpParser<I, T> for P where P: Parser<'static, I, T, ParserExtra> + Clone {}
 
 /// The type of parser extras to use throughout.
-type ParserExtra = extra::Full<Rich<'static, Token>, (), ()>;
+pub type ParserExtra = extra::Full<Rich<'static, Token>, (), ()>;
 
 /// A trait alias for [ValueInput] for tokens.
 pub trait TokenInput: ValueInput<'static, Span = SimpleSpan, Token = Token> {}

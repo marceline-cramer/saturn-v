@@ -17,12 +17,12 @@
 #![no_main]
 
 use chumsky::{
+    prelude::{end, just, Parser},
     span::{SimpleSpan, Span},
-    Parser,
 };
 use libfuzzer_sys::fuzz_target;
 use saturn_v_ir::{
-    sexp::{Sexp, Token},
+    sexp::{parse_expect, ParserExtra, Sexp, Token},
     Program,
 };
 
@@ -42,6 +42,8 @@ fuzz_target!(|src: Vec<Token>| {
 
     let mut output = String::new();
     ir.to_doc().render_fmt(80, &mut output).unwrap();
-    let got = Token::lexer().parse(output.as_str()).unwrap();
-    assert_eq!(src, got);
+
+    let tokens = Token::lex_expect(&output);
+    let parse_src = just::<_, _, ParserExtra>(src.clone()).then(end());
+    parse_expect(&output, parse_src.parse(tokens).into_result());
 });
