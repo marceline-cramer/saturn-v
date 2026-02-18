@@ -52,7 +52,7 @@ impl Sexp for Program<String> {
 
 impl Sexp for Relation<String> {
     fn to_doc(&self) -> Doc {
-        let store = doc_property("name", Doc::text(self.store.clone()));
+        let name = doc_property("name", Doc::text(format!("\"{}\"", self.store)));
         let stratum = doc_property("stratum", self.stratum.to_doc());
         let ty = doc_property("ty", self.ty.to_doc());
         let kind = doc_property("kind", self.kind.to_doc());
@@ -63,7 +63,7 @@ impl Sexp for Relation<String> {
 
         doc_indent_many(
             Doc::text("Relation"),
-            [store, stratum, ty, kind, io]
+            [name, stratum, ty, kind, io]
                 .into_iter()
                 .chain(facts)
                 .chain(rules),
@@ -462,11 +462,7 @@ impl Sexp for Value {
 
         let integer = parse_list("Integer", Token::integer()).map(Value::Integer);
 
-        let symbol = parse_list(
-            "Symbol",
-            Token::item().delimited_by(just(Token::Quote), just(Token::Quote)),
-        )
-        .map(Value::Symbol);
+        let symbol = parse_list("Symbol", String::parser()).map(Value::Symbol);
 
         boolean.or(integer).or(symbol)
     }
@@ -477,7 +473,6 @@ impl Sexp for Value {
 pub enum Token {
     LParen,
     RParen,
-    Quote,
     String(String),
     Item(String),
     Keyword(String),
@@ -523,7 +518,6 @@ impl Token {
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
-        let quote = just("\"").to(Token::Quote);
 
         // integer
         let int = just('-')
@@ -549,12 +543,15 @@ impl Token {
             .map(ToString::to_string)
             .map(Token::Keyword);
 
-        // any of the above options (padded with whitespace)
-        choice((lparen, rparen, quote, int, item, kw))
-            .padded()
+        // string literal
+        let string = any::<&'a str, extra::Full<Rich<'a, char>, (), ()>>()
             .repeated()
             .collect()
-            .then_ignore(end())
+            .delimited_by(just('"'), just('"'))
+            .map(Token::String);
+
+        // any of the above options (padded with whitespace)
+        choice((lparen, rparen, int, item, kw, string))
     }
 
     /// Short-hand to expect a specific item.
