@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<head>
+    <meta charset="UTF-8"><meta http-equiv="Content-Security-Policy"
+content="default-src 'self';font-src &#x27;self&#x27; data: 'self';img-src &#x27;self&#x27; https:&#x2F;&#x2F;* data:;style-src &#x27;self&#x27; 'unsafe-inline';frame-src player.vimeo.com https:&#x2F;&#x2F;www.youtube-nocookie.com giscus.app;connect-src 'self';script-src 'self'  giscus.app 'self' 'wasm-unsafe-eval'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="base" content="https://marceline-cramer.github.io/saturn-v">
+
+    
+    <title>
+Saturn V • Version 0.2 Release</title>
+
+    
+    
+    
+        <link rel=icon href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="50%" x="50%" dominant-baseline="central" text-anchor="middle" font-size="88">🪐</text></svg>'>
+    
+
+    
+    
+
+    
+    
+    
+        
+            <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/custom_subset.css?h=0b9535a28bc3d5bf2321">
+        
+    
+
+    
+        <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/main.css?h=fe8c9607d92b0cda0f8f" />
+        <link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/css/custom.css?h=1f784d19972d052a46f7" />
+
+    <meta name="color-scheme" content="light dark" />
+        <meta name="description" content="What to know about the most recent v0.2 release." />
+        <meta property="og:description" content="What to know about the most recent v0.2 release." />
+
+    
+
+    <meta property="og:title" content="Version 0.2 Release" />
+    <meta property="og:type" content="article" />
+
+    
+<meta property="og:locale" content="en_GB" />
+
+    <meta property="og:url" content="https:&#x2F;&#x2F;marceline-cramer.github.io&#x2F;saturn-v&#x2F;blog&#x2F;v0-2&#x2F;" /><meta property="og:site_name" content="Saturn V">
+        <noscript><link rel="stylesheet" href="https://marceline-cramer.github.io/saturn-v/no_js.css"/></noscript>
+        <script type="text/javascript" src="https://marceline-cramer.github.io/saturn-v/js/initializeTheme.min.js"></script>
+        <script defer src="https://marceline-cramer.github.io/saturn-v/js/themeSwitcher.min.js"></script><script defer src="https://marceline-cramer.github.io/saturn-v/search_index.en.js?h=9ec8896551e6db358ee5"></script>
+        <script defer src="https://marceline-cramer.github.io/saturn-v/js/searchElasticlunr.min.js?h=3626c0ef99daa745b31e"></script>
+
+        
+    
+</head>
+
+
+<body>
+    <header>
+    <nav class="navbar">
+        <div class="nav-title">
+            <a class="home-title" href="https://marceline-cramer.github.io/saturn-v">Saturn V</a>
+        </div>
+            <div class="nav-navs">
+                <ul>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https://marceline-cramer.github.io/saturn-v/docs/">Docs
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https://marceline-cramer.github.io/saturn-v/blog/">Blog
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https:&#x2F;&#x2F;discord.gg&#x2F;apTv6WEhpn">Discord
+                                </a>
+                            </li>
+                        
+                            <li>
+                                <a class="nav-links no-hover-padding" href="https:&#x2F;&#x2F;github.com&#x2F;marceline-cramer&#x2F;saturn-v">GitHub
+                                </a>
+                            </li>
+                        <li class="menu-icons-container">
+                        <ul class="menu-icons-group">
+                            <li class="js menu-icon">
+                                <div role="button" tabindex="0" id="search-button" class="search-icon interactive-icon" title="Click or press $SHORTCUT to open search" aria-label="Click or press $SHORTCUT to open search">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                                        <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+                                    </svg>
+                                </div>
+                            </li>
+
+                            
+                            
+
+                            <li class="theme-switcher-wrapper js"><div
+        title="Toggle dark&#x2F;light mode"
+        class="theme-switcher"
+        tabindex="0"
+        role="button"
+        aria-label="Toggle dark mode"
+        aria-pressed="false">
+    </div><div
+        title="Reset mode to default"
+        class="theme-resetter arrow"
+        tabindex="0"
+        role="button"
+        aria-hidden="true"
+        aria-label="Reset mode to default">
+    </div>
+
+</li>
+</ul>
+                    </li>
+                </ul>
+            </div>
+        
+    </nav>
+</header>
+
+    <div class="content">
+
+        
+        
+
+
+
+
+<main>
+    <article class="h-entry">
+        <h1 class="p-name article-title">
+            Version 0.2 Release
+        </h1>
+        <a class="u-url u-uid" href="https://marceline-cramer.github.io/saturn-v/blog/v0-2/"></a>
+
+        <ul class="meta"><li>By <span class="p-author">Marceline Cramer</span></li><li><time class="dt-published" datetime="2026-01-25"><span class='separator' aria-hidden='true'>•</span>25th Jan 2026</time></li><li title="2881 words"><span class='separator' aria-hidden='true'>•</span>15 min read</li>
+        </ul>
+            <p class="p-summary" hidden>What to know about the most recent v0.2 release.</p><section class="e-content body"><p>Yeah, it's only been like a month since I released version v0.1.
+I also didn't really say anything about that release, even though
+it's the very first official release of Saturn V. Well, that's
+because it isn't really a big deal! Just <a rel="external" href="https://en.wikipedia.org/wiki/Release_early,_release_often">release early, release
+often</a>.</p>
+<p>No, I <em>don't</em> have testers or users yet, but whatever. I'm still ironing out the
+release pipeline, since (fun fact) this is the very first time I've ran a hobby
+project that had "real" binary releases and I wasn't just eternally trapped in
+pre-alpha. Well, that changes <em>now</em>... even if it means that I have to spend
+consecutive late nights figuring out how the hell to get GitHub Actions to
+compile Saturn V release builds on OpenBSD (more on that later).</p>
+<h1 id="webassembly-bindings">WebAssembly bindings</h1>
+<p>One of the coolest parts about Saturn V is that because it's written in Rust,
+it can support compiling to a variety of non-native architectures. Support for
+WebAssembly means that Saturn V can run in a web browser, which opens up a whole
+host of embedding and interop possibilities.</p>
+<h2 id="pure-webassembly-vscode-extension">Pure WebAssembly VSCode extension</h2>
+<p>One use of WebAssembly is that the VSCode extension now embeds a WebAssembly
+build of the Kerolox language server instead of using the system's native
+Saturn V installation. This means that once the extension is on the Marketplace,
+getting started with Kerolox development is a one-click installation!</p>
+<h2 id="client-in-wasm">Client in Wasm</h2>
+<p>The Saturn V web client library also runs in Wasm now. I've exposed
+bindings to it for Javascript/Typescript projects to use directly. I'm not
+using them myself yet, but it was pretty trivial to add bindings thanks to
+<a rel="external" href="https://github.com/wasm-bindgen/wasm-bindgen">wasm-bindgen</a>. This provides
+people who might want to develop JS-based frontends for Saturn V a framework
+to use.</p>
+<h1 id="rudimentary-python-bindings">Rudimentary Python bindings</h1>
+<p>On the topic of bindings, I also spent a fair bit of time trying to build
+Python bindings to the client API. Most of the boilerplate is in place such
+as a testing framework and automatic CI checking, but I struggle to take it
+the rest of the way on my own due to my lack of personal familiarity with
+Python idioms.</p>
+<p>I'm tracking the development of the rest of the Python API in <a rel="external" href="https://github.com/marceline-cramer/saturn-v/milestone/6">a GitHub
+milestone</a>. If you see
+anything that you could help out with, please consider contributing!</p>
+<h1 id="orbital-sim">Orbital sim</h1>
+<p>Behold! The most overengineered loading icon of all time.</p>
+<div id="orbit-demo" style="background:gray;width:fit-content;padding:1em;margin:1em auto"></div>
+<script type="module" src="https://marceline-cramer.github.io/saturn-v/js/init-orbit-demo.js"></script>
+<p>It all started when I was in my calculus II class during the summer of 2025.
+A classmate brought up the three-body problem in passing, so of course I look
+it up on <a rel="external" href="https://en.wikipedia.org/wiki/Three-body_problem">Wikipedia</a> for
+reference. Scrolling through it, I noticed this really fantastic visualization
+of a variety of specific periodic solutions:</p>
+<p><a href="https://commons.wikimedia.org/wiki/File:5_4_800_36_downscaled.gif#/media/File:5_4_800_36_downscaled.gif"><img src="https://upload.wikimedia.org/wikipedia/commons/5/5a/5_4_800_36_downscaled.gif" alt="5 4 800 36 downscaled.gif" height="800" width="1000"></a><br>By <a href="//commons.wikimedia.org/w/index.php?title=User:Perossello&amp;action=edit&amp;redlink=1" class="new" title="User:Perossello (page does not exist)">Perosello</a> - <a rel="nofollow" class="external text" href="https://x.com/PeRossello/status/1670803430544142338?s=20">Uploaded by Author</a>, <a href="https://creativecommons.org/licenses/by-sa/4.0" title="Creative Commons Attribution-Share Alike 4.0">CC BY-SA 4.0</a>, <a href="https://commons.wikimedia.org/w/index.php?curid=133294338">Link</a></p>
+<p>My first thought was, "Hey, wouldn't that make for an awesome loading icon?"</p>
+<p>I then decided to display three-body solutions throughout the various interfaces
+I make for Saturn V as an indicator for when Saturn V is processing the latest
+data and forming its decisions.</p>
+<p>The three-body problem is a challenge within Newtonian physics of predicting
+where three bodies (like planets, moons, stars, wherever) are going to move,
+assuming that they exert a gravitational pull on each other and follow Newton's
+laws of motion. A <em>periodic solution</em> to the three-body problem is finding ways
+to arrange three bodies such that they orbit themselves in a stable loop.  With
+two bodies, finding stable orbits is relatively straight-forward (<a rel="external" href="https://en.wikipedia.org/wiki/Kepler_orbit">thank you,
+Kepler</a>). However, because of chaos
+theory, three bodies are much harder to mathematically find periodic solutions
+to. They are also exceedingly rare in nature because of the very special
+circumstances required to keep three bodies in a stable orbit around each other.</p>
+<p>Despite the complex physics topics involved in the study of the three-body
+problem, it's quite easy to intuitively grasp that periodic solutions to the
+three-body solution are remarkable just by looking at them.They simply <em>look</em>
+unnatural, but they completely follow the usual physical laws we take for
+granted. Their beauty exists on the fringe between order and chaos.</p>
+<p>To me, this is a really effective metaphor for Saturn V. Saturn V works
+under completely logical and natural mechanisms, but because it is crafted
+purposefully, it's able to create these complex, special structures that are
+otherwise impossible for humans to regulate manually. I can think of other
+examples of this sort of "controlled chaos" that would also express Saturn
+V's relationship with the natural world, but the three-body problem is unique
+because of its visual intuition and shared space theme.</p>
+<h2 id="how-the-orbital-sim-works">How the orbital sim works</h2>
+<p>This is a sidetrack into how I implemented the orbital sim, so feel free to skip
+this section, especially if you're not very interested in the mathematics of
+orbital mechanics.</p>
+<p>The bottom line of it is that I begin with the positions, velocities, and masses
+of three bodies from a known solution to the three-body problem. I simulate
+those bodies using traditional Newtonian mechanics for as long as the solution
+specifies the period lasts. I also take advantage of the time-reversibility
+of Newtonian mechanics to simulate the bodies in reverse for the same period,
+and linearly interpolate the two simulations end-to-end to correct for any
+drifting between the positions of the bodies at the endpoints of the
+sim caused by the lack of floating-point precision.<sup class="footnote-reference" id="fr-premature-opt-1"><a href="#fn-premature-opt">1</a></sup></p>
+<p>Once all the position data for the entirety of the simulation is calculated,
+the real trick is to then take the discrete Fourier transform of the positions
+of the bodies. Because all periodic three-body solutions are highly elliptical,
+a handful of the frequency components per-body contain the vast majority of the
+information about the orbit. I discard all frequency components above a certain
+amplitude, retaining only that small number of dominant components. This is
+what's saved to disk. This concludes the "baking" phase of the orbital sim,
+which is ran as part of Saturn V's build process.</p>
+<p>At runtime, I can load the baked frequency domains for each body for each orbit.
+Then, using a couple standard trigonometric functions, I can reconstruct the
+position of each body at arbitrary timesteps with a very high degree of accuracy
+to the original simulation data. I use this to rapidly compute the points to
+render the path trail on, as well as to determine the position of each body
+during subframes for the motion blur. By default, the renderer draws 10 motion
+blur subframes and 20 path segments for each of the 3 bodies, so that requires
+in 10 * 20 * 3 = 600 orbit lookups per frame. I haven't profiled it, but the
+renderer runs in WebAssembly and renders the result to a browser canvas with
+zero lag or stutter, even on mobile browsers. "Great success," as a certain
+fictional Kazakh journalist would say.</p>
+<h1 id="maxsat-solver-goes-vroom-vroom">MaxSAT solver goes vroom vroom</h1>
+<p>You may have heard me babble about SAT (aka <a rel="external" href="https://en.wikipedia.org/wiki/Boolean_satisfiability_problem">the Boolean satisfiability
+problem</a>).
+SAT solvers are how Saturn V makes its decisions.
+<a rel="external" href="https://en.wikipedia.org/wiki/Maximum_satisfiability_problem">MaxSAT</a>
+(particularly <em>partial weighted MaxSAT</em>) is how Saturn V determines that some
+decisions are better than others.</p>
+<p>For example, let's take this Saturn V program:</p>
+<pre class="giallo z-code"><code data-lang="Kerolox"><span class="giallo-l"><span class="z-comment">; Each possible coordinate on the board.</span></span>
+<span class="giallo-l"><span class="z-keyword">define output</span><span class="z-entity z-name z-function"> Coord Integer</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"><span class="z-entity z-name z-type">Coord</span><span class="z-constant z-numeric"> 1</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"><span class="z-entity z-name z-type">Coord</span><span class="z-source"> a</span><span class="z-keyword z-operator"> :-</span><span class="z-entity z-name z-function"> Coord</span><span class="z-source"> b</span><span class="z-punctuation">,</span><span class="z-source"> b</span><span class="z-keyword z-operator"> &lt;</span><span class="z-constant z-numeric"> 8</span><span class="z-punctuation">,</span><span class="z-source"> a</span><span class="z-keyword z-operator"> =</span><span class="z-source"> b</span><span class="z-keyword z-operator"> +</span><span class="z-constant z-numeric"> 1</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; Each possible placement of a queen.</span></span>
+<span class="giallo-l"><span class="z-keyword">define output decision</span><span class="z-entity z-name z-function"> Queen</span><span class="z-punctuation">(</span><span class="z-entity z-name z-function">Coord</span><span class="z-source">, </span><span class="z-entity z-name z-function">Coord</span><span class="z-punctuation">).</span></span>
+<span class="giallo-l"><span class="z-source">Queen</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">,</span><span class="z-source"> col</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> :-</span><span class="z-entity z-name z-type"> Coord</span><span class="z-source"> row</span><span class="z-punctuation">,</span><span class="z-entity z-name z-function"> Coord</span><span class="z-source"> col</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; At most one queen goes on each row.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> &lt;=</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-source"> Queen</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">,</span><span class="z-source"> col</span><span class="z-punctuation">).</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; At most one queen goes on each column.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain</span><span class="z-punctuation">(</span><span class="z-source">col</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> &lt;=</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-source"> Queen</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">,</span><span class="z-source"> col</span><span class="z-punctuation">).</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; At most one queen can go along each main diagonal.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain</span><span class="z-punctuation">(</span><span class="z-source">diag</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> &lt;=</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-source"> Queen</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">,</span><span class="z-source"> col</span><span class="z-punctuation">),</span><span class="z-source"> diag</span><span class="z-keyword z-operator"> =</span><span class="z-source"> row</span><span class="z-keyword z-operator"> +</span><span class="z-source"> col</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; At most one queen can go along each orthogonal diagonal.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain</span><span class="z-punctuation">(</span><span class="z-source">diag</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> &lt;=</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-source"> Queen</span><span class="z-punctuation">(</span><span class="z-source">row</span><span class="z-punctuation">,</span><span class="z-source"> col</span><span class="z-punctuation">),</span><span class="z-source"> diag</span><span class="z-keyword z-operator"> =</span><span class="z-source"> row</span><span class="z-keyword z-operator"> -</span><span class="z-source"> col</span><span class="z-punctuation">.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span class="z-comment">; Try to place as many queens as possible.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain soft</span><span class="z-punctuation">(</span><span class="z-constant z-numeric">1</span><span class="z-punctuation">) (</span><span class="z-source">coord</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> =</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-entity z-name z-function"> Queen</span><span class="z-source"> coord</span><span class="z-punctuation">.</span></span></code></pre>
+<p>This is identical to the
+<a rel="external" href="https://en.wikipedia.org/wiki/Eight_queens_puzzle">n-queens</a> example except
+that instead of specifying that <em>exactly</em> one queen goes on each row and column,
+<em>at most</em> one queen goes on each row and column. Because this allows Saturn V
+to place no queens on the board, we also add that last soft constraint:</p>
+<pre class="giallo z-code"><code data-lang="Kerolox"><span class="giallo-l"><span class="z-comment">; Try to place as many queens as possible.</span></span>
+<span class="giallo-l"><span class="z-keyword">constrain soft</span><span class="z-punctuation">(</span><span class="z-constant z-numeric">1</span><span class="z-punctuation">) (</span><span class="z-source">coord</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> =</span><span class="z-constant z-numeric"> 1</span><span class="z-keyword z-operator"> :-</span><span class="z-entity z-name z-function"> Queen</span><span class="z-source"> coord</span><span class="z-punctuation">.</span></span></code></pre>
+<p>Whereas n-queens is a basic constraint solving problem, this variation of it
+is an optimization problem. We're trying to place, using a soft constraint, one
+queen on <em>every</em> coordinate. The difference between soft constraints and regular
+constraints is that Saturn V can choose to ignore soft constraints... but
+there's a cost penalty. The cost of this constraint is <code>1</code> per queen that isn't
+placed on a coordinate.</p>
+<p>When Saturn V runs this program, it attempts to find a solution that minimizes
+its cost. Our knowledge of the n-queens problem tells us that for any board
+of size <code>n</code> on a side can fit up to <code>n</code> queens on it. However, Saturn V has to
+figure this out itself. This is the optimization aspect of the program.</p>
+<p>Prior to version 0.2, Saturn used ran what's called in the literature a <em>linear
+UNSAT-SAT</em> search to attempt to find the optimum solution. This uses a SAT
+solver to find the minimum number of soft constraints that can be violated
+(i.e. the maximum number of queens) while meeting all hard constraints. It
+first queries if an ideal solution is satisfiable. If that query is UNSAT,
+then it queries if there is a satisfying solution with a cost of 1. It repeats
+until it finds a SAT solution, which becomes the lowest-possible cost of any
+SAT solution.</p>
+<p>To anthropomorphize a bit, this is Saturn V's pre-v0.2 approach:</p>
+<pre class="giallo z-code"><code data-lang="plain"><span class="giallo-l"><span>Can all queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no.</span></span>
+<span class="giallo-l"><span>Can all but 1 queen fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no.</span></span>
+<span class="giallo-l"><span>Can all but 2 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no.</span></span>
+<span class="giallo-l"><span>Can all but 3 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no.</span></span>
+<span class="giallo-l"><span>Can all but 4 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...</span></span>
+<span class="giallo-l"><span>  &lt;et cetera&gt;</span></span>
+<span class="giallo-l"><span>  ...</span></span>
+<span class="giallo-l"><span>Can all but 55 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no.</span></span>
+<span class="giallo-l"><span>Can all but 56 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes!</span></span></code></pre>
+<p>Saturn V has found the optimal solution: all but 56 positions can fit a queen
+on an 8x8 chess board. When Saturn V next reads the output of the SAT solver, it
+will find that the SAT solver has placed 8 queens on the chess board.</p>
+<p>However, that's really, really slow! What if we want to see how many queens can
+fit on a 100x100 chessboard? We have to first ask if all 10,000 queens fit, then
+if 9,999 queens fit, then if 9,998 queens fit, et cetera, until we converge on
+the correct answer, which is that 100 queens can fit. More importantly, it's
+generally much more difficult for SAT solvers to prove that a complex constraint
+problem like this is UNSAT than it is to find a solution a SAT problem. This
+means that for every number of queens that is UNSAT, the SAT solver has
+to do a <em>lot</em> of work just to move on to one fewer queen and start all over.</p>
+<p>For version v0.2, I've switched Saturn V to instead use a <em>linear SAT-UNSAT</em>
+search for the optimal solution.</p>
+<p>Saturn V now thinks for an 8x8 chess board:</p>
+<pre class="giallo z-code"><code data-lang="plain"><span class="giallo-l"><span>Can 0 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 1 queen fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 2 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 3 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 4 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 5 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 6 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 7 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 8 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...yes.</span></span>
+<span class="giallo-l"><span>Can 9 queens fit on the board?</span></span>
+<span class="giallo-l"><span>  ...no!</span></span></code></pre>
+<p>Saturn V can conclude that whichever solution the SAT solver has found
+for 8 queens is the best solution, and that's what it uses as the result.
+This only takes 10 queries to the SAT solver instead of 57 queries. For
+a 100x100 board, it would now make at most 102 queries instead of at most
+9,901 queries<sup class="footnote-reference" id="fr-solution-improving-1"><a href="#fn-solution-improving">2</a></sup>.</p>
+<p>Additionally, the SAT solver is doing significantly less work per query. In
+linear SAT-UNSAT, you can imagine that the SAT solver is gradually placing more
+queens on the board over time. If it can place more queens while reusing valid
+placements, it doesn't need to recalculate why those queens are there in the
+first place. If adding new queens gets in the way of existing queens, it can
+shuffle them around to make room. This is much easier for the SAT solver than
+needing to prove from scratch for each count of queens why that number of queens
+doesn't fit.</p>
+<h1 id="non-monotonic-reasoning">Non-monotonic reasoning</h1>
+<p>I've implemented support for non-monotonic reasoning. "Non-monotonic reasoning"
+is just fancy math lingo for saying that Saturn V can now make decisions
+based on rules <em>not</em> being applicable. You can see this being used in the
+<code>Laundry.rp1</code> example to reason about what clothes are available to wear in
+a day:</p>
+<pre class="giallo z-code"><code data-lang="Kerolox"><span class="giallo-l"><span class="z-comment">; Carry over wardrobe items from yesterday if they were not worn.</span></span>
+<span class="giallo-l"><span class="z-source">Wardrobe</span><span class="z-punctuation">(</span><span class="z-source">today</span><span class="z-punctuation">,</span><span class="z-source"> article</span><span class="z-punctuation">)</span><span class="z-keyword z-operator"> :-</span></span>
+<span class="giallo-l"><span class="z-source">    Wardrobe</span><span class="z-punctuation">(</span><span class="z-source">yesterday</span><span class="z-punctuation">,</span><span class="z-source"> article</span><span class="z-punctuation">),</span></span>
+<span class="giallo-l"><span class="z-keyword z-operator">    !</span><span class="z-source">Outfit</span><span class="z-punctuation">(</span><span class="z-source">yesterday</span><span class="z-punctuation">,</span><span class="z-source"> article</span><span class="z-punctuation">),</span></span>
+<span class="giallo-l"><span class="z-source">    Day</span><span class="z-punctuation">(</span><span class="z-source">today</span><span class="z-punctuation">),</span></span>
+<span class="giallo-l"><span class="z-source">    today</span><span class="z-keyword z-operator"> =</span><span class="z-source"> yesterday</span><span class="z-keyword z-operator"> +</span><span class="z-constant z-numeric"> 1</span><span class="z-punctuation">.</span></span></code></pre>
+<p>That "not" symbol, <code>!</code>, is the non-monotonic part. In plain language, this rule
+means that the clothes available in a wardrobe are whichever clothes were both
+in the wardrobe yesterday <em>and</em> weren't part of an outfit yesterday. This sort
+of reasoning was a bit of a pain to get working but is crucial for intuitively
+expressing common situations like "wearing an article of clothing today means
+it's not available to wear tomorrow."</p>
+<h2 id="how-non-monotonic-reasoning-works">How non-monotonic reasoning works</h2>
+<p>The technical side of non-monotonic reasoning is very complicated. The best
+sources for what I'm talking about are computer science research papers. Again,
+feel free to skip this section if you're not interested in the nitty-gritty of
+logic programming.</p>
+<p>I assign a stratum (natural number) to each relation in a program using a topological sort
+of each relation's non-monotonic dependencies on other relations. Then, I defer
+evaluation of the refutation nodes in the dataflow representation of the program
+until all strata beneath that node's stratum have been evaluated. This is bog-standard
+<a rel="external" href="https://en.wikipedia.org/wiki/Syntax_and_semantics_of_logic_programming#Stratified_negation">stratified negation</a><sup class="footnote-reference" id="fr-stratified-negation-1"><a href="#fn-stratified-negation">3</a></sup>.</p>
+<p>However, within each dataflow stratum, I also technically evaluate local
+stratification<sup class="footnote-reference" id="fr-local-stratification-1"><a href="#fn-local-stratification">4</a></sup> using dual fixed-points (positive
+semi-naive inference and negation-as-failure). This means relations
+can have mutually non-monotonic effects on one another.<sup class="footnote-reference" id="fr-why-local-1"><a href="#fn-why-local">5</a></sup> However,
+I'm committed to supporting at most one stable model per program evaluation
+so as to not make Saturn V a general answer set programming implementation. To
+support local stratification without permitting more than one stable model, I'm
+going to use the "check" step of Kerolox compilation to verify the completeness
+of the well-founded semantics of Kerolox programs.<sup class="footnote-reference" id="fr-well-founded-1"><a href="#fn-well-founded">6</a></sup> I haven't done
+that yet (since the "check" step isn't even part of the pipeline right now), but
+the infrastructure is in place. For now, you can only write Kerolox programs with
+globally-stratified negation semantics.</p>
+<h1 id="openbsd">OpenBSD</h1>
+<p>Right, so, OpenBSD. My lovely partner Emma maintains a local OpenBSD-based
+homelab, so I figured it would be a fun (and useful!) challenge to get my Saturn
+V server to run on that. Well, now CI automatically compiles binary release
+builds for OpenBSD! I don't know if they <em>run</em> but they certainly compile.
+That's pretty awesome.</p>
+<p>Someday soon, I'd like to set up an OpenBSD-based computer at home to run a
+personal Saturn V instance 24/7. I chose OpenBSD to run my personal instance
+because it is <em>exceedingly</em> lightweight and has all the tooling to do HTTPS
+relaying and automatic TLS certificate generation built-in.</p>
+<p>I'll write about how that goes in follow-up posts!</p>
+<h1 id="where-to-next">Where to next?</h1>
+<p>My main priority now is to develop a practical application using Saturn V. Many
+of the changes in this release were a result of me experimenting with using the
+engine in full applications. In the time before the next release, I'm going to
+focus strongly on making full application development a reality. I've put about
+a year of work into Saturn V, it's about damn time I start getting some use out
+of it!</p>
+<p>Right now, I use server-sent event (SSE) subscriptions in order to receive
+live updates to the results of the Saturn V solver. However, I've found out
+in my experimentation that web browsers only allow a page to keep a handful of
+SSE subscriptions open, since it's not really meant to be used for data-heavy
+systems like Saturn V. I'd like to put in the time to develop a proper RPC API
+to the server over WebSocket. This is something I've wanted to do for a long
+time and will let clients do some really neat stuff like atomic transactions
+on inputs.</p>
+<p>Next, I'm going to spend some time integrating the Saturn V client into
+<a rel="external" href="https://www.leptos.dev/">Leptos</a> idiomatically. This shouldn't be difficult
+once the RPC system is fleshed out.</p>
+<p>Finally, I'm going to use Leptos to make a full, practical app using Saturn V.
+I've decided to make a meal planner, since deciding what to eat every day is
+something I chronically struggle with in particular. Fingers crossed that it
+works out!</p>
+<p>Until next time. See you, space cowboy.</p>
+<section class="footnotes">
+<ol class="footnotes-list">
+<li id="fn-premature-opt">
+<p>This was a premature optimization. Double precision is really
+damn precise. <a href="#fr-premature-opt-1">↩</a></p>
+</li>
+<li id="fn-solution-improving">
+<p>I say "at most" because Saturn V uses solution-improving
+search, not just linear-SU search. If the SAT solver finds a solution that is
+<em>better</em> than the current cost query, Saturn V will skip the intermediate cost
+queries and jump to trying to improve on the new cost. <a href="#fr-solution-improving-1">↩</a></p>
+</li>
+<li id="fn-stratified-negation">
+<p>Van Gelder 1989, "Negation as Failure Using Tight
+Derivations for General Logic Programs", <em>The Journal of Logic Programming</em>. <a href="#fr-stratified-negation-1">↩</a></p>
+</li>
+<li id="fn-local-stratification">
+<p>Przymusinski 1988, "On the Declarative Semantics of
+Deductive Databases and Logic Programs", <em>Foundations of Deductive Databases
+and Logic Programming</em>. <a href="#fr-local-stratification-1">↩</a></p>
+</li>
+<li id="fn-why-local">
+<p>To be completely honest I forget at the time of writing this why
+exactly I decided that local stratification was important. Trust me, there
+<em>is</em> a user-facing reason to support it! <a href="#fr-why-local-1">↩</a></p>
+</li>
+<li id="fn-well-founded">
+<p>Przymusinski 1990, "Well-founded semantics coincides with
+three-valued stable semantics", <em>Fundamenta informaticae</em>. <a href="#fr-well-founded-1">↩</a></p>
+</li>
+</ol>
+</section>
+
+        </section>
+
+        
+                
+                
+                    
+                        
+                        
+                        
+                    
+                    
+                
+                
+            <nav class="full-width article-navigation">
+                <div><a href="https://marceline-cramer.github.io/saturn-v/blog/is-saturn-v-ai/" aria-label="Prev" aria-describedby="left_title"><span class="arrow">←</span>&nbsp;Prev</a>
+                <p aria-hidden="true" id="left_title">Is Saturn V AI?</p></div>
+                <div></div>
+            </nav>
+        
+        
+
+        
+            
+            
+            
+
+            
+                
+                
+            
+        
+            
+            
+            
+
+            
+        
+            
+            
+            
+
+            
+        
+            
+            
+            
+
+            
+        
+        
+            
+
+<div id="comments" class="comments"
+
+
+    data-repo="marceline-cramer&#x2F;saturn-v"
+    data-repo-id="R_kgDOOZoxkw"
+    data-category="Blog"
+    data-category-id="DIC_kwDOOZoxk84CrhD3"
+    
+        data-mapping="og:title"
+    
+    data-strict="0"
+    data-reactions-enabled="1"
+    
+        data-input-position="top"
+    
+    data-light-theme="noborder_light"
+    data-dark-theme="noborder_dark"
+    
+        data-lang="en"
+    
+    data-lazy-loading="true"
+    >
+
+
+
+
+    <script src="https://marceline-cramer.github.io/saturn-v/js/giscus.min.js" async></script>
+
+
+<noscript>You need JavaScript to view the comments.</noscript>
+</div>
+
+        </article>
+</main>
+
+
+<script defer src="https://marceline-cramer.github.io/saturn-v/js/mermaid.min.js"></script><span id="copy-success" class="hidden">
+        Copied!
+    </span>
+    <span id="copy-init" class="hidden">
+        Copy code to clipboard
+    </span>
+    <script defer src="https://marceline-cramer.github.io/saturn-v/js/copyCodeToClipboard.min.js"></script>
+
+<script defer src="https://marceline-cramer.github.io/saturn-v/js/footnoteBacklinks.min.js"></script>
+    </div>
+    <footer>
+    <section>
+        <nav class="socials nav-navs">
+        </nav>
+
+        
+        <nav class="nav-navs">
+        </nav>
+
+        <div class="credits">
+            <small>
+                
+
+                
+                Powered by
+                <a rel="" 
+
+ href="https://www.getzola.org">Zola</a>
+                &amp;
+                <a rel="" 
+
+ href="https://github.com/welpo/tabi">tabi</a>
+
+                </small>
+        </div>
+    </section>
+
+    <div id="searchModal" class="search-modal js" role="dialog" aria-labelledby="modalTitle">
+    <h1 id="modalTitle" class="visually-hidden">Search</h1>
+    <div id="modal-content">
+        <div id="searchBar">
+            <div class="search-icon" aria-hidden="true">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                    <path d="M784-120 532-372q-30 24-69 38t-83 14q-109 0-184.5-75.5T120-580q0-109 75.5-184.5T380-840q109 0 184.5 75.5T640-580q0 44-14 83t-38 69l252 252-56 56ZM380-400q75 0 127.5-52.5T560-580q0-75-52.5-127.5T380-760q-75 0-127.5 52.5T200-580q0 75 52.5 127.5T380-400Z"/>
+                </svg>
+            </div>
+            <input id="searchInput" role="combobox" autocomplete="off" spellcheck="false" aria-expanded="false" aria-controls="results-container" placeholder="Search…"/>
+            <div id="clear-search" class="close-icon interactive-icon" tabindex="0" role="button" title="Clear search">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"/>
+                </svg>
+            </div>
+        </div>
+        <div id="results-container">
+            <div id="results-info"><span id="zero_results"> No results</span>
+                <span id="one_results"> $NUMBER result</span>
+                <span id="many_results"> $NUMBER results</span><span id="two_results"> $NUMBER results</span>
+                <span id="few_results"> $NUMBER results</span>
+            </div>
+            <div id="results" role="listbox"></div>
+        </div>
+    </div>
+</div>
+</footer>
+
+
+    
+    
+</body>
+
+</html>
