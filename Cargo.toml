@@ -1,7 +1,7 @@
 [workspace]
 default-members = ["crates/cli"]
 resolver = "3"
-members = ["crates/*", "tree-sitter-kerolox"]
+members = ["crates/*", "fuzz", "tree-sitter-kerolox"]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -15,9 +15,10 @@ rust-version = "1.90"
 arbitrary = { version = "1", features = ["derive"] }
 ariadne = { version = "0.5", features = ["auto-color"] }
 anyhow = "1"
-chumsky = "0.9"
+chumsky = "0.12"
 console_error_panic_hook = "0.1"
 differential-dataflow = "0.18"
+either = "1.15"
 flume = "0.12"
 futures-util = { version = "0.3", default-features = false }
 indexmap = "2.8"
@@ -29,12 +30,12 @@ ropey = "1.6"
 salsa = "0.20"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
+slab = "0.4"
 smallvec = { version = "1.15", features = ["serde"] }
 strum = { version = "0.27", features = ["derive"] }
 thiserror = "2"
 timely = "0.25"
 tinyvec = { version = "1.10", features = ["alloc"] }
-tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -61,6 +62,10 @@ saturn-v-lsp.path = "crates/lsp"
 saturn-v-protocol.path = "crates/protocol"
 saturn-v-server.path = "crates/server"
 tree-sitter-kerolox.path = "tree-sitter-kerolox"
+
+[workspace.dependencies.tokio]
+version = "1.42"
+default-features = false
 
 [profile.release]
 lto = "thin"

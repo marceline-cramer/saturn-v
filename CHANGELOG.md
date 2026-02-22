@@ -2,6 +2,8 @@
 
 ## v0.3.0
 
+- Implement s-expression conversion to/from entire IR programs ([#99](https://github.com/marceline-cramer/saturn-v/pull/99))
+- Relocate fuzzing crate to support `cargo fuzz` ([#127](https://github.com/marceline-cramer/saturn-v/pull/127))
 - Begin enforcing a workspace-wide MSRV (minimum supported Rust version) ([#123](https://github.com/marceline-cramer/saturn-v/pull/123))
 - Add rights-protecting copyright notice task to PR template ([#122](https://github.com/marceline-cramer/saturn-v/pull/122))
 - Trim some unused dependencies ([#118](https://github.com/marceline-cramer/saturn-v/pull/118))
