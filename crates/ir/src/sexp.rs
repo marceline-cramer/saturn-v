@@ -145,11 +145,10 @@ impl Sexp for Constraint<String> {
 
 impl Sexp for Rule<String> {
     fn to_doc(&self) -> Doc {
-        doc_pair(
-            "Rule",
-            QueryTerm::to_doc(self.head.iter())
-                .append(Doc::space())
-                .append(self.body.to_doc()),
+        doc_indent_two(
+            RcDoc::text("Rule"),
+            QueryTerm::to_doc(self.head.iter()),
+            self.body.to_doc(),
         )
     }
 
@@ -589,14 +588,12 @@ impl Token {
 
 /// Creates a fact document.
 pub fn doc_fact(fact: &[Value]) -> Doc {
-    doc_indent_many(Doc::text("fact"), fact.iter().map(|fact| fact.to_doc()))
+    doc_indent(Doc::text("Fact"), fact.to_vec().to_doc())
 }
 
 /// Parses a fact.
 pub fn parse_fact<I: TokenInput>() -> impl SexpParser<I, Vec<Value>> {
-    Token::expect_item("fact")
-        .ignore_then(Value::parser().repeated().collect())
-        .delimited_by(just(Token::LParen), just(Token::RParen))
+    parse_list("Fact", Vec::parser())
 }
 
 /// Creates a paren-surrounded list with two children with smart indentation.
@@ -615,7 +612,7 @@ pub fn doc_indent_many(head: Doc, children: impl IntoIterator<Item = Doc>) -> Do
         head.append(
             Doc::line()
                 .append(Doc::intersperse(children, Doc::line()))
-                .nest(2)
+                .nest(4)
                 .group(),
         ),
     )
@@ -716,8 +713,7 @@ pub trait Sexp: Sized {
 
 impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
-        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+        doc_indent_many(Doc::text("set-of"), self.iter().map(|el| el.to_doc()))
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -727,8 +723,7 @@ impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
 
 impl<T: Sexp> Sexp for Vec<T> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
-        doc_list(Doc::text("vec-of").append(Doc::line().append(vars).nest(4).group()))
+        doc_indent_many(Doc::text("vec-of"), self.iter().map(|el| el.to_doc()))
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
