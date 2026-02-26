@@ -216,3 +216,61 @@ async fn test_antijoin_unconditional() {
     let loader = Loader::load_program(&program);
     run(loader).await;
 }
+
+#[tokio::test]
+async fn test_antijoin_conditional() {
+    let mut program = Program::default();
+
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
+        store: "Base".to_string(),
+        facts: vec![
+            vec![Value::Integer(1)],
+            vec![Value::Integer(2)],
+            vec![Value::Integer(3)],
+        ],
+        kind: RelationKind::Basic,
+        io: RelationIO::None,
+        rules: vec![],
+    });
+
+    program.insert_relation(Relation {
+        ty: StructuredType::Primitive(Type::Integer),
+        stratum: 0,
+        store: "Refute".to_string(),
+        facts: vec![
+            vec![Value::Integer(1)],
+            vec![Value::Integer(2)],
+            vec![Value::Integer(3)],
+        ],
+        kind: RelationKind::Decision,
+        io: RelationIO::Output,
+        rules: vec![],
+    });
+
+    program.constraints.insert(Constraint {
+        weight: ConstraintWeight::Hard,
+        kind: ConstraintKind::Cardinality {
+            kind: CardinalityConstraintKind::Only,
+            threshold: 0,
+        },
+        head: vec![0],
+        body: RuleBody {
+            vars: vec![Type::Integer],
+            loaded: vec!["Base".to_string(), "Refute".to_string()],
+            instructions: Instruction::Antijoin {
+                relation: 1,
+                terms: vec![QueryTerm::Variable(0)],
+                rest: Box::new(Instruction::FromQuery {
+                    relation: 0,
+                    terms: vec![QueryTerm::Variable(0)],
+                }),
+            },
+        },
+    });
+
+    // Out should emit all Refute values to satisfy constraint
+    let loader = Loader::load_program(&program);
+    run(loader).await;
+}
