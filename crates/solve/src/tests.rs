@@ -157,7 +157,7 @@ macro_rules! tests_all_solvers {
     }
 }
 
-fn test_pb_eq<S: Solver + Default>() {
+fn test_card_eq<S: Solver + Default>() {
     let mut solver = S::default();
     let model = solver.as_model();
 
@@ -185,7 +185,7 @@ fn test_pb_eq<S: Solver + Default>() {
     }
 }
 
-fn test_pb_le<S: Solver + Default>() {
+fn test_card_le<S: Solver + Default>() {
     let mut solver = S::default();
     let model = solver.as_model();
 
@@ -214,7 +214,7 @@ fn test_pb_le<S: Solver + Default>() {
     }
 }
 
-fn test_pb_ge<S: Solver + Default>() {
+fn test_card_ge<S: Solver + Default>() {
     let mut solver = S::default();
     let model = solver.as_model();
 
@@ -250,7 +250,7 @@ tests_all_solvers!(
     test_assume_fresh
     test_and_nor_unsat
     test_minimize_either_or
-    test_pb_eq
-    test_pb_le
-    test_pb_ge
+    test_card_eq
+    test_card_le
+    test_card_ge
 );
