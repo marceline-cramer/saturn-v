@@ -1,0 +1,18 @@
+[package]
+name = "saturn-v-sandbox"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+leptos.workspace = true
+saturn-v-lsp.workspace = true
+saturn-v-eval.workspace = true
+wasm-bindgen.workspace = true
+
+[dependencies.web-sys]
+workspace = true
+features = ["Element"]
