@@ -11,6 +11,7 @@ dashmap = "6.1"
 parking_lot.workspace = true
 prehash = "1.0.0"
 smallvec.workspace = true
+tracing.workspace = true
 
 [dependencies.rand]
 version = "0.9"
@@ -32,6 +33,7 @@ optional = true
 
 [dev-dependencies]
 rustsat-cadical.workspace = true
+tracing-test.workspace = true
 
 [features]
 sat = ["dep:rustsat", "dep:rand", "dep:rand_chacha"]

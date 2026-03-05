@@ -1,10 +1,7 @@
 [workspace]
 default-members = ["crates/cli"]
 resolver = "3"
-members = [
-    "crates/*",
-    "tree-sitter-kerolox",
-]
+members = ["crates/*", "tree-sitter-kerolox"]
 
 [workspace.package]
 license = "AGPL-3.0-or-later"
@@ -39,6 +36,7 @@ tokio = "1.42"
 tokio-stream = { version = "0.1", features = ["sync"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-test = "0.2"
 tree-sitter = "^0.26.3"
 toml = "0.9"
 tower-lsp = "0.20"

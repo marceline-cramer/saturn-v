@@ -134,6 +134,7 @@ fn test_minimize_either_or<S: Solver + Default>() {
 macro_rules! tests_with_solver {
     ($solver:ty, ) => {};
     ($solver:ty, $head:ident $($rest:ident)*) => {
+        #[::tracing_test::traced_test]
         #[test]
         fn $head() {
             super::$head::<$solver>();
