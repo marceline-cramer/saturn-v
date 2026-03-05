@@ -14,7 +14,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, str::FromStr};
+use std::{
+    fmt::Debug,
+    io::{stderr, Write},
+    str::FromStr,
+};
 
 use chumsky::{
     input::{IterInput, ValueInput},
@@ -770,6 +774,7 @@ impl<I> TokenInput for I where I: ValueInput<'static, Span = SimpleSpan, Token =
 pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>) -> T {
     use ariadne::{Color, Label, Report, ReportKind, Source};
     result.unwrap_or_else(|errs| {
+        let mut out = stderr().lock();
         for e in errs {
             Report::build(ReportKind::Error, ((), e.span().into_range()))
                 .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
@@ -780,9 +785,11 @@ pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>
                         .with_color(Color::Red),
                 )
                 .finish()
-                .eprint(Source::from(&source))
+                .write(Source::from(&source), &mut out)
                 .unwrap();
         }
+
+        out.flush().unwrap();
 
         panic!("failed to lex:\n{source}");
     })
