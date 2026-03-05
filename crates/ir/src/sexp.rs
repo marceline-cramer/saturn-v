@@ -76,7 +76,7 @@ impl Sexp for Relation<String> {
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let base = set((
-            parse_property("name", Token::item()),
+            parse_property("name", String::parser()),
             parse_property("stratum", Token::unsigned()),
             parse_property("ty", StructuredType::parser()),
             parse_property("kind", RelationKind::parser()),
@@ -547,7 +547,7 @@ impl Token {
             .map(Token::Keyword);
 
         // string literal
-        let string = any::<&'a str, extra::Full<Rich<'a, char>, (), ()>>()
+        let string = none_of::<_, &'a str, extra::Full<Rich<'a, char>, (), ()>>("\"")
             .repeated()
             .collect()
             .delimited_by(just('"'), just('"'))
