@@ -20,7 +20,7 @@ use differential_dataflow::{
     input::Input,
     lattice::Lattice,
     operators::{
-        arrange::{ArrangeByKey, ArrangeBySelf, Arranged},
+        arrange::{ArrangeByKey, Arranged},
         iterate::Variable,
         Join, JoinCore, Reduce, Threshold,
     },
@@ -64,20 +64,26 @@ pub fn backend(
             tuples: scope.new_collection().1,
         };
 
-        // evaluate to fixed-point
-        let output = StratumOutput::evaluate_stratified(scope, &input);
-
         // build lookup relations
         let relations_by_key = input.relations.map(Key::pair).arrange_by_key();
+
+        // find base conditional facts to add to all outgoing conditionals
+        let base_conditional = input
+            .facts
+            .map(Fact::relation_pair)
+            .arrange_by_key()
+            .join_core(&relations_by_key, base_conditional)
+            .inspect(inspect("base conditional"))
+            .map(|fact| (fact, None));
+
+        // evaluate to fixed-point
+        let output = StratumOutput::evaluate_stratified(scope, &input);
 
         let node_constraint_type = input
             .nodes
             .map(Key::pair)
             .flat_map(map_value(Node::constraint_type))
             .arrange_by_key();
-
-        // arrange facts by their relations
-        let fact_by_rel = output.facts.map(Fact::relation_pair).arrange_by_key();
 
         let constraints = output
             .constraints
@@ -86,12 +92,6 @@ pub fn backend(
             .arrange_by_key()
             .join_core(&node_constraint_type, constraint_clause)
             .inspect(inspect("constraint"));
-
-        // find base conditional facts to add to all outgoing conditionals
-        let base_conditional = fact_by_rel
-            .join_core(&relations_by_key, base_conditional)
-            .inspect(inspect("base conditional"))
-            .map(|fact| (fact, None));
 
         // conditional facts make gates out of their dependent conditions
         let conditional = output
@@ -125,9 +125,10 @@ pub fn backend(
         let outputs = input
             .relations
             .filter(|rel| rel.io == RelationIO::Output)
-            .map(|rel| Key::new(&rel))
-            .arrange_by_self()
-            .join_core(&fact_by_rel, |_key, (), fact| Some(fact.clone()));
+            .map(|rel| (Key::new(&rel), ()))
+            .join_map(&output.facts.map(Fact::relation_pair), |_key, (), fact| {
+                fact.clone()
+            });
 
         // return inputs and outputs
         (
