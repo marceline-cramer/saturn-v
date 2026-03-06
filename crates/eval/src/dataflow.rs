@@ -232,7 +232,10 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
 
             // initialize feedback variable for tuples that pass NAF
             let step = Product::new(Default::default(), 1);
-            let tuples = Variable::new_from(input.tuples, step);
+            let tuples = Variable::new_from(input.tuples, step.clone());
+
+            // track each alternating fixedpoint's antijoins
+            let antijoins = Variable::new(scope, step);
 
             // replace input with variables
             input.tuples = tuples.clone();
@@ -240,14 +243,15 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             // run this stratum to positive fixed-point
             let mut output = StratumOutput::evaluate_stratum(scope, &input);
 
+            // only track this stratum's antijoins
+            let antijoins = antijoins.set(&output.antijoins);
+
             // antijoin against this stratum's facts
             let (antijoin_gates, antijoin_tuples) =
-                antijoin(&output.antijoins, &output.facts, &input.relations);
+                antijoin(&antijoins, &output.facts, &input.relations);
 
-            // pass permitted tuples to next stratum
+            // pass permitted values
             output.tuples = tuples.set_concat(&antijoin_tuples);
-
-            // add antijoin gates to result
             output.gates = output.gates.concat(&antijoin_gates);
 
             // return outputs of all extended collections
