@@ -1,0 +1,27 @@
+(Relation
+    :name "Base"
+    :stratum 0
+    :ty (Integer)
+    :kind (Basic)
+    :io (None)
+    (Fact (vec-of (Integer 1)))
+    (Fact (vec-of (Integer 2)))
+    (Fact (vec-of (Integer 3))))
+(Relation
+    :name "Out"
+    :stratum 0
+    :ty (Integer)
+    :kind (Basic)
+    :io (Output)
+    (Rule
+        (QueryVariable 0
+        (QueryNil))
+        (RuleBody
+            :vars (vec-of (Integer))
+            :loaded (vec-of "Refute" "Base")
+            (Antijoin
+                0
+                (QueryVariable 0
+                (QueryNil))
+                (FromQuery 1 (QueryVariable 0 (QueryNil)))))))
+(Relation :name "Refute" :stratum 0 :ty (Integer) :kind (Basic) :io (None))
