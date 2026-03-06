@@ -29,9 +29,6 @@ pub mod solve;
 pub mod types;
 pub mod utils;
 
-#[cfg(test)]
-pub mod tests;
-
 pub async fn run(loader: Loader<String>) {
     let config = timely::Config::thread();
     let routers = DataflowRouters::default();
