@@ -177,11 +177,9 @@ impl Sexp for RuleBody<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        let loaded = parse_list("vec-of", Token::item().repeated().collect());
-
         let body = set((
             parse_property("vars", Vec::<Type>::parser()),
-            parse_property("loaded", loaded),
+            parse_property("loaded", Vec::<String>::parser()),
         ))
         .then(Instruction::parser())
         .map(|((vars, loaded), instructions)| RuleBody {
@@ -518,6 +516,9 @@ impl Token {
 
     /// Creates a parser for an individual token.
     pub fn parser<'a>() -> impl Parser<'a, &'a str, Self, extra::Full<Rich<'a, char>, (), ()>> {
+        // extra shorthand for token parsing
+        type Extra<'a> = extra::Full<Rich<'a, char>, (), ()>;
+
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
@@ -537,17 +538,23 @@ impl Token {
                     .map_err(|_| Rich::custom(span, "failed to parse integer literal"))
             });
 
+        // identifier parser
+        let ident = text::ident::<&'a str, Extra<'a>>()
+            .then(text::ident().or(just("-")).repeated().to_slice())
+            .map(|(head, tail)| {
+                let mut ident = String::new();
+                ident.extend([head, tail]);
+                ident
+            });
+
         // alphanumeric item
-        let item = text::ident().map(ToString::to_string).map(Token::Item);
+        let item = ident.clone().map(Token::Item);
 
         // Lisp-style keyword
-        let kw = just(":")
-            .ignore_then(text::ident())
-            .map(ToString::to_string)
-            .map(Token::Keyword);
+        let kw = just(":").ignore_then(ident.clone()).map(Token::Keyword);
 
         // string literal
-        let string = none_of::<_, &'a str, extra::Full<Rich<'a, char>, (), ()>>("\"")
+        let string = none_of::<_, &'a str, Extra<'a>>("\"")
             .repeated()
             .collect()
             .delimited_by(just('"'), just('"'))
