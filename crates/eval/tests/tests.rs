@@ -14,15 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{collections::HashMap, io::Write};
-
 use chumsky::prelude::*;
 use datatest_stable::Utf8Path;
-use saturn_v_eval::{
-    load::Loader,
-    utils::{run_pumps, Key},
-    DataflowRouters,
-};
+use saturn_v_eval::load::Loader;
 use saturn_v_ir::{sexp::*, Program, StructuredType};
 
 datatest_stable::harness! {
@@ -36,64 +30,12 @@ fn run_test(_path: &Utf8Path, test: String) -> datatest_stable::Result<()> {
     let program = parse_expect(&test, parser.parse(tokens).into_result());
     let loader = Loader::load_program(&program);
 
-    // create formatting strings for relationship formatting
-    let formats: HashMap<_, _> = loader
-        .get_relations()
-        .values()
-        .map(|rel| (Key::new(rel), format_relation(&rel.name, &rel.ty)))
-        .collect();
-
     // initialize Tokio runtime on current thread
     let rt = tokio::runtime::Builder::new_current_thread().build()?;
     let _guard = rt.enter();
 
-    // spawn dataflow worker
-    let config = timely::Config::thread();
-    let routers = DataflowRouters::default();
-    let workers = timely::execute(config, {
-        let handle = tokio::runtime::Handle::current();
-        let routers = routers.clone();
-        move |worker| {
-            let (input, output) = saturn_v_eval::dataflow::backend(worker, &routers);
-            run_pumps(worker, handle.clone(), input, output);
-        }
-    });
-
-    // drop (and join) workers on new thread to not block this function
-    // TODO: reliably cancel dataflow by dropping channels
-    std::thread::spawn(move || drop(workers));
-
-    // feed loaded program into dataflow
-    let (mut inputs, mut solver, output_rx) = routers.split();
-    loader.add_to_dataflow(&mut inputs);
-    inputs.events.forget(); // TODO: why is forgetting necessary?
-
-    // assert that the program evaluates and solves successfully
-    assert_eq!(
-        rt.block_on(solver.step()),
-        Some(true),
-        "failed to run solver"
-    );
-
-    // drain the outputs from the solver run
-    let mut outputs = Vec::new();
-    while let Ok(saturn_v_eval::utils::Update::Push(output, true)) = output_rx.recv() {
-        outputs.push(output);
-    }
-
-    // render formatted outputs
-    let mut stdout = std::io::stdout();
-    for output in outputs {
-        let mut format = formats.get(&output.relation).unwrap().iter();
-
-        // intersperse formatting segments with each value in the tuple
-        write!(stdout, "{}", format.next().unwrap()).unwrap();
-        for (format, val) in format.zip(output.values.iter()) {
-            write!(stdout, "{val}{format}").unwrap();
-        }
-
-        writeln!(stdout).unwrap();
-    }
+    // run dataflow to completion
+    rt.block_on(saturn_v_eval::run(loader));
 
     // success
     Ok(())

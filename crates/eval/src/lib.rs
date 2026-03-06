@@ -30,9 +30,16 @@ pub mod types;
 pub mod utils;
 
 pub async fn run(loader: Loader<String>) {
+    // create formatting strings for relationship formatting
+    let formats: HashMap<_, _> = loader
+        .get_relations()
+        .values()
+        .map(|rel| (Key::new(rel), format_relation(&rel.name, &rel.ty)))
+        .collect();
+
+    // spawn dataflow worker
     let config = timely::Config::thread();
     let routers = DataflowRouters::default();
-
     let workers = timely::execute(config, {
         let handle = tokio::runtime::Handle::current();
         let routers = routers.clone();
@@ -40,33 +47,27 @@ pub async fn run(loader: Loader<String>) {
             let (input, output) = crate::dataflow::backend(worker, &routers);
             run_pumps(worker, handle.clone(), input, output);
         }
-    })
-    .expect("failed to start dataflows");
+    });
 
+    // drop (and join) workers on new thread to not block this function
+    // TODO: reliably cancel dataflow by dropping channels
     std::thread::spawn(move || drop(workers));
 
-    let formats: HashMap<_, _> = loader
-        .relations
-        .values()
-        .map(|rel| (Key::new(rel), format_relation(&rel.name, &rel.ty)))
-        .collect();
-
+    // feed loaded program into dataflow
     let (mut inputs, mut solver, output_rx) = routers.split();
-
     loader.add_to_dataflow(&mut inputs);
+    inputs.events.forget(); // TODO: why is forgetting necessary?
 
-    // TODO: why is forgetting necessary?
-    inputs.events.forget();
-
+    // assert that the program evaluates and solves successfully
     assert_eq!(solver.step().await, Some(true), "failed to run solver");
 
+    // drain the outputs from the solver run
     let mut outputs = Vec::new();
     while let Ok(crate::utils::Update::Push(output, true)) = output_rx.recv() {
         outputs.push(output);
     }
 
-    outputs.sort();
-
+    // render formatted outputs
     let mut stdout = std::io::stdout();
     for output in outputs {
         let mut format = formats.get(&output.relation).unwrap().iter();
@@ -80,6 +81,7 @@ pub async fn run(loader: Loader<String>) {
         writeln!(stdout).unwrap();
     }
 
+    // flush rendered output
     stdout.flush().unwrap();
 }
 
