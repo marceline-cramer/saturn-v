@@ -20,7 +20,7 @@ use differential_dataflow::{
     input::Input,
     lattice::Lattice,
     operators::{
-        arrange::{ArrangeByKey, ArrangeBySelf, Arranged},
+        arrange::{ArrangeByKey, Arranged},
         iterate::Variable,
         Join, JoinCore, Reduce, Threshold,
     },
@@ -64,20 +64,26 @@ pub fn backend(
             tuples: scope.new_collection().1,
         };
 
-        // evaluate to fixed-point
-        let output = StratumOutput::evaluate_stratified(scope, &input);
-
         // build lookup relations
         let relations_by_key = input.relations.map(Key::pair).arrange_by_key();
+
+        // find base conditional facts to add to all outgoing conditionals
+        let base_conditional = input
+            .facts
+            .map(Fact::relation_pair)
+            .arrange_by_key()
+            .join_core(&relations_by_key, base_conditional)
+            .inspect(inspect("base conditional"))
+            .map(|fact| (fact, None));
+
+        // evaluate to fixed-point
+        let output = StratumOutput::evaluate_stratified(scope, &input);
 
         let node_constraint_type = input
             .nodes
             .map(Key::pair)
             .flat_map(map_value(Node::constraint_type))
             .arrange_by_key();
-
-        // arrange facts by their relations
-        let fact_by_rel = output.facts.map(Fact::relation_pair).arrange_by_key();
 
         let constraints = output
             .constraints
@@ -86,12 +92,6 @@ pub fn backend(
             .arrange_by_key()
             .join_core(&node_constraint_type, constraint_clause)
             .inspect(inspect("constraint"));
-
-        // find base conditional facts to add to all outgoing conditionals
-        let base_conditional = fact_by_rel
-            .join_core(&relations_by_key, base_conditional)
-            .inspect(inspect("base conditional"))
-            .map(|fact| (fact, None));
 
         // conditional facts make gates out of their dependent conditions
         let conditional = output
@@ -125,9 +125,10 @@ pub fn backend(
         let outputs = input
             .relations
             .filter(|rel| rel.io == RelationIO::Output)
-            .map(|rel| Key::new(&rel))
-            .arrange_by_self()
-            .join_core(&fact_by_rel, |_key, (), fact| Some(fact.clone()));
+            .map(|rel| (Key::new(&rel), ()))
+            .join_map(&output.facts.map(Fact::relation_pair), |_key, (), fact| {
+                fact.clone()
+            });
 
         // return inputs and outputs
         (
@@ -232,7 +233,10 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
 
             // initialize feedback variable for tuples that pass NAF
             let step = Product::new(Default::default(), 1);
-            let tuples = Variable::new_from(input.tuples, step);
+            let tuples = Variable::new_from(input.tuples, step.clone());
+
+            // track each alternating fixedpoint's antijoins
+            let antijoins = Variable::new(scope, step);
 
             // replace input with variables
             input.tuples = tuples.clone();
@@ -240,14 +244,15 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             // run this stratum to positive fixed-point
             let mut output = StratumOutput::evaluate_stratum(scope, &input);
 
+            // only track this stratum's antijoins
+            let antijoins = antijoins.set(&output.antijoins);
+
             // antijoin against this stratum's facts
             let (antijoin_gates, antijoin_tuples) =
-                antijoin(&output.antijoins, &output.facts, &input.relations);
+                antijoin(&antijoins, &output.facts, &input.relations);
 
-            // pass non-antijoined tuples to next stratum
+            // pass permitted values
             output.tuples = tuples.set_concat(&antijoin_tuples);
-
-            // add antijoin gates to result
             output.gates = output.gates.concat(&antijoin_gates);
 
             // return outputs of all extended collections
@@ -820,46 +825,44 @@ where
     // arrange antijoins
     let antijoins = antijoins.distinct().arrange_by_key();
 
-    // first, unconditionally permit all antijoins with absent facts
+    // unconditionally permit all antijoins with absent facts
     let unconditional = antijoins.antijoin(&facts.distinct()).map(value);
 
-    // filter out unconditional relations
-    let relations = relations.filter(|rel| !rel.kind.is_basic());
+    // extract conditional relation keys
+    let relations = relations
+        .filter(|rel| !rel.kind.is_basic())
+        .map(|rel| Key::new(&rel));
 
-    // filter out unconditional facts
+    // extract conditional facts
     let facts = facts
         .map(Fact::relation_pair)
-        .semijoin(&relations.map(|rel| Key::new(&rel)))
-        .map(|(_key, fact)| (fact, ()));
+        .semijoin(&relations)
+        .map(value);
 
-    // conditionally join antijoins with conditional facts
-    let conditional = antijoins
-        .join(&facts)
-        .map(|(fact, ((node, mut tuple), ()))| {
-            // create key for the refuting fact
-            let fact = Condition::NotFact(Key::new(&fact));
+    // conditionally permit antijoins with conditional facts
+    let conditional = antijoins.semijoin(&facts).map(|(fact, (node, mut tuple))| {
+        // create key for the refuting fact
+        let fact = Condition::NotFact(Key::new(&fact));
 
-            // optionally construct gate if tuple is conditional
-            if let Some(cond) = tuple.condition {
-                let gate = Gate::And {
-                    lhs: cond,
-                    rhs: fact,
-                };
+        // optionally construct gate if tuple is conditional
+        if let Some(cond) = tuple.condition {
+            let gate = Gate::And {
+                lhs: cond,
+                rhs: fact,
+            };
 
-                tuple.condition = Some(Condition::Gate(Key::new(&gate)));
+            tuple.condition = Some(Condition::Gate(Key::new(&gate)));
 
-                return ((node, tuple), Some(gate));
-            }
+            return ((node, tuple), Some(gate));
+        }
 
-            // otherwise, the tuple is negatively conditional on the fact
-            tuple.condition = Some(fact);
-            ((node, tuple), None)
-        });
+        // otherwise, the tuple is negatively conditional on the fact
+        tuple.condition = Some(fact);
+        ((node, tuple), None)
+    });
 
     // combine all permitted tuples
-    let tuples = unconditional
-        .concat(&conditional.map(key))
-        .inspect(inspect("antijoin"));
+    let tuples = unconditional.concat(&conditional.map(key));
 
     // return all new tuples and all new gates
     (conditional.flat_map(value), tuples)

@@ -1,0 +1,46 @@
+(Relation
+    :name "Base"
+    :stratum 0
+    :ty (Integer)
+    :kind (Basic)
+    :io (None)
+    (Fact (vec-of (Integer 0)))
+    (Rule
+        (QueryVariable 0
+        (QueryNil))
+        (RuleBody
+            :vars (vec-of (Integer) (Integer))
+            :loaded (vec-of "Base")
+            (Let 0
+                (BinaryOp (Add) (Variable 1) (Value (Integer 1)))
+                (Filter
+                    (BinaryOp (Lt) (Variable 1) (Value (Integer 100)))
+                    (FromQuery 0 (QueryVariable 1 (QueryNil))))))))
+(Relation
+    :name "Pair"
+    :stratum 0
+    :ty (Tuple (Integer) (Integer))
+    :kind (Decision)
+    :io (Output)
+    (Rule
+        (QueryVariable 0
+        (QueryVariable 1
+        (QueryNil)))
+        (RuleBody
+            :vars (vec-of (Integer) (Integer))
+            :loaded (vec-of "Base")
+            (Filter
+                (BinaryOp (Lt) (Variable 0) (Variable 1))
+                (Join
+                    (FromQuery 0 (QueryVariable 0 (QueryNil)))
+                    (FromQuery 0 (QueryVariable 1 (QueryNil))))))))
+(Constraint
+    :weight (Hard)
+    :kind (Cardinality (Only) 1)
+    :head (vec-of 0)
+    :body (RuleBody
+        :vars (vec-of (Integer) (Integer) (Integer))
+        :loaded (vec-of "Pair")
+        (Let 0
+            (BinaryOp (Div) (Variable 1) (Value (Integer 10)))
+            (FromQuery 0 (QueryVariable 1 (QueryVariable 2 (QueryNil)))))))

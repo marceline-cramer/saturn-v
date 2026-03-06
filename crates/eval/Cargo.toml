@@ -29,3 +29,12 @@ branch = "saturn-v"
 [dependencies.rustsat-cadical]
 git = "https://github.com/marceline-cramer/rustsat"
 branch = "saturn-v"
+
+[dev-dependencies]
+anyhow.workspace = true
+chumsky.workspace = true
+datatest-stable.workspace = true
+
+[[test]]
+name = "tests"
+harness = false
