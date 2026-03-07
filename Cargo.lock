@@ -3184,7 +3184,6 @@ name = "saturn-v-sandbox"
 version = "0.2.0"
 dependencies = [
  "leptos",
- "saturn-v-eval",
  "saturn-v-lsp",
  "wasm-bindgen",
  "web-sys",

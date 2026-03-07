@@ -13,7 +13,6 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 leptos.workspace = true
 saturn-v-lsp.workspace = true
-saturn-v-eval.workspace = true
 wasm-bindgen.workspace = true
 
 [dependencies.web-sys]
