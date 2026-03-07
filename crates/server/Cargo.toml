@@ -25,7 +25,7 @@ tokio-stream.workspace = true
 tracing.workspace = true
 
 [dependencies.fjall]
-version = "3"
+version = "3.1"
 
 [dev-dependencies]
 saturn-v-client = { workspace = true, features = ["invalid-requests"] }
