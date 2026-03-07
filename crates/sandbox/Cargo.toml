@@ -11,6 +11,7 @@ rust-version.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+console_error_panic_hook.workspace = true
 leptos.workspace = true
 saturn-v-lsp.workspace = true
 wasm-bindgen.workspace = true

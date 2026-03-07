@@ -14,19 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use leptos::prelude::*;
-use wasm_bindgen::prelude::*;
-use web_sys::Element;
-
-#[component]
-pub fn App() -> impl IntoView {
-    view! {
-        <p>"The sandbox will go here."</p>
-    }
-}
-
-#[wasm_bindgen]
-pub fn mount(el: Element) {
+fn main() {
     console_error_panic_hook::set_once();
-    mount_to(el.dyn_into().unwrap(), App).forget();
+    leptos::mount::mount_to_body(saturn_v_sandbox::App);
 }
