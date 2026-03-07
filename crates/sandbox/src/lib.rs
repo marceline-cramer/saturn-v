@@ -50,7 +50,7 @@ fn Editor() -> impl IntoView {
     view! { <div node_ref=node /> }
 }
 
-#[wasm_bindgen(module = "/codemirror.js")]
+#[wasm_bindgen(module = "https://esm.sh/codemirror@6.0.2")]
 extern "C" {
     pub type EditorView;
 
