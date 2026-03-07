@@ -14,7 +14,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, str::FromStr};
+use std::{
+    fmt::Debug,
+    io::{stderr, Write},
+    str::FromStr,
+};
 
 use chumsky::{
     input::{IterInput, ValueInput},
@@ -72,7 +76,7 @@ impl Sexp for Relation<String> {
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
         let base = set((
-            parse_property("name", Token::item()),
+            parse_property("name", String::parser()),
             parse_property("stratum", Token::unsigned()),
             parse_property("ty", StructuredType::parser()),
             parse_property("kind", RelationKind::parser()),
@@ -145,11 +149,10 @@ impl Sexp for Constraint<String> {
 
 impl Sexp for Rule<String> {
     fn to_doc(&self) -> Doc {
-        doc_pair(
-            "Rule",
-            QueryTerm::to_doc(self.head.iter())
-                .append(Doc::space())
-                .append(self.body.to_doc()),
+        doc_indent_two(
+            RcDoc::text("Rule"),
+            QueryTerm::to_doc(self.head.iter()),
+            self.body.to_doc(),
         )
     }
 
@@ -174,11 +177,9 @@ impl Sexp for RuleBody<String> {
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
-        let loaded = parse_list("vec-of", Token::item().repeated().collect());
-
         let body = set((
             parse_property("vars", Vec::<Type>::parser()),
-            parse_property("loaded", loaded),
+            parse_property("loaded", Vec::<String>::parser()),
         ))
         .then(Instruction::parser())
         .map(|((vars, loaded), instructions)| RuleBody {
@@ -515,6 +516,9 @@ impl Token {
 
     /// Creates a parser for an individual token.
     pub fn parser<'a>() -> impl Parser<'a, &'a str, Self, extra::Full<Rich<'a, char>, (), ()>> {
+        // extra shorthand for token parsing
+        type Extra<'a> = extra::Full<Rich<'a, char>, (), ()>;
+
         // punctuation
         let lparen = just("(").to(Token::LParen);
         let rparen = just(")").to(Token::RParen);
@@ -534,17 +538,23 @@ impl Token {
                     .map_err(|_| Rich::custom(span, "failed to parse integer literal"))
             });
 
+        // identifier parser
+        let ident = text::ident::<&'a str, Extra<'a>>()
+            .then(text::ident().or(just("-")).repeated().to_slice())
+            .map(|(head, tail)| {
+                let mut ident = String::new();
+                ident.extend([head, tail]);
+                ident
+            });
+
         // alphanumeric item
-        let item = text::ident().map(ToString::to_string).map(Token::Item);
+        let item = ident.clone().map(Token::Item);
 
         // Lisp-style keyword
-        let kw = just(":")
-            .ignore_then(text::ident())
-            .map(ToString::to_string)
-            .map(Token::Keyword);
+        let kw = just(":").ignore_then(ident.clone()).map(Token::Keyword);
 
         // string literal
-        let string = any::<&'a str, extra::Full<Rich<'a, char>, (), ()>>()
+        let string = none_of::<_, &'a str, Extra<'a>>("\"")
             .repeated()
             .collect()
             .delimited_by(just('"'), just('"'))
@@ -589,14 +599,12 @@ impl Token {
 
 /// Creates a fact document.
 pub fn doc_fact(fact: &[Value]) -> Doc {
-    doc_indent_many(Doc::text("fact"), fact.iter().map(|fact| fact.to_doc()))
+    doc_indent(Doc::text("Fact"), fact.to_vec().to_doc())
 }
 
 /// Parses a fact.
 pub fn parse_fact<I: TokenInput>() -> impl SexpParser<I, Vec<Value>> {
-    Token::expect_item("fact")
-        .ignore_then(Value::parser().repeated().collect())
-        .delimited_by(just(Token::LParen), just(Token::RParen))
+    parse_list("Fact", Vec::parser())
 }
 
 /// Creates a paren-surrounded list with two children with smart indentation.
@@ -615,7 +623,7 @@ pub fn doc_indent_many(head: Doc, children: impl IntoIterator<Item = Doc>) -> Do
         head.append(
             Doc::line()
                 .append(Doc::intersperse(children, Doc::line()))
-                .nest(2)
+                .nest(4)
                 .group(),
         ),
     )
@@ -716,8 +724,7 @@ pub trait Sexp: Sized {
 
 impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
-        doc_list(Doc::text("set-of").append(Doc::line().append(vars).nest(4).group()))
+        doc_indent_many(Doc::text("set-of"), self.iter().map(|el| el.to_doc()))
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -727,8 +734,7 @@ impl<T: Ord + Sexp> Sexp for BTreeSet<T> {
 
 impl<T: Sexp> Sexp for Vec<T> {
     fn to_doc(&self) -> Doc {
-        let vars = Doc::intersperse(self.iter().map(|idx| idx.to_doc()), Doc::line());
-        doc_list(Doc::text("vec-of").append(Doc::line().append(vars).nest(4).group()))
+        doc_indent_many(Doc::text("vec-of"), self.iter().map(|el| el.to_doc()))
     }
 
     fn parser<I: TokenInput>() -> impl SexpParser<I, Self> {
@@ -775,6 +781,7 @@ impl<I> TokenInput for I where I: ValueInput<'static, Span = SimpleSpan, Token =
 pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>) -> T {
     use ariadne::{Color, Label, Report, ReportKind, Source};
     result.unwrap_or_else(|errs| {
+        let mut out = stderr().lock();
         for e in errs {
             Report::build(ReportKind::Error, ((), e.span().into_range()))
                 .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
@@ -785,9 +792,11 @@ pub fn parse_expect<T, E: Display>(source: &str, result: Result<T, Vec<Rich<E>>>
                         .with_color(Color::Red),
                 )
                 .finish()
-                .eprint(Source::from(&source))
+                .write(Source::from(&source), &mut out)
                 .unwrap();
         }
+
+        out.flush().unwrap();
 
         panic!("failed to lex:\n{source}");
     })

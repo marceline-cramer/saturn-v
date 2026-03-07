@@ -1,0 +1,24 @@
+(Relation
+    :name "Choice"
+    :stratum 0
+    :ty (Integer)
+    :kind (Decision)
+    :io (Output)
+    (Fact (vec-of (Integer 1)))
+    (Fact (vec-of (Integer 2)))
+    (Fact (vec-of (Integer 3)))
+    (Fact (vec-of (Integer 4)))
+    (Fact (vec-of (Integer 5)))
+    (Fact (vec-of (Integer 6)))
+    (Fact (vec-of (Integer 7)))
+    (Fact (vec-of (Integer 8)))
+    (Fact (vec-of (Integer 9)))
+    (Fact (vec-of (Integer 10))))
+(Constraint
+    :weight (Hard)
+    :kind (Cardinality (Only) 1)
+    :head (vec-of )
+    :body (RuleBody
+        :vars (vec-of (Integer))
+        :loaded (vec-of "Choice")
+        (FromQuery 0 (QueryVariable 0 (QueryNil)))))
