@@ -2,6 +2,7 @@
 
 ## v0.3.0
 
+- Lower MSRV to 1.90 to support OpenBSD 7.8 ([#124](https://github.com/marceline-cramer/saturn-v/pull/124))
 - The CLI `check` command now outputs the IR in S-expressions ([#134](https://github.com/marceline-cramer/saturn-v/pull/134))
 - Implement data-driven test harness for evaluation backend ([#134](https://github.com/marceline-cramer/saturn-v/pull/134))
 - Fix broken non-monotonic reasoning bug ([#134](https://github.com/marceline-cramer/saturn-v/pull/134))
