@@ -19,6 +19,9 @@ jobs:
         target:
           - nodejs
           - bundler
+        include:
+          - crate: sandbox
+            target: bundler
     steps:
     - uses: actions/checkout@v6
 
