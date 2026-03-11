@@ -3232,6 +3232,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "saturn-v-sandbox"
+version = "0.2.0"
+dependencies = [
+ "console_error_panic_hook",
+ "leptos",
+ "saturn-v-lsp",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "saturn-v-server"
 version = "0.2.0"
 dependencies = [

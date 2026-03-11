@@ -40,7 +40,7 @@ src := 'target/' + target + '/release/saturn-v' + binary_ext
 package_name := 'saturn-v-' + github_ref_name + package_postfix
 
 wasm crate target:
-    RUSTFLAGS="-C opt-level=z -C codegen-units=1 -C panic=abort" wasm-pack build crates/{{crate}} --release --target {{target}}
+    RUSTFLAGS="-C opt-level=z -C codegen-units=1 -C panic=abort" wasm-pack build crates/{{crate}} --release --target {{target}} --keep-going
     wasm-pack pack crates/{{crate}}
     mkdir -p pkg
     mv crates/{{crate}}/pkg/*.tgz pkg/{{crate}}-{{target}}.tgz

@@ -1,0 +1,21 @@
+[package]
+name = "saturn-v-sandbox"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+console_error_panic_hook.workspace = true
+leptos.workspace = true
+saturn-v-lsp.workspace = true
+wasm-bindgen.workspace = true
+
+[dependencies.web-sys]
+workspace = true
+features = ["Element"]
