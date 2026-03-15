@@ -27,10 +27,7 @@ use prehash::Passthru;
 use rand::RngCore;
 use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
 use rustsat::{
-    encodings::{
-        pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
-        CollectClauses,
-    },
+    encodings::CollectClauses,
     instances::{BasicVarManager, ManageVars},
     solvers::SolveIncremental,
     types::{Lit, Var},
@@ -56,6 +53,8 @@ where
     type Model = SatModel;
 
     fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
+        use rustsat::encodings::pb::*;
+
         // encode and collect all hard constraint assumptions
         let mut assumptions = Vec::with_capacity(opts.hard.len());
         for var in opts.hard.iter() {
@@ -371,7 +370,29 @@ impl PartialPbEncoder for SatModelInner {
     }
 
     fn at_most_one(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr {
-        todo!()
+        // select specific at-most-one encoding
+        use rustsat::encodings::am1::{Ladder as Encoding, *};
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len()).map(|var| Lit::positive(var as u32));
+
+        // encode the at-most-one constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            enc.encode(gate, vars).unwrap();
+        });
+
+        // force output to be true iff all clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
     }
 
     fn card_nontrivial(
@@ -380,7 +401,35 @@ impl PartialPbEncoder for SatModelInner {
         thresh: u32,
         terms: impl IntoIterator<Item = Self::Repr>,
     ) -> Self::Repr {
-        todo!()
+        // select specific cardinality constraint encoding
+        use rustsat::encodings::card::{Totalizer as Encoding, *};
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len()).map(|var| Lit::positive(var as u32));
+
+        // encode the cardinality constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            let thresh = thresh as usize;
+            match kind {
+                PbKind::Eq => enc.encode_both(thresh..=thresh, gate, vars),
+                PbKind::Le => enc.encode_ub(..=thresh, gate, vars),
+                PbKind::Ge => enc.encode_lb(thresh.., gate, vars),
+            }
+            .unwrap()
+        });
+
+        // output is true iff all encoded clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
     }
 
     fn pb_nontrivial(
@@ -389,7 +438,43 @@ impl PartialPbEncoder for SatModelInner {
         thresh: u32,
         terms: impl IntoIterator<Item = (Self::Repr, u32)>,
     ) -> Self::Repr {
-        todo!()
+        // select specific pseudo-Boolean constraint encoding
+        use rustsat::encodings::pb::{BinaryAdder as Encoding, *};
+
+        // unzip terms into literals and weights
+        let (terms, weights): (Vec<_>, Vec<_>) = terms
+            .into_iter()
+            .map(|(lit, weight)| (lit, weight as usize))
+            .unzip();
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len())
+            .map(|var| Lit::positive(var as u32))
+            .zip(weights);
+
+        // encode the cardinality constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            let thresh = thresh as usize;
+            match kind {
+                PbKind::Eq => enc.encode_both(thresh..=thresh, gate, vars),
+                PbKind::Le => enc.encode_ub(..=thresh, gate, vars),
+                PbKind::Ge => enc.encode_lb(thresh.., gate, vars),
+            }
+            .unwrap()
+        });
+
+        // output is true iff all encoded clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
     }
 }
 
@@ -479,7 +564,27 @@ pub struct Gate {
     pub clauses: SmallVec<[Clause; 3]>,
 }
 
+impl FromIterator<SatLit> for Gate {
+    fn from_iter<T: IntoIterator<Item = SatLit>>(iter: T) -> Self {
+        Self {
+            literals: iter.into_iter().collect(),
+            var_num: 0,
+            clauses: Default::default(),
+        }
+    }
+}
+
 impl Gate {
+    /// Invokes a callback to encode new clauses into this gate.
+    ///
+    /// Automatically handles adding of fresh variables.
+    pub fn encode_with(&mut self, mut cb: impl FnMut(&mut Self, &mut dyn ManageVars)) {
+        let next_var = self.literals.len() + self.var_num;
+        let mut vars = BasicVarManager::from_next_free(Var::new(next_var as u32));
+        cb(self, &mut vars);
+        self.var_num += vars.n_used() as usize - next_var;
+    }
+
     /// Uses Tseitin encoding to force the value of the output to be the
     /// conjunction of all current clauses.
     ///
@@ -541,6 +646,29 @@ impl Gate {
                 .map(|guard| term!(~guard))
                 .chain(Some(term!(output))),
         ));
+    }
+}
+
+impl CollectClauses for Gate {
+    fn n_clauses(&self) -> usize {
+        self.clauses.len()
+    }
+
+    fn extend_clauses<T: IntoIterator<Item = rustsat::types::Clause>>(
+        &mut self,
+        cl_iter: T,
+    ) -> Result<(), rustsat::OutOfMemory> {
+        for cl in cl_iter {
+            let cl = cl.into_iter().map(|lit| {
+                let variable = lit.var().idx32();
+                let polarity = lit.is_pos();
+                GateTerm::Literal { variable, polarity }
+            });
+
+            self.clauses.push(cl.collect());
+        }
+
+        Ok(())
     }
 }
 
