@@ -198,8 +198,13 @@ impl<S: SolveIncremental + CollectClauses> SatSolver<S> {
 
         // get each variable in the gate
         // will invoke this function recursively, so stack overflow is a possibility
-        let gate_vars: SmallVec<[Lit; 8]> =
+        let mut gate_vars: SmallVec<[Lit; 8]> =
             gate.literals.iter().map(|lit| self.get_lit(*lit)).collect();
+
+        // extend gate variables with fresh, intermediate variables
+        for _ in 0..gate.var_num {
+            gate_vars.push(self.var_mgr.new_lit());
+        }
 
         // create a closure to convert gate terms to instance literals
         let term_to_lit = |term: &GateTerm| match *term {
@@ -288,6 +293,14 @@ impl SatModelInner {
     pub fn add_var(&self) -> u64 {
         self.var_rng.lock().next_u64()
     }
+
+    /// Creates multiple unbound variable identifiers.
+    pub fn add_vars(&self, num: usize, with_var: impl FnMut(u64)) {
+        if num > 0 {
+            let mut rng = self.var_rng.lock();
+            (0..num).map(|_| rng.next_u64()).for_each(with_var);
+        }
+    }
 }
 
 /// A macro for easily instantiating a [GateTerm].
@@ -344,7 +357,11 @@ impl PartialPbEncoder for SatModelInner {
         clauses.push(force_true);
 
         // create gate for entire constraint
-        let gate = Gate { literals, clauses };
+        let gate = Gate {
+            var_num: 0,
+            literals,
+            clauses,
+        };
 
         // return output of encoded gate
         SatLit {
@@ -431,6 +448,7 @@ impl PartialEncoder<bool> for SatModelInner {
         // create the gate encoding
         let gate = Gate {
             literals: smallvec![lhs, rhs],
+            var_num: 0,
             clauses,
         };
 
@@ -452,10 +470,78 @@ pub struct Gate {
     /// A mapping from gate term variable indices to [SatLit].
     pub literals: SmallVec<[SatLit; 2]>,
 
+    /// The number of intermediate variables used in this gate.
+    pub var_num: usize,
+
     /// The list of clauses in the gate.
     ///
     /// Optimized for data locality (hash-consing + encoding). AND and OR gates are three clauses each.
     pub clauses: SmallVec<[Clause; 3]>,
+}
+
+impl Gate {
+    /// Uses Tseitin encoding to force the value of the output to be the
+    /// conjunction of all current clauses.
+    ///
+    /// Oftentimes, CNF encoding algorithms will only generate hard constraints
+    /// as the sets of clauses enforcing this algorithm. To make the result
+    /// variable, the clauses must be reinterpreted into OR gates and the output
+    /// must be constrained as the result of the AND of those clauses.
+    ///
+    /// Although you could still use a simple guard literal in each clause to
+    /// check whether all clauses are satisfied, that approach does not do the
+    /// inverse of forcing the guard literal to false if any clause is false.
+    pub fn encode_iff(&mut self) {
+        // save original clause count
+        let original_clause_num = self.clauses.len();
+
+        // save the base index for clause guards
+        let guard_offset = self.var_num;
+
+        // allocate fresh guard variables for each clause
+        self.var_num += original_clause_num;
+
+        // grow the clause buffer to accommodate added clauses
+        let term_num: usize = self.clauses.iter().map(|cl| cl.len()).sum();
+        self.clauses.grow(original_clause_num * 2 + term_num + 1);
+
+        // iterate over each current clause's index
+        for idx in 0..self.clauses.len() {
+            // calculate the variable index of this clause's guard
+            let guard = (idx + guard_offset) as u32;
+
+            // output -> guard
+            self.clauses.push(smallvec!(term!(~output), term!(guard)));
+
+            // get the clause at this position
+            let clause = &mut self.clauses[idx];
+
+            // assert that the clause doesn't contain output literals
+            debug_assert!(!clause
+                .iter()
+                .any(|term| matches!(term, GateTerm::Output { .. })));
+
+            // make backup for adding new clauses before modifying
+            let original_clause = clause.clone();
+
+            // !clause -> !guard
+            clause.push(term!(~guard));
+
+            // create negative guard clauses for each term in original clause
+            for term in original_clause {
+                // term -> guard
+                self.clauses.push(smallvec!(!term, term!(guard)));
+            }
+        }
+
+        // !output -> !guards
+        self.clauses.push(FromIterator::from_iter(
+            (0..original_clause_num)
+                .map(|idx| (idx + guard_offset) as u32)
+                .map(|guard| term!(~guard))
+                .chain(Some(term!(output))),
+        ));
+    }
 }
 
 /// A singular clause in a [Gate].
@@ -470,6 +556,9 @@ pub enum GateTerm {
     /// A literal, indexed by the gate's literal table.
     Literal {
         /// The variable's index in the gate table.
+        ///
+        /// If this exceeds the length of the `literals` field, this overflows
+        /// into specifying variables in the `var_num` field.
         variable: u32,
 
         /// This literal's polarity.
