@@ -18,10 +18,7 @@ use std::{
     collections::hash_map,
     hash::{BuildHasherDefault, DefaultHasher, Hash, Hasher},
     ops::Not,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
 
 use dashmap::DashMap;
@@ -356,6 +353,10 @@ impl PartialPbEncoder for SatModelInner {
         }
     }
 
+    fn at_most_one(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr {
+        todo!()
+    }
+
     fn card_nontrivial(
         &self,
         kind: PbKind,
@@ -412,7 +413,7 @@ impl PartialEncoder<bool> for SatModelInner {
         op: <bool as Ops>::BinaryOp,
         lhs: Self::Repr,
         rhs: Self::Repr,
-    ) -> PartialValue<bool, Self::Repr> {
+    ) -> Self::Repr {
         // choose Tseitin encoding depending on operation
         let clauses = match op {
             BoolBinaryOp::And => smallvec![
@@ -434,10 +435,10 @@ impl PartialEncoder<bool> for SatModelInner {
         };
 
         // return the gate's output as a literal
-        PartialValue::Variable(SatLit {
+        SatLit {
             variable: self.add_gate(gate),
             polarity: true,
-        })
+        }
     }
 }
 

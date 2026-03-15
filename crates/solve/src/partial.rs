@@ -55,6 +55,8 @@ impl<E: PartialPbEncoder> PbEncoder for E {
         use PbKind::*;
 
         // remove sign from weights
+        // TODO: support negative thresholds
+        // TODO: TDD
         let terms = terms.iter().map(|(value, weight)| {
             let weight: u32 = (*weight).try_into().expect("weights must be non-negative");
             (value.to_owned(), weight)
@@ -107,23 +109,47 @@ impl<E: PartialPbEncoder> PbEncoder for E {
         // select best fine-grained encoding based on constant lower bound
         match kind {
             // if bounds have exceeded range of constraint, return const false
-            Eq | Le if lb > thresh => return Const(false),
-            Eq | Ge if ub < thresh => return Const(false),
+            // TODO: TDD
+            Eq | Le if lb > thresh => Const(false),
+            Eq | Ge if ub < thresh => Const(false),
 
             // if bounds are always within range, return const true
-            Ge if lb >= thresh => return Const(true),
-            Le if ub <= thresh => return Const(true),
+            // TODO: TDD
+            Ge if lb >= thresh => Const(true),
+            Le if ub <= thresh => Const(true),
 
             // if only extrema of bounds are within range, constrain all variables
+            // TODO: TDD
             Eq | Ge if ub == thresh => Variable(self.none_of(not_vars)),
             Eq | Le if lb == thresh => Variable(self.none_of(vars)),
+
+            // trivial at-most-one constraints
+            // TODO: TDD
+            Le if is_card && ub == thresh + 1 => Variable(self.at_most_one(vars)),
+            Ge if is_card && lb == thresh - 1 => Variable(self.at_most_one(not_vars)),
+
+            // exactly-one constraint
+            // TODO: TDD
+            Eq if is_card && ub == thresh + 1 => Variable(self.binary_op_variable(
+                BoolBinaryOp::And,
+                self.at_most_one(vars.clone()),
+                self.unary_op_variable(BoolUnaryOp::Not, self.none_of(vars)),
+            )),
+
+            // all-but-one constraint
+            // TODO: TDD
+            Eq if is_card && lb == thresh - 1 => Variable(self.binary_op_variable(
+                BoolBinaryOp::And,
+                self.at_most_one(not_vars.clone()),
+                self.unary_op_variable(BoolUnaryOp::Not, self.none_of(not_vars)),
+            )),
 
             // encode non-trivial constraints
             _ => {
                 if is_card {
-                    Variable(self.card_nontrivial(kind, (thresh - lb).try_into().unwrap(), vars))
+                    Variable(self.card_nontrivial(kind, thresh - lb, vars))
                 } else {
-                    Variable(self.pb_nontrivial(kind, (thresh - lb).try_into().unwrap(), var_terms))
+                    Variable(self.pb_nontrivial(kind, thresh - lb, var_terms))
                 }
             }
         }
@@ -134,6 +160,9 @@ impl<E: PartialPbEncoder> PbEncoder for E {
 pub trait PartialPbEncoder: PartialEncoder<bool> {
     /// Encodes a Boolean "nor" operation of arbitrary arity.
     fn none_of(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr;
+
+    /// Encodes an at-most-one constraint.
+    fn at_most_one(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr;
 
     /// Encodes a non-trivial cardinality constraint.
     fn card_nontrivial(
@@ -183,7 +212,7 @@ impl<E: PartialEncoder<bool>> Encoder<bool> for E {
     fn binary_op(&self, op: BoolBinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
         use PartialValue::*;
         match (lhs, rhs) {
-            (Variable(lhs), Variable(rhs)) => self.binary_op_variable(op, lhs, rhs),
+            (Variable(lhs), Variable(rhs)) => Variable(self.binary_op_variable(op, lhs, rhs)),
             (Variable(lhs), Const(rhs)) | (Const(rhs), Variable(lhs)) => {
                 self.binary_op_const(op, lhs, rhs)
             }
@@ -215,10 +244,5 @@ pub trait PartialEncoder<T: Ops> {
     ) -> PartialValue<T, Self::Repr>;
 
     /// Evaluates a binary operation of a variable against another variable.
-    fn binary_op_variable(
-        &self,
-        op: T::BinaryOp,
-        lhs: Self::Repr,
-        rhs: Self::Repr,
-    ) -> PartialValue<T, Self::Repr>;
+    fn binary_op_variable(&self, op: T::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr;
 }
