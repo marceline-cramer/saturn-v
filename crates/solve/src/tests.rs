@@ -131,33 +131,6 @@ fn test_minimize_either_or<S: Solver + Default>() {
     );
 }
 
-macro_rules! tests_with_solver {
-    ($solver:ty, ) => {};
-    ($solver:ty, $head:ident $($rest:ident)*) => {
-        #[::tracing_test::traced_test]
-        #[test]
-        fn $head() {
-            super::$head::<$solver>();
-        }
-
-        tests_with_solver!($solver, $($rest)*);
-    };
-}
-
-macro_rules! tests_all_solvers {
-    ($($tests:ident)*) => {
-        #[cfg(feature = "sat")]
-        pub mod sat {
-            tests_with_solver!(crate::sat::SatSolver<rustsat_cadical::CaDiCaL>, $($tests)*);
-        }
-
-        #[cfg(feature = "z3")]
-        pub mod z3 {
-            tests_with_solver!(crate::z3::Z3Solver, $($tests)*);
-        }
-    }
-}
-
 fn test_card_eq<S: Solver + Default>() {
     let mut solver = S::default();
     let model = solver.as_model();
@@ -236,10 +209,37 @@ fn test_card_ge<S: Solver + Default>() {
         assert_eq!(bool_values.len(), 2);
 
         // weighted sum >= 2
-        let sum = (bool_values[0] as i32) * 1 + (bool_values[1] as i32) * 2;
+        let sum = bool_values[0] as i32 + (bool_values[1] as i32) * 2;
         assert!(sum >= 2);
     } else {
         panic!("expected sat");
+    }
+}
+
+macro_rules! tests_with_solver {
+    ($solver:ty, ) => {};
+    ($solver:ty, $head:ident $($rest:ident)*) => {
+        #[::tracing_test::traced_test]
+        #[test]
+        fn $head() {
+            super::$head::<$solver>();
+        }
+
+        tests_with_solver!($solver, $($rest)*);
+    };
+}
+
+macro_rules! tests_all_solvers {
+    ($($tests:ident)*) => {
+        #[cfg(feature = "sat")]
+        pub mod sat {
+            tests_with_solver!(crate::sat::SatSolver<rustsat_cadical::CaDiCaL>, $($tests)*);
+        }
+
+        #[cfg(feature = "z3")]
+        pub mod z3 {
+            tests_with_solver!(crate::z3::Z3Solver, $($tests)*);
+        }
     }
 }
 
