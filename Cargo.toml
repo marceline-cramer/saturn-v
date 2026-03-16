@@ -17,6 +17,7 @@ ariadne = { version = "0.5", features = ["auto-color"] }
 anyhow = "1"
 chumsky = "0.12"
 console_error_panic_hook = "0.1"
+dashmap = "6.1"
 datatest-stable = "0.3"
 differential-dataflow = "0.18"
 either = "1.15"

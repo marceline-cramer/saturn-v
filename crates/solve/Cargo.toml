@@ -7,7 +7,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-dashmap = "6.1"
+dashmap.workspace = true
 parking_lot.workspace = true
 prehash = "1.0.0"
 smallvec.workspace = true

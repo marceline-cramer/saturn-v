@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+dashmap.workspace = true
 derive-where = "1.6"
 differential-dataflow.workspace = true
 flume.workspace = true

@@ -3303,6 +3303,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chumsky",
+ "dashmap 6.1.0",
  "datatest-stable",
  "derive-where",
  "differential-dataflow",

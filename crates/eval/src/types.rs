@@ -21,7 +21,7 @@ use saturn_v_ir::{
     ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationIO, RelationKind, StructuredType,
     Value,
 };
-use saturn_v_solve::{Bool, Model};
+use saturn_v_solve::{Bool, DataflowModel};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Key;
@@ -40,23 +40,23 @@ impl Fact {
 
 /// Constrains a group of constraint conditions.
 #[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ConstraintGroup<M: Model> {
+pub struct ConstraintGroup<M: DataflowModel> {
     pub terms: Vec<Bool<M>>,
     pub weight: ConstraintWeight,
     pub kind: ConstraintKind,
 }
 
-impl<M: Model> PanicSerde for ConstraintGroup<M> {}
+impl<M: DataflowModel> PanicSerde for ConstraintGroup<M> {}
 
-#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Tuple<M: Model> {
+#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Tuple<M: DataflowModel> {
     pub values: FixedValues,
     pub condition: Bool<M>,
 }
 
-impl<M: Model> PanicSerde for Tuple<M> {}
+impl<M: DataflowModel> PanicSerde for Tuple<M> {}
 
-impl<M: Model> Clone for Tuple<M> {
+impl<M: DataflowModel> Clone for Tuple<M> {
     fn clone(&self) -> Self {
         Self {
             values: self.values.clone(),
@@ -331,20 +331,6 @@ impl Relation {
         matches!(self.io, RelationIO::Output)
     }
 }
-
-#[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ConditionalLink<M: Model> {
-    /// The conditional is unconditionally true.
-    Unconditional,
-
-    /// The conditional is unbound by any conditions.
-    Free,
-
-    /// The condiitonal is linked to a condition.
-    Link(Bool<M>),
-}
-
-impl<M: Model> PanicSerde for ConditionalLink<M> {}
 
 /// A trait to blanket-impl stub serde traits.
 ///
