@@ -222,6 +222,36 @@ impl<E: PartialEncoder<bool>> Encoder<bool> for E {
             }),
         }
     }
+
+    fn aggregate_op(
+        &self,
+        op: BoolAggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        use PartialValue::*;
+
+        // filter out variable values
+        let mut vars = Vec::new();
+        for term in terms {
+            match (term, &op) {
+                (Const(false), BoolAggregateOp::And) => return Const(false),
+                (Const(true), BoolAggregateOp::Or) => return Const(true),
+                (Variable(var), _) => vars.push(var),
+                _ => {}
+            }
+        }
+
+        // short-circuit on zero-arity aggregates
+        if vars.is_empty() {
+            match op {
+                BoolAggregateOp::And => return Const(true),
+                BoolAggregateOp::Or => return Const(false),
+            }
+        }
+
+        // evaluate variables
+        Variable(self.aggregate_op_variable(op, vars))
+    }
 }
 
 /// An encoder that relies on partial evaluation for constant values.
@@ -248,4 +278,11 @@ pub trait PartialEncoder<T: Ops> {
 
     /// Evaluates a binary operation of a variable against another variable.
     fn binary_op_variable(&self, op: T::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr;
+
+    /// Evaluates an aggregate operation on only variables.
+    fn aggregate_op_variable(
+        &self,
+        op: T::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr;
 }

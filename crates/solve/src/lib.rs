@@ -151,6 +151,13 @@ pub trait Encoder<T: Ops> {
 
     /// Encodes a binary operation on two values.
     fn binary_op(&self, op: T::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr;
+
+    /// Encodes an aggregate opreation on any number of values.
+    fn aggregate_op(
+        &self,
+        op: T::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr;
 }
 
 impl<T: Ops, E: Encoder<T>> Encoder<T> for Arc<E> {
@@ -175,6 +182,14 @@ impl<T: Ops, E: Encoder<T>> Encoder<T> for Arc<E> {
     fn binary_op(&self, op: <T as Ops>::BinaryOp, lhs: Self::Repr, rhs: Self::Repr) -> Self::Repr {
         self.as_ref().binary_op(op, lhs, rhs)
     }
+
+    fn aggregate_op(
+        &self,
+        op: <T as Ops>::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        self.as_ref().aggregate_op(op, terms)
+    }
 }
 
 /// Defines associated operation kinds on a type.
@@ -184,11 +199,15 @@ pub trait Ops {
 
     /// The type of binary operations on this value.
     type BinaryOp;
+
+    /// The type of aggregate operations on this value.
+    type AggregateOp;
 }
 
 impl Ops for bool {
     type BinaryOp = BoolBinaryOp;
     type UnaryOp = BoolUnaryOp;
+    type AggregateOp = BoolAggregateOp;
 }
 
 /// Binary operations that can be performed on a Boolean value.
@@ -200,4 +219,10 @@ pub enum BoolBinaryOp {
 /// Unary operations that can be performed on a Boolean value.
 pub enum BoolUnaryOp {
     Not,
+}
+
+/// Aggregate operators on Boolean values.
+pub enum BoolAggregateOp {
+    And,
+    Or,
 }

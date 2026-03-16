@@ -548,6 +548,49 @@ impl PartialEncoder<bool> for SatModelInner {
             polarity: true,
         }
     }
+
+    // TODO: TDD
+    fn aggregate_op_variable(
+        &self,
+        op: <bool as Ops>::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        // create gate with all terms loaded
+        let mut gate = Gate::from_iter(terms);
+
+        // the polarity of the output literal depends on the operation
+        let output = match op {
+            BoolAggregateOp::And => term!(output),
+            BoolAggregateOp::Or => term!(~output),
+        };
+
+        // create aggregate clause implication
+        let mut agg_clause = smallvec!(output);
+
+        // create clauses for each input literal
+        for idx in 0..(gate.literals.len() as u32) {
+            // polarities of gate input depend on operation
+            let input = match op {
+                BoolAggregateOp::And => term!(idx),
+                BoolAggregateOp::Or => term!(~idx),
+            };
+
+            // add short-circuit implication clause for this input
+            gate.clauses.push(smallvec!(input, !output));
+
+            // add literal to the aggregate clause
+            agg_clause.push(!input);
+        }
+
+        // add aggregate clause to gate
+        gate.clauses.push(agg_clause);
+
+        // return the gate's output as a literal
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
 }
 
 /// A logical gate, which encodes CNF clauses to constrain values.

@@ -130,4 +130,16 @@ impl Encoder<bool> for Z3Model {
             BoolBinaryOp::Or => ast::Bool::or(&[lhs, rhs]),
         }
     }
+
+    fn aggregate_op(
+        &self,
+        op: <bool as Ops>::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        let terms: Vec<_> = terms.into_iter().collect();
+        match op {
+            BoolAggregateOp::And => ast::Bool::and(&terms),
+            BoolAggregateOp::Or => ast::Bool::or(&terms),
+        }
+    }
 }
