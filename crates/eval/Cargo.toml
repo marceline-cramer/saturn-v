@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+derive-where = "1.6"
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
@@ -15,6 +16,7 @@ indexmap.workspace = true
 rustsat.workspace = true
 rustsat-cadical.workspace = true
 saturn-v-ir.workspace = true
+saturn-v-solve.workspace = true
 serde.workspace = true
 tinyvec = { workspace = true, features = ["serde"] }
 timely.workspace = true

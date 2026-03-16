@@ -16,10 +16,12 @@
 
 use std::sync::Arc;
 
+use derive_where::derive_where;
 use saturn_v_ir::{
     ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationIO, RelationKind, StructuredType,
     Value,
 };
+use saturn_v_solve::{Bool, Model};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Key;
@@ -36,32 +38,31 @@ impl Fact {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Gate {
-    And { lhs: Condition, rhs: Condition },
-    Or { terms: Vec<Condition> },
-    Decision { terms: Vec<Condition> },
-}
-
 /// Constrains a group of constraint conditions.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct ConstraintGroup {
-    pub terms: Vec<Condition>,
+#[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ConstraintGroup<M: Model> {
+    pub terms: Vec<Bool<M>>,
     pub weight: ConstraintWeight,
     pub kind: ConstraintKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct Tuple {
+impl<M: Model> PanicSerde for ConstraintGroup<M> {}
+
+#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Tuple<M: Model> {
     pub values: FixedValues,
-    pub condition: Option<Condition>,
+    pub condition: Bool<M>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Condition {
-    Gate(Key<Gate>),
-    Fact(Key<Fact>),
-    NotFact(Key<Fact>),
+impl<M: Model> PanicSerde for Tuple<M> {}
+
+impl<M: Model> Clone for Tuple<M> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            condition: self.condition.clone(),
+        }
+    }
 }
 
 pub type IndexList = Arc<[usize]>;
@@ -331,8 +332,8 @@ impl Relation {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum ConditionalLink {
+#[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ConditionalLink<M: Model> {
     /// The conditional is unconditionally true.
     Unconditional,
 
@@ -340,5 +341,38 @@ pub enum ConditionalLink {
     Free,
 
     /// The condiitonal is linked to a condition.
-    Link(Condition),
+    Link(Bool<M>),
+}
+
+impl<M: Model> PanicSerde for ConditionalLink<M> {}
+
+/// A trait to blanket-impl stub serde traits.
+///
+/// Serde isn't used on a single, non-clustering Differential Dataflow run but
+/// is still required in DD's trait bounds, so we use a panicking
+/// implementation instead of figuring out how to idiomatically exchange
+/// encoded logic.
+pub trait PanicSerde {}
+
+impl<T: PanicSerde> Serialize for T {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        unreachable!(
+            "serialization is not implemented for {}",
+            std::any::type_name::<T>()
+        );
+    }
+}
+impl<'de, T: PanicSerde> Deserialize<'de> for T {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        unreachable!(
+            "deserialization is not implemented for {}",
+            std::any::type_name::<T>()
+        );
+    }
 }

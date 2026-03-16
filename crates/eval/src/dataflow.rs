@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 
+use derive_where::derive_where;
 use differential_dataflow::{
     input::Input,
     lattice::Lattice,
@@ -28,6 +29,7 @@ use differential_dataflow::{
     Data, ExchangeData, VecCollection,
 };
 use saturn_v_ir::*;
+use saturn_v_solve::{Bool, BoolBinaryOp, Model};
 use serde::{Deserialize, Serialize};
 use timely::{
     communication::Allocator,
@@ -40,14 +42,15 @@ use tracing::{event, Level};
 
 use crate::{
     types::{
-        get_load_mask, Condition, ConditionalLink, ConstraintGroup, Fact, FixedValues, Gate,
-        LoadHead, LoadMask, Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
+        get_load_mask, ConditionalLink, ConstraintGroup, Fact, FixedValues, LoadHead, LoadMask,
+        Node, NodeInput, NodeOutput, NodeSource, PanicSerde, Relation, Tuple, Values,
     },
     utils::*,
     DataflowRouters, InputEventKind,
 };
 
-pub fn backend(
+pub fn backend<M: Model>(
+    model: Arc<M>,
     worker: &mut Worker<Allocator>,
     routers: &DataflowRouters,
 ) -> (impl PumpInput, impl PumpOutput) {
@@ -58,6 +61,7 @@ pub fn backend(
 
         // build complete input
         let input = StratumInput {
+            model,
             relations: events_in.flat_map(InputEventKind::relation),
             facts: events_in.flat_map(InputEventKind::fact),
             nodes: events_in.flat_map(InputEventKind::node),
@@ -144,7 +148,10 @@ pub fn backend(
 }
 
 /// The inputs to the core per-stratum dataflow computation.
-pub struct StratumInput<G: Scope> {
+pub struct StratumInput<G: Scope, M: Model> {
+    /// The model that encodes new symbolic logic expressions.
+    pub model: Arc<M>,
+
     /// All nodes in the dataflow at this stratum.
     pub nodes: VecCollection<G, Node>,
 
@@ -155,16 +162,17 @@ pub struct StratumInput<G: Scope> {
     pub facts: VecCollection<G, Fact>,
 
     /// The current collection of tuples in each node.
-    pub tuples: VecCollection<G, (Key<Node>, Tuple)>,
+    pub tuples: VecCollection<G, (Key<Node>, Tuple<M>)>,
 }
 
-impl<G: Scope + ScopeParent> StratumInput<G> {
+impl<M: Model, G: Scope + ScopeParent> StratumInput<G, M> {
     /// Enters this input into a child scope.
     pub fn enter<'a, T: Refines<G::Timestamp>>(
         &self,
         scope: &mut Child<'a, G, T>,
-    ) -> StratumInput<Child<'a, G, T>> {
+    ) -> StratumInput<Child<'a, G, T>, M> {
         StratumInput {
+            model: self.model.clone(),
             nodes: self.nodes.enter(scope),
             relations: self.relations.enter(scope),
             facts: self.facts.enter(scope),
@@ -174,45 +182,41 @@ impl<G: Scope + ScopeParent> StratumInput<G> {
 }
 
 /// The results of the core dataflow computation, per-stratum.
-pub struct StratumOutput<G: Scope> {
+pub struct StratumOutput<G: Scope, M: Model> {
     /// Facts added to the dataflow.
     ///
     /// Note that facts may be conditional, so membership in this collection does not imply truthity.
     pub facts: VecCollection<G, Fact>,
 
     /// Conditional fact implications.
-    pub implies: VecCollection<G, ((Key<Fact>, bool), Option<Condition>)>,
+    pub implies: VecCollection<G, ((Key<Fact>, bool), Bool<M>)>,
 
     /// New tuples computed in this stratum.
-    pub tuples: VecCollection<G, (Key<Node>, Tuple)>,
-
-    /// All gates built as a result of evaluating this stratum.
-    pub gates: VecCollection<G, Gate>,
+    pub tuples: VecCollection<G, (Key<Node>, Tuple<M>)>,
 
     /// New antijoin tuples: tuples who may be refuted by the presence of facts.
-    pub antijoins: VecCollection<G, (Fact, (Key<Node>, Tuple))>,
+    pub antijoins: VecCollection<G, (Fact, (Key<Node>, Tuple<M>))>,
 
     /// Constraint groups and their entries.
-    pub constraints: VecCollection<G, ((Key<Node>, FixedValues), Option<Condition>)>,
+    pub constraints: VecCollection<G, ((Key<Node>, FixedValues), Bool<M>)>,
 }
 
-impl<'a, G: Scope, T: Refines<G::Timestamp>> StratumOutput<Child<'a, G, T>> {
+impl<'a, G: Scope, M: Model, T: Refines<G::Timestamp>> StratumOutput<Child<'a, G, T>, M> {
     /// Leaves this child scope.
-    pub fn leave(self) -> StratumOutput<G> {
+    pub fn leave(self) -> StratumOutput<G, M> {
         StratumOutput {
             facts: self.facts.leave(),
             implies: self.implies.leave(),
             tuples: self.tuples.leave(),
-            gates: self.gates.leave(),
             antijoins: self.antijoins.leave(),
             constraints: self.constraints.leave(),
         }
     }
 }
 
-impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
+impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: Model> StratumOutput<G, M> {
     /// Evaluates stratified input, using alternating fixedpoints per-stratum.
-    pub fn evaluate_stratified(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_stratified(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input into this scope
             let input = StratumInput {
@@ -226,7 +230,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Evaluates to fixedpoint using alternating fixedpoints with negation as failure.
-    pub fn evaluate_naf(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_naf(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input into this scope
             let mut input = input.enter(scope);
@@ -248,12 +252,11 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             let antijoins = antijoins.set(&output.antijoins);
 
             // antijoin against this stratum's facts
-            let (antijoin_gates, antijoin_tuples) =
-                antijoin(&antijoins, &output.facts, &input.relations);
+            let antijoin_tuples =
+                antijoin(&input.model, &antijoins, &output.facts, &input.relations);
 
-            // pass permitted values
+            // pass permitted tuples
             output.tuples = tuples.set_concat(&antijoin_tuples);
-            output.gates = output.gates.concat(&antijoin_gates);
 
             // return outputs of all extended collections
             output.leave()
@@ -261,7 +264,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Evaluates a single stratum to fixed-point using positive semi-naive evaluation.
-    pub fn evaluate_stratum(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_stratum(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input to this iteration
             let mut input = input.enter(scope);
@@ -288,7 +291,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Calculates a single iteration of positive semi-naive inference.
-    pub fn evaluate_once(input: &StratumInput<G>) -> Self {
+    pub fn evaluate_once(input: &StratumInput<G, M>) -> Self {
         // arrange all inputs
         let tuples_arranged = input.tuples.arrange_by_key();
         let facts_arranged = input.facts.map(Fact::relation_pair).arrange_by_key();
@@ -370,7 +373,6 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
 
         // return outputs
         Self {
-            gates: join_gates,
             implies,
             facts: stored.map(key),
             tuples: node_results.flat_map(NodeResult::node),
@@ -385,21 +387,21 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             facts: self.facts.inspect(inspect("fact")),
             implies: self.implies.inspect(inspect("imply")),
             tuples: self.tuples.inspect(inspect("tuple")),
-            gates: self.gates.inspect(inspect("gate")),
             antijoins: self.antijoins.inspect(inspect("antijoin")),
             constraints: self.constraints.inspect(inspect("constraint")),
         }
     }
 }
 
-pub fn load_source<G, T, O, TupleTr, LoadMaskTr, RelationTr>(
+pub fn load_source<M, G, T, O, TupleTr, LoadMaskTr, RelationTr>(
     tuples: &Arranged<G, TupleTr>,
     load_mask: &Arranged<G, LoadMaskTr>,
     relations: &Arranged<G, RelationTr>,
-    map: fn(&T, Tuple) -> O,
+    map: fn(&T, Tuple<M>) -> O,
     source: &VecCollection<G, (NodeSource, T)>,
 ) -> VecCollection<G, O>
 where
+    M: Model,
     G: Scope,
     G::Timestamp: Lattice,
     T: ExchangeData,
@@ -407,7 +409,7 @@ where
     TupleTr: Clone
         + for<'a> TraceReader<
             Key<'a> = &'a Key<Node>,
-            Val<'a> = &'a Tuple,
+            Val<'a> = &'a Tuple<M>,
             Diff = Diff,
             Time = G::Timestamp,
         > + 'static,
@@ -451,7 +453,10 @@ where
     node.concat(&relation)
 }
 
-pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>, Values), Tuple) {
+pub fn join_slice<M: Model>(
+    (dst, num): &(Key<Node>, usize),
+    tuple: Tuple<M>,
+) -> ((Key<Node>, Values), Tuple<M>) {
     let num = *num;
     let prefix = tuple.values[..num].into();
     (
@@ -463,11 +468,12 @@ pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>,
     )
 }
 
-pub fn join(
+pub fn join<M: Model>(
+    model: &M,
     (dst, prefix): &(Key<Node>, Values),
-    lhs: &Tuple,
-    rhs: &Tuple,
-) -> ((Key<Node>, Tuple), Option<Gate>) {
+    lhs: &Tuple<M>,
+    rhs: &Tuple<M>,
+) -> (Key<Node>, Tuple<M>) {
     let values: FixedValues = prefix
         .iter()
         .chain(lhs.values.iter())
@@ -475,18 +481,15 @@ pub fn join(
         .cloned()
         .collect();
 
-    let (condition, gate) = match (lhs.condition, rhs.condition) {
-        (None, None) => (None, None),
-        (Some(lhs), None) => (Some(lhs), None),
-        (None, Some(rhs)) => (Some(rhs), None),
-        (Some(lhs), Some(rhs)) => {
-            let (key, gate) = Key::pair(Gate::And { lhs, rhs });
-            (Some(Condition::Gate(key)), Some(gate))
-        }
-    };
+    let condition = model.binary_op(
+        BoolBinaryOp::And,
+        lhs.condition.clone(),
+        rhs.condition.clone(),
+    );
 
     let tuple = Tuple { values, condition };
-    ((*dst, tuple), gate)
+
+    (*dst, tuple)
 }
 
 pub fn load_mask(
@@ -542,13 +545,15 @@ pub fn base_conditional(
     Some((Key::new(fact), is_decision))
 }
 
-pub fn conditional_gate(
+pub fn conditional_gate<M: Model>(
+    model: &M,
     (_fact, is_decision): &(Key<Fact>, bool),
-    input: &[(&Option<Condition>, Diff)],
-    output: &mut Vec<(Option<Gate>, Diff)>,
+    input: &[(&Bool<M>, Diff)],
+    output: &mut Vec<(Bool<M>, Diff)>,
 ) {
+    // this function should be trashed in favor of Boolean aggregates
     let terms = if input.iter().any(|(cond, _diff)| cond.is_none()) {
-        output.push((None, 1));
+        output.push((model.from_const(true), 1));
         return;
     } else {
         input
@@ -575,7 +580,11 @@ pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, 
     }
 }
 
-pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeResult> {
+pub fn node_logic<M: Model>(
+    dst: &Key<Node>,
+    tuple: &Tuple<M>,
+    node: &Node,
+) -> Option<NodeResult<M>> {
     let mut values: Vec<_> = tuple.values.iter().cloned().collect();
     values.reserve(node.push.len());
 
@@ -650,19 +659,21 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
     };
 
     Some(NodeResult {
-        cond: tuple.condition,
+        cond: tuple.condition.clone(),
         kind,
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
-pub struct NodeResult {
-    pub cond: Option<Condition>,
+#[derive_where(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeResult<M: Model> {
+    pub cond: Bool<M>,
     pub kind: NodeResultKind,
 }
 
-impl NodeResult {
-    pub fn node(self) -> Option<(Key<Node>, Tuple)> {
+impl<M: Model> PanicSerde for NodeResult<M> {}
+
+impl<M: Model> NodeResult<M> {
+    pub fn node(self) -> Option<(Key<Node>, Tuple<M>)> {
         match self.kind {
             NodeResultKind::Node { dst, values } => {
                 let condition = self.cond;
@@ -673,7 +684,7 @@ impl NodeResult {
         }
     }
 
-    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple))> {
+    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple<M>))> {
         match self.kind {
             NodeResultKind::Antijoin {
                 dst,
@@ -688,14 +699,14 @@ impl NodeResult {
         }
     }
 
-    pub fn store(self) -> Option<(Fact, (Option<bool>, Option<Condition>))> {
+    pub fn store(self) -> Option<(Fact, (Option<bool>, Bool<M>))> {
         match self.kind {
             NodeResultKind::Store { fact, kind } => Some((fact, (kind, self.cond))),
             _ => None,
         }
     }
 
-    pub fn constraint(self) -> Option<((Key<Node>, FixedValues), Option<Condition>)> {
+    pub fn constraint(self) -> Option<((Key<Node>, FixedValues), Bool<M>)> {
         match self.kind {
             NodeResultKind::Constraint { dst, head } => Some(((dst, head), self.cond)),
             _ => None,
@@ -802,11 +813,11 @@ pub fn constraint_reduce(
 }
 
 #[allow(clippy::ptr_arg)]
-pub fn constraint_clause(
+pub fn constraint_clause<M: Model>(
     _dst: &Key<Node>,
-    terms: &Vec<Condition>,
+    terms: &Vec<Bool<M>>,
     (weight, kind): &(ConstraintWeight, ConstraintKind),
-) -> Option<ConstraintGroup> {
+) -> Option<ConstraintGroup<M>> {
     Some(ConstraintGroup {
         terms: terms.clone(),
         weight: *weight,
@@ -814,13 +825,15 @@ pub fn constraint_clause(
     })
 }
 
-pub fn antijoin<G>(
-    antijoins: &VecCollection<G, (Fact, (Key<Node>, Tuple))>,
+pub fn antijoin<G, M>(
+    model: &M,
+    antijoins: &VecCollection<G, (Fact, (Key<Node>, Tuple<M>))>,
     facts: &VecCollection<G, Fact>,
     relations: &VecCollection<G, Relation>,
-) -> (VecCollection<G, Gate>, VecCollection<G, (Key<Node>, Tuple)>)
+) -> VecCollection<G, (Key<Node>, Tuple<M>)>
 where
     G: Scope<Timestamp: Lattice>,
+    M: Model,
 {
     // arrange antijoins
     let antijoins = antijoins.distinct().arrange_by_key();
@@ -861,9 +874,6 @@ where
         ((node, tuple), None)
     });
 
-    // combine all permitted tuples
-    let tuples = unconditional.concat(&conditional.map(key));
-
-    // return all new tuples and all new gates
-    (conditional.flat_map(value), tuples)
+    // return all new tuples
+    unconditional.concat(&conditional)
 }

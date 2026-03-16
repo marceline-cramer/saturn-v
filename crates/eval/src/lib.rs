@@ -19,13 +19,11 @@ use std::{collections::HashMap, io::Write};
 use flume::Receiver;
 use load::Loader;
 use saturn_v_ir::StructuredType;
-use solve::Solver;
 use types::*;
 use utils::{run_pumps, InputRouter, InputSource, Key, OutputRouter, Update};
 
 pub mod dataflow;
 pub mod load;
-pub mod solve;
 pub mod types;
 pub mod utils;
 
