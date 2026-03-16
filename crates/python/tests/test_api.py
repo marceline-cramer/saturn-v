@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from saturn_v_py import PyClient
+from saturn_v_py import PyClient, connect
 
 nextPort = 4000
 
@@ -95,13 +95,13 @@ def server_url():
     )
 
     time.sleep(1)
-    yield f"http://127.0.0.1:{port}"
+    yield f"ws://127.0.0.1:{port}/ws"
     proc.terminate()
 
 
 @pytest.fixture
-def client(server_url):
-    return PyClient(server_url)
+async def client(server_url):
+    return await connect(server_url)
 
 
 @pytest.mark.asyncio

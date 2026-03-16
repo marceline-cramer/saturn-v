@@ -1,1 +1,2 @@
+- [ ] update copyright notices in all modified files (secure your rights as a contributor!)
 - [ ] update changelog

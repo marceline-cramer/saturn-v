@@ -5,9 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-bitvec = { version = "1", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
@@ -16,6 +16,16 @@ rustsat.workspace = true
 rustsat-cadical.workspace = true
 saturn-v-ir.workspace = true
 serde.workspace = true
+tinyvec = { workspace = true, features = ["serde"] }
 timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+chumsky.workspace = true
+datatest-stable.workspace = true
+
+[[test]]
+name = "tests"
+harness = false

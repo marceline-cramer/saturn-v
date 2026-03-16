@@ -1,0 +1,30 @@
+(Relation
+    :name "Base"
+    :stratum 0
+    :ty (Integer)
+    :kind (Basic)
+    :io (None)
+    (Fact (vec-of (Integer 1)))
+    (Fact (vec-of (Integer 2)))
+    (Fact (vec-of (Integer 3))))
+(Relation
+    :name "Refute"
+    :stratum 0
+    :ty (Integer)
+    :kind (Decision)
+    :io (Output)
+    (Fact (vec-of (Integer 1)))
+    (Fact (vec-of (Integer 2)))
+    (Fact (vec-of (Integer 3))))
+(Constraint
+    :weight (Hard)
+    :kind (Cardinality (Only) 0)
+    :head (vec-of 0)
+    :body (RuleBody
+        :vars (vec-of (Integer))
+        :loaded (vec-of "Base" "Refute")
+        (Antijoin
+            1
+            (QueryVariable 0
+            (QueryNil))
+            (FromQuery 0 (QueryVariable 0 (QueryNil))))))
