@@ -44,7 +44,7 @@ use tracing::{event, Level};
 use crate::{
     types::{
         get_load_mask, Fact, FixedValues, LoadHead, LoadMask, Node, NodeInput, NodeOutput,
-        NodeSource, PanicSerde, Relation, Tuple, Values,
+        NodeSource, Relation, Tuple, Values,
     },
     utils::*,
     DataflowRouters, InputEventKind,
@@ -91,10 +91,19 @@ pub fn backend<M: DataflowModel>(
         let outputs = input
             .relations
             .filter(|rel| rel.io == RelationIO::Output)
-            .map(|rel| (Key::new(&rel), ()))
-            .join_map(&output.facts.map(Fact::relation_pair), |_key, (), fact| {
-                fact.clone()
-            });
+            .map(|rel| (Key::new(&rel), rel.kind))
+            .join_map(
+                &output.facts.map(Fact::relation_pair),
+                |_key, kind, fact| {
+                    let cond = if kind.is_basic() {
+                        model.from_const(true)
+                    } else {
+                        input.conditionals.get_conditional(Key::new(&fact))
+                    };
+
+                    (fact.clone(), cond)
+                },
+            );
 
         // return inputs and outputs
         (
@@ -321,6 +330,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: DataflowModel> StratumOut
 
         // load each source's tuples
         let join_lhs = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -329,6 +340,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: DataflowModel> StratumOut
         );
 
         let join_rhs = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -337,6 +350,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: DataflowModel> StratumOut
         );
 
         let source = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -382,6 +397,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: DataflowModel> StratumOut
 }
 
 pub fn load_source<M, G, T, O, TupleTr, LoadMaskTr, RelationTr>(
+    model: Arc<M>,
+    cond_store: ConditionalStore<M>,
     tuples: &Arranged<G, TupleTr>,
     load_mask: &Arranged<G, LoadMaskTr>,
     relations: &Arranged<G, RelationTr>,
@@ -434,7 +451,18 @@ where
             )]
         })
         .join_core(load_mask, move |_head, (src, kind), (fact, tail)| {
-            [map(src, load(kind, fact, tail))]
+            let condition = if kind.is_basic() {
+                model.from_const(true)
+            } else {
+                cond_store.get_conditional(*fact)
+            };
+
+            let tuple = Tuple {
+                values: tail.clone(),
+                condition,
+            };
+
+            [map(src, tuple)]
         });
 
     // return both node source and relation source tuples
@@ -593,13 +621,21 @@ pub fn node_logic<M: DataflowModel>(
     })
 }
 
-#[derive_where(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive_where(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Deserialize,
+    Serialize
+)]
 pub struct NodeResult<M: DataflowModel> {
     pub cond: Bool<M>,
     pub kind: NodeResultKind,
 }
-
-impl<M: DataflowModel> PanicSerde for NodeResult<M> {}
 
 impl<M: DataflowModel> NodeResult<M> {
     pub fn node(self) -> Option<(Key<Node>, Tuple<M>)> {

@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 dashmap.workspace = true
-derive-where = "1.6"
+derive-where = { version = "1.6", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true

@@ -39,22 +39,28 @@ impl Fact {
 }
 
 /// Constrains a group of constraint conditions.
-#[derive_where(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive_where(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize
+)]
 pub struct ConstraintGroup<M: DataflowModel> {
     pub terms: Vec<Bool<M>>,
     pub weight: ConstraintWeight,
     pub kind: ConstraintKind,
 }
 
-impl<M: DataflowModel> PanicSerde for ConstraintGroup<M> {}
-
-#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub struct Tuple<M: DataflowModel> {
     pub values: FixedValues,
     pub condition: Bool<M>,
 }
-
-impl<M: DataflowModel> PanicSerde for Tuple<M> {}
 
 impl<M: DataflowModel> Clone for Tuple<M> {
     fn clone(&self) -> Self {
@@ -329,36 +335,5 @@ impl Relation {
     /// Helper function to test if this relation is an output.
     pub fn is_output(&self) -> bool {
         matches!(self.io, RelationIO::Output)
-    }
-}
-
-/// A trait to blanket-impl stub serde traits.
-///
-/// Serde isn't used on a single, non-clustering Differential Dataflow run but
-/// is still required in DD's trait bounds, so we use a panicking
-/// implementation instead of figuring out how to idiomatically exchange
-/// encoded logic.
-pub trait PanicSerde {}
-
-impl<T: PanicSerde> Serialize for T {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        unreachable!(
-            "serialization is not implemented for {}",
-            std::any::type_name::<T>()
-        );
-    }
-}
-impl<'de, T: PanicSerde> Deserialize<'de> for T {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        unreachable!(
-            "deserialization is not implemented for {}",
-            std::any::type_name::<T>()
-        );
     }
 }

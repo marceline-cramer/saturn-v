@@ -16,6 +16,8 @@
 
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
+use serde::{de::DeserializeOwned, Serialize};
+
 pub mod partial;
 
 #[cfg(feature = "sat")]
@@ -107,9 +109,15 @@ pub trait DataflowModel: Model + DataflowEncoder<bool> + 'static {}
 impl<M: Model + DataflowEncoder<bool> + 'static> DataflowModel for M {}
 
 /// An [Encoder] with additional type constraints for use in Differential Dataflow.
-pub trait DataflowEncoder<T: Ops>: Encoder<T, Repr: Send + Ord + Hash> {}
+pub trait DataflowEncoder<T: Ops>:
+    Encoder<T, Repr: DeserializeOwned + Serialize + Send + Ord + Hash>
+{
+}
 
-impl<T: Ops, M: Encoder<T, Repr: Send + Ord + Hash>> DataflowEncoder<T> for M {}
+impl<T: Ops, M: Encoder<T, Repr: DeserializeOwned + Serialize + Send + Ord + Hash>>
+    DataflowEncoder<T> for M
+{
+}
 
 /// An incrementally-constructed logic model.
 pub trait Model: PbEncoder + Encoder<bool> {}

@@ -10,6 +10,7 @@ repository.workspace = true
 dashmap.workspace = true
 parking_lot.workspace = true
 prehash = "1.0.0"
+serde.workspace = true
 smallvec.workspace = true
 tracing.workspace = true
 

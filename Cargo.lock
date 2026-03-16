@@ -3464,6 +3464,7 @@ dependencies = [
  "rand_chacha",
  "rustsat",
  "rustsat-cadical",
+ "serde",
  "smallvec",
  "tracing",
  "tracing-test",
