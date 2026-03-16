@@ -27,8 +27,6 @@ pub mod z3;
 #[cfg(test)]
 pub mod tests;
 
-// TODO: consider a lazy encoding wrapper to minimize cost of large aggregates
-
 /// A solver.
 ///
 /// The solver owns the model so that it may track incremental updates to it
@@ -109,7 +107,6 @@ pub trait Model: PbEncoder + Encoder<bool> {}
 /// An interface to encode pseudo-Boolean constraints.
 pub trait PbEncoder: Encoder<bool> {
     /// Encodes a value representing if a pseudo-Boolean constraint is met.
-    // TODO(marceline-cramer): TDD support for negative weights
     fn pb(&self, kind: PbKind, thresh: i32, terms: &[(&Bool<Self>, i32)]) -> Bool<Self>;
 }
 
