@@ -16,16 +16,16 @@
 
 use std::{collections::HashMap, io::Write};
 
+use derive_where::derive_where;
 use flume::Receiver;
 use load::Loader;
 use saturn_v_ir::StructuredType;
-use solve::Solver;
+use saturn_v_solve::{Bool, DataflowModel};
 use types::*;
 use utils::{run_pumps, InputRouter, InputSource, Key, OutputRouter, Update};
 
 pub mod dataflow;
 pub mod load;
-pub mod solve;
 pub mod types;
 pub mod utils;
 
@@ -122,13 +122,11 @@ pub fn format_type(ty: &StructuredType) -> String {
     }
 }
 
-#[derive(Clone, Default)]
-pub struct DataflowRouters {
+#[derive_where(Clone, Default)]
+pub struct DataflowRouters<M: DataflowModel> {
     pub events_in: InputRouter<InputEventKind>,
-    pub conditional_out: OutputRouter<(Key<Fact>, ConditionalLink)>,
-    pub gates_out: OutputRouter<Gate>,
-    pub constraints_out: OutputRouter<ConstraintGroup>,
-    pub outputs_out: OutputRouter<Fact>,
+    pub constraints_out: OutputRouter<ConstraintGroup<M>>,
+    pub outputs_out: OutputRouter<(Fact, Bool<M>)>,
 }
 
 impl DataflowRouters {

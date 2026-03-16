@@ -16,10 +16,12 @@
 
 use std::sync::Arc;
 
+use derive_where::derive_where;
 use saturn_v_ir::{
     ConstraintKind, ConstraintWeight, Expr, QueryTerm, RelationIO, RelationKind, StructuredType,
     Value,
 };
+use saturn_v_solve::{Bool, DataflowModel};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::Key;
@@ -36,32 +38,37 @@ impl Fact {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Gate {
-    And { lhs: Condition, rhs: Condition },
-    Or { terms: Vec<Condition> },
-    Decision { terms: Vec<Condition> },
-}
-
 /// Constrains a group of constraint conditions.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct ConstraintGroup {
-    pub terms: Vec<Condition>,
+#[derive_where(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize
+)]
+pub struct ConstraintGroup<M: DataflowModel> {
+    pub terms: Vec<Bool<M>>,
     pub weight: ConstraintWeight,
     pub kind: ConstraintKind,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub struct Tuple {
+#[derive_where(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+pub struct Tuple<M: DataflowModel> {
     pub values: FixedValues,
-    pub condition: Option<Condition>,
+    pub condition: Bool<M>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum Condition {
-    Gate(Key<Gate>),
-    Fact(Key<Fact>),
-    NotFact(Key<Fact>),
+impl<M: DataflowModel> Clone for Tuple<M> {
+    fn clone(&self) -> Self {
+        Self {
+            values: self.values.clone(),
+            condition: self.condition.clone(),
+        }
+    }
 }
 
 pub type IndexList = Arc<[usize]>;
@@ -329,16 +336,4 @@ impl Relation {
     pub fn is_output(&self) -> bool {
         matches!(self.io, RelationIO::Output)
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
-pub enum ConditionalLink {
-    /// The conditional is unconditionally true.
-    Unconditional,
-
-    /// The conditional is unbound by any conditions.
-    Free,
-
-    /// The condiitonal is linked to a condition.
-    Link(Condition),
 }

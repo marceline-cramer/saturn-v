@@ -1,0 +1,41 @@
+[package]
+name = "saturn-v-solve"
+license.workspace = true
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+dashmap.workspace = true
+parking_lot.workspace = true
+prehash = "1.0.0"
+serde.workspace = true
+smallvec.workspace = true
+tracing.workspace = true
+
+[dependencies.rand]
+version = "0.9"
+optional = true
+default-features = false
+features = ["thread_rng"]
+
+[dependencies.rand_chacha]
+version = "0.9"
+optional = true
+
+[dependencies.rustsat]
+workspace = true
+optional = true
+
+[dependencies.z3]
+workspace = true
+optional = true
+
+[dev-dependencies]
+rustsat-cadical.workspace = true
+tracing-test.workspace = true
+
+[features]
+sat = ["dep:rustsat", "dep:rand", "dep:rand_chacha"]
+z3 = ["dep:z3"]

@@ -1,0 +1,792 @@
+// Copyright (C) 2025-2026 Marceline Cramer
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Saturn V is free software: you can redistribute it and/or modify it under
+// the terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option) any
+// later version.
+//
+// Saturn V is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for
+// more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
+
+use std::{
+    collections::hash_map,
+    hash::{BuildHasherDefault, DefaultHasher, Hash, Hasher},
+    ops::Not,
+    sync::Arc,
+};
+
+use dashmap::DashMap;
+use parking_lot::Mutex;
+use prehash::Passthru;
+use rand::RngCore;
+use rand_chacha::{rand_core::SeedableRng, ChaCha12Rng};
+use rustsat::{
+    encodings::CollectClauses,
+    instances::{BasicVarManager, ManageVars},
+    solvers::SolveIncremental,
+    types::{Lit, Var},
+};
+use smallvec::{smallvec, SmallVec};
+use tracing::error;
+
+use crate::{partial::*, *};
+
+#[derive(Default)]
+pub struct SatSolver<S> {
+    solver: S,
+    var_mgr: BasicVarManager,
+    model: SatModel,
+
+    /// Maps variable identifiers to this solver instance's variables.
+    vars: hash_map::HashMap<u64, Var, BuildHasherDefault<Passthru>>,
+}
+
+impl<S> Solver for SatSolver<S>
+where
+    S: CollectClauses + SolveIncremental,
+{
+    type Model = SatModel;
+
+    fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
+        use rustsat::{encodings::pb::*, solvers::SolverResult::*};
+
+        // encode and collect all hard constraint assumptions
+        let mut assumptions = Vec::with_capacity(opts.hard.len());
+        for var in opts.hard.iter() {
+            use PartialValue::*;
+            match var {
+                Const(true) => {}
+                Const(false) => return SolveResult::Unsat,
+                Variable(lit) => {
+                    assumptions.push(self.get_lit(*lit));
+                }
+            }
+        }
+
+        // save the number of hard assumptions
+        // this may be less than the number of hard constraints if some are constant true
+        let hard_assumption_num = assumptions.len();
+
+        // create a cost totalizer for soft constraints
+        let mut cost_totalizer: DynamicPolyWatchdog = opts
+            .soft
+            .iter()
+            .flat_map(|(value, weight)| value.as_variable().map(|lit| (lit, *weight)))
+            .map(|(lit, weight)| (!self.get_lit(lit), weight as usize))
+            .collect();
+
+        // initialize with no current assignment to queried Booleans
+        let mut bool_values = None;
+
+        // assign an initial, unused cost value (will update after first SAT)
+        let mut cost = 0;
+
+        // begin minimizing the cost upper bound
+        loop {
+            // check satisfiability with current assumptions
+            let result = match self.solver.solve_assumps(&assumptions) {
+                Ok(result) => result,
+                Err(err) => {
+                    error!("solver failed: {err:?}");
+                    return SolveResult::Unknown;
+                }
+            };
+
+            // handle non-sat solving results
+            match result {
+                Sat => {}
+                Interrupted => return SolveResult::Unknown,
+                Unsat => match bool_values {
+                    Some(bool_values) => {
+                        return SolveResult::Sat { cost, bool_values };
+                    }
+                    None => {
+                        return SolveResult::Unsat;
+                    }
+                },
+            }
+
+            // evaluate the current queried Boolean values
+            bool_values = Some(self.eval_bools(opts.bool_eval));
+
+            // clear any soft assumptions from the previous iteration
+            assumptions.truncate(hard_assumption_num);
+
+            // calculate the cost of the current assignment
+            cost = opts
+                .soft
+                .iter()
+                .filter(|(value, _weight)| !self.eval_bool(*value))
+                .map(|(_value, weight)| *weight)
+                .sum();
+
+            // if cost has hit zero, this is the best solution
+            if cost == 0 {
+                return SolveResult::Sat {
+                    cost,
+                    bool_values: bool_values.unwrap(),
+                };
+            }
+
+            // otherwise, attempt to find a better cost upper bound
+            let cost_ub = (cost - 1) as usize;
+
+            // update the totalizer's encodings for the new cost bound
+            cost_totalizer
+                .encode_ub_change(cost_ub..=cost_ub, &mut self.solver, &mut self.var_mgr)
+                .unwrap();
+
+            // add soft assumptions for this new cost upper bound
+            assumptions.extend(cost_totalizer.enforce_ub(cost_ub).unwrap());
+        }
+    }
+
+    fn as_model(&self) -> &Self::Model {
+        &self.model
+    }
+
+    fn into_model(self) -> Self::Model {
+        self.model
+    }
+}
+
+impl<S: SolveIncremental + CollectClauses> SatSolver<S> {
+    /// Evaluates a list of Boolean values in the current solver model.
+    pub fn eval_bools(&mut self, values: &[PartialValue<bool, SatLit>]) -> Vec<bool> {
+        values
+            .iter()
+            .cloned()
+            .map(|value| self.eval_bool(value))
+            .collect()
+    }
+
+    /// Evaluate a Boolean value in the current solver model.
+    pub fn eval_bool(&mut self, value: PartialValue<bool, SatLit>) -> bool {
+        value.eval(|lit| {
+            let var = self.get_var(lit.variable);
+            let model = self.solver.var_val(var).unwrap();
+            model.to_bool_with_def(false) ^ !lit.polarity
+        })
+    }
+
+    /// Returns the instance's variable index for the model's variable ID.
+    pub fn get_var(&mut self, id: u64) -> Var {
+        // reuse existing variable if possible
+        use hash_map::Entry;
+        let var = match self.vars.entry(id) {
+            Entry::Occupied(existing) => return *existing.get(),
+            Entry::Vacant(entry) => {
+                // allocate and insert new variable otherwise
+                let var = self.var_mgr.new_var();
+                entry.insert(var);
+                var
+            }
+        };
+
+        // get the variable's gate, if available
+        let Some(gate) = self
+            .model
+            .gates
+            .get(&id)
+            .map(|entry| entry.value().to_owned())
+        else {
+            // if no gate is available, the variable is unconstrained
+            return var;
+        };
+
+        // get each variable in the gate
+        // will invoke this function recursively, so stack overflow is a possibility
+        let mut gate_vars: SmallVec<[Lit; 8]> =
+            gate.literals.iter().map(|lit| self.get_lit(*lit)).collect();
+
+        // extend gate variables with fresh, intermediate variables
+        for _ in 0..gate.var_num {
+            gate_vars.push(self.var_mgr.new_lit());
+        }
+
+        // create a closure to convert gate terms to instance literals
+        let term_to_lit = |term: &GateTerm| match *term {
+            GateTerm::Output { polarity } => Lit::new(var.idx32(), !polarity),
+            GateTerm::Literal { variable, polarity } => {
+                let lit = *gate_vars.get(variable as usize).unwrap();
+
+                if polarity {
+                    lit
+                } else {
+                    !lit
+                }
+            }
+        };
+
+        // encode each clause in the gate
+        let clauses = gate
+            .clauses
+            .iter()
+            .map(|clause| clause.iter().map(term_to_lit).collect());
+
+        // add clauses to the solver
+        self.solver.extend_clauses(clauses).unwrap();
+
+        // return the variable ID
+        var
+    }
+
+    /// Returns the instance's literal for a model literal.
+    pub fn get_lit(&mut self, lit: SatLit) -> Lit {
+        let var = self.get_var(lit.variable);
+        Lit::new(var.idx32(), !lit.polarity)
+    }
+}
+
+pub type SatModel = Arc<SatModelInner>;
+
+// TODO: garbage collection
+pub struct SatModelInner {
+    /// Maps variable IDs to their [Gate] encodings.
+    ///
+    /// If a variable ID does not have a gate, it is considered unconstrained.
+    gates: DashMap<u64, Gate, BuildHasherDefault<Passthru>>,
+
+    /// A cryptographically secure oracle for fresh variable identifiers.
+    ///
+    /// The seed for the gate hasher is both deterministic and fixed between
+    /// runtimes, so it's necessary to provide cryptographically-secure
+    /// entropy for fresh variables (the base case for all gates).
+    var_rng: Mutex<ChaCha12Rng>,
+}
+
+impl Default for SatModelInner {
+    fn default() -> Self {
+        Self {
+            gates: Default::default(),
+            var_rng: Mutex::new(ChaCha12Rng::from_rng(&mut rand::rng())),
+        }
+    }
+}
+
+impl Model for SatModel {}
+
+impl SatModelInner {
+    /// Adds a gate to this model and returns its variable ID.
+    ///
+    /// It's crucial that the hash function used here is cryptographic and that
+    /// risk of collision is effectively zero. Collisions are not explicitly
+    /// handled so this is a possibility.
+    ///
+    /// Determinism is not needed currently but may be needed for future cluster execution.
+    pub fn add_gate(&self, gate: Gate) -> u64 {
+        // hash the gate to get a variable ID
+        let mut hasher = DefaultHasher::new();
+        gate.hash(&mut hasher);
+        let var = hasher.finish();
+
+        // add the gate to the model
+        self.gates.insert(var, gate);
+
+        // return the variable ID
+        var
+    }
+
+    /// Creates a new unbound variable identifier.
+    pub fn add_var(&self) -> u64 {
+        self.var_rng.lock().next_u64()
+    }
+
+    /// Creates multiple unbound variable identifiers.
+    pub fn add_vars(&self, num: usize, with_var: impl FnMut(u64)) {
+        if num > 0 {
+            let mut rng = self.var_rng.lock();
+            (0..num).map(|_| rng.next_u64()).for_each(with_var);
+        }
+    }
+}
+
+/// A macro for easily instantiating a [GateTerm].
+macro_rules! term {
+    (~output) => {
+        GateTerm::Output { polarity: false }
+    };
+
+    (output) => {
+        GateTerm::Output { polarity: true }
+    };
+
+    (~$var:expr) => {
+        GateTerm::Literal {
+            variable: $var,
+            polarity: false,
+        }
+    };
+
+    ($var:expr) => {
+        GateTerm::Literal {
+            variable: $var,
+            polarity: true,
+        }
+    };
+}
+
+impl PartialPbEncoder for SatModelInner {
+    fn none_of(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr {
+        // initialize force-true clause, force-false clauses, and literals
+        let mut force_true = smallvec![term!(output)];
+        let mut clauses = SmallVec::new();
+        let mut literals = SmallVec::new();
+
+        // encode each clause
+        for (idx, term) in terms.into_iter().enumerate() {
+            // add literal
+            literals.push(term);
+
+            // literal clause term
+            let lit = GateTerm::Literal {
+                variable: idx as u32,
+                polarity: true,
+            };
+
+            // add force-true clause term
+            force_true.push(lit);
+
+            // add force-false clause
+            clauses.push(smallvec![!lit, term!(~output)]);
+        }
+
+        // add force-true clause to total clauses
+        clauses.push(force_true);
+
+        // create gate for entire constraint
+        let gate = Gate {
+            var_num: 0,
+            literals,
+            clauses,
+        };
+
+        // return output of encoded gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+
+    fn at_most_one(&self, terms: impl IntoIterator<Item = Self::Repr>) -> Self::Repr {
+        // select specific at-most-one encoding
+        use rustsat::encodings::am1::{Ladder as Encoding, *};
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len()).map(|var| Lit::positive(var as u32));
+
+        // encode the at-most-one constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            enc.encode(gate, vars).unwrap();
+        });
+
+        // force output to be true iff all clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+
+    fn card_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        // select specific cardinality constraint encoding
+        use rustsat::encodings::card::{Totalizer as Encoding, *};
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len()).map(|var| Lit::positive(var as u32));
+
+        // encode the cardinality constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            let thresh = thresh as usize;
+            match kind {
+                PbKind::Eq => enc.encode_both(thresh..=thresh, gate, vars),
+                PbKind::Le => enc.encode_ub(..=thresh, gate, vars),
+                PbKind::Ge => enc.encode_lb(thresh.., gate, vars),
+            }
+            .unwrap()
+        });
+
+        // output is true iff all encoded clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+
+    fn pb_nontrivial(
+        &self,
+        kind: PbKind,
+        thresh: u32,
+        terms: impl IntoIterator<Item = (Self::Repr, u32)>,
+    ) -> Self::Repr {
+        // select specific pseudo-Boolean constraint encoding
+        use rustsat::encodings::pb::{BinaryAdder as Encoding, *};
+
+        // unzip terms into literals and weights
+        let (terms, weights): (Vec<_>, Vec<_>) = terms
+            .into_iter()
+            .map(|(lit, weight)| (lit, weight as usize))
+            .unzip();
+
+        // create a gate with the initial literal terms
+        let mut gate = Gate::from_iter(terms);
+
+        // create gate terms for each literal
+        let terms = (0..gate.literals.len())
+            .map(|var| Lit::positive(var as u32))
+            .zip(weights);
+
+        // encode the cardinality constraint
+        let mut enc = Encoding::from_iter(terms);
+        gate.encode_with(|gate, vars| {
+            let thresh = thresh as usize;
+            match kind {
+                PbKind::Eq => enc.encode_both(thresh..=thresh, gate, vars),
+                PbKind::Le => enc.encode_ub(..=thresh, gate, vars),
+                PbKind::Ge => enc.encode_lb(thresh.., gate, vars),
+            }
+            .unwrap()
+        });
+
+        // output is true iff all encoded clauses are met
+        gate.encode_iff();
+
+        // add and return gate
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+}
+
+impl PartialEncoder<bool> for SatModelInner {
+    type Repr = SatLit;
+
+    fn fresh_variable(&self) -> Self::Repr {
+        SatLit {
+            variable: self.add_var(),
+            polarity: true,
+        }
+    }
+
+    fn unary_op_variable(&self, op: <bool as Ops>::UnaryOp, repr: Self::Repr) -> Self::Repr {
+        match op {
+            BoolUnaryOp::Not => repr.not(),
+        }
+    }
+
+    fn binary_op_const(
+        &self,
+        op: <bool as Ops>::BinaryOp,
+        lhs: Self::Repr,
+        rhs: bool,
+    ) -> PartialValue<bool, Self::Repr> {
+        use BoolBinaryOp::*;
+        use PartialValue::*;
+        match (op, rhs) {
+            (And, false) => Const(false),
+            (And, true) => Variable(lhs),
+            (Or, true) => Const(true),
+            (Or, false) => Variable(lhs),
+        }
+    }
+
+    fn binary_op_variable(
+        &self,
+        op: <bool as Ops>::BinaryOp,
+        lhs: Self::Repr,
+        rhs: Self::Repr,
+    ) -> Self::Repr {
+        // choose Tseitin encoding depending on operation
+        let clauses = match op {
+            BoolBinaryOp::And => smallvec![
+                smallvec!(term!(~0), term!(~1), term!(output)),
+                smallvec!(term!(0), term!(~output)),
+                smallvec!(term!(1), term!(~output))
+            ],
+            BoolBinaryOp::Or => smallvec!(
+                smallvec!(term!(0), term!(1), term!(~output)),
+                smallvec!(term!(~0), term!(output)),
+                smallvec!(term!(~1), term!(output))
+            ),
+        };
+
+        // create the gate encoding
+        let gate = Gate {
+            literals: smallvec![lhs, rhs],
+            var_num: 0,
+            clauses,
+        };
+
+        // return the gate's output as a literal
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+
+    // TODO: TDD
+    fn aggregate_op_variable(
+        &self,
+        op: <bool as Ops>::AggregateOp,
+        terms: impl IntoIterator<Item = Self::Repr>,
+    ) -> Self::Repr {
+        // create gate with all terms loaded
+        let mut gate = Gate::from_iter(terms);
+
+        // the polarity of the output literal depends on the operation
+        let output = match op {
+            BoolAggregateOp::And => term!(output),
+            BoolAggregateOp::Or => term!(~output),
+        };
+
+        // create aggregate clause implication
+        let mut agg_clause = smallvec!(output);
+
+        // create clauses for each input literal
+        for idx in 0..(gate.literals.len() as u32) {
+            // polarities of gate input depend on operation
+            let input = match op {
+                BoolAggregateOp::And => term!(idx),
+                BoolAggregateOp::Or => term!(~idx),
+            };
+
+            // add short-circuit implication clause for this input
+            gate.clauses.push(smallvec!(input, !output));
+
+            // add literal to the aggregate clause
+            agg_clause.push(!input);
+        }
+
+        // add aggregate clause to gate
+        gate.clauses.push(agg_clause);
+
+        // return the gate's output as a literal
+        SatLit {
+            variable: self.add_gate(gate),
+            polarity: true,
+        }
+    }
+}
+
+/// A logical gate, which encodes CNF clauses to constrain values.
+///
+/// For now, it's assumed that all gates force exactly one literal as output.
+/// When support for bitvectors is added, gates will support constraining
+/// multiple output literals at once.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Gate {
+    /// A mapping from gate term variable indices to [SatLit].
+    pub literals: SmallVec<[SatLit; 2]>,
+
+    /// The number of intermediate variables used in this gate.
+    pub var_num: usize,
+
+    /// The list of clauses in the gate.
+    ///
+    /// Optimized for data locality (hash-consing + encoding). AND and OR gates are three clauses each.
+    pub clauses: SmallVec<[Clause; 3]>,
+}
+
+impl FromIterator<SatLit> for Gate {
+    fn from_iter<T: IntoIterator<Item = SatLit>>(iter: T) -> Self {
+        Self {
+            literals: iter.into_iter().collect(),
+            var_num: 0,
+            clauses: Default::default(),
+        }
+    }
+}
+
+impl Gate {
+    /// Invokes a callback to encode new clauses into this gate.
+    ///
+    /// Automatically handles adding of fresh variables.
+    pub fn encode_with(&mut self, mut cb: impl FnMut(&mut Self, &mut dyn ManageVars)) {
+        let next_var = self.literals.len() + self.var_num;
+        let mut vars = BasicVarManager::from_next_free(Var::new(next_var as u32));
+        cb(self, &mut vars);
+        self.var_num += vars.n_used() as usize - next_var;
+    }
+
+    /// Uses Tseitin encoding to force the value of the output to be the
+    /// conjunction of all current clauses.
+    ///
+    /// Oftentimes, CNF encoding algorithms will only generate hard constraints
+    /// as the sets of clauses enforcing this algorithm. To make the result
+    /// variable, the clauses must be reinterpreted into OR gates and the output
+    /// must be constrained as the result of the AND of those clauses.
+    ///
+    /// Although you could still use a simple guard literal in each clause to
+    /// check whether all clauses are satisfied, that approach does not do the
+    /// inverse of forcing the guard literal to false if any clause is false.
+    pub fn encode_iff(&mut self) {
+        // save original clause count
+        let original_clause_num = self.clauses.len();
+
+        // save the base index for clause guards
+        let guard_offset = self.var_num;
+
+        // allocate fresh guard variables for each clause
+        self.var_num += original_clause_num;
+
+        // grow the clause buffer to accommodate added clauses
+        let term_num: usize = self.clauses.iter().map(|cl| cl.len()).sum();
+        self.clauses.grow(original_clause_num * 2 + term_num + 1);
+
+        // iterate over each current clause's index
+        for idx in 0..self.clauses.len() {
+            // calculate the variable index of this clause's guard
+            let guard = (idx + guard_offset) as u32;
+
+            // output -> guard
+            self.clauses.push(smallvec!(term!(~output), term!(guard)));
+
+            // get the clause at this position
+            let clause = &mut self.clauses[idx];
+
+            // assert that the clause doesn't contain output literals
+            debug_assert!(!clause
+                .iter()
+                .any(|term| matches!(term, GateTerm::Output { .. })));
+
+            // make backup for adding new clauses before modifying
+            let original_clause = clause.clone();
+
+            // !clause -> !guard
+            clause.push(term!(~guard));
+
+            // create negative guard clauses for each term in original clause
+            for term in original_clause {
+                // term -> guard
+                self.clauses.push(smallvec!(!term, term!(guard)));
+            }
+        }
+
+        // !output -> !guards
+        self.clauses.push(FromIterator::from_iter(
+            (0..original_clause_num)
+                .map(|idx| (idx + guard_offset) as u32)
+                .map(|guard| term!(~guard))
+                .chain(Some(term!(output))),
+        ));
+    }
+}
+
+impl CollectClauses for Gate {
+    fn n_clauses(&self) -> usize {
+        self.clauses.len()
+    }
+
+    fn extend_clauses<T: IntoIterator<Item = rustsat::types::Clause>>(
+        &mut self,
+        cl_iter: T,
+    ) -> Result<(), rustsat::OutOfMemory> {
+        for cl in cl_iter {
+            let cl = cl.into_iter().map(|lit| {
+                let variable = lit.var().idx32();
+                let polarity = lit.is_pos();
+                GateTerm::Literal { variable, polarity }
+            });
+
+            self.clauses.push(cl.collect());
+        }
+
+        Ok(())
+    }
+}
+
+/// A singular clause in a [Gate].
+///
+/// Optimized for data locality. Three is the maximum number of terms in
+/// Tseitin encodings of AND and OR gates, which are very common.
+pub type Clause = SmallVec<[GateTerm; 3]>;
+
+/// A term within a [Gate] clause list.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GateTerm {
+    /// A literal, indexed by the gate's literal table.
+    Literal {
+        /// The variable's index in the gate table.
+        ///
+        /// If this exceeds the length of the `literals` field, this overflows
+        /// into specifying variables in the `var_num` field.
+        variable: u32,
+
+        /// This literal's polarity.
+        polarity: bool,
+    },
+
+    /// The output of this gate.
+    Output {
+        /// The polarity of this output in a clause.
+        polarity: bool,
+    },
+}
+
+impl Not for GateTerm {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        match self {
+            GateTerm::Literal { variable, polarity } => GateTerm::Literal {
+                variable,
+                polarity: !polarity,
+            },
+            GateTerm::Output { polarity } => GateTerm::Output {
+                polarity: !polarity,
+            },
+        }
+    }
+}
+
+/// A SAT literal.
+///
+/// This represents a hash-consed literal within [SatModel], which has not
+/// yet been added to a SAT solver via conventional 32-bit, solver-local
+/// encodings. This conversion is deferred so that evaluation may add and
+/// remove constraints independently of an append-only SAT solver and support
+/// rebuilding a solver entirely from scratch.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SatLit {
+    /// The unique variable identifier of this literal.
+    pub variable: u64,
+
+    /// This literal's polarity.
+    pub polarity: bool,
+}
+
+impl Not for SatLit {
+    type Output = Self;
+
+    fn not(self) -> Self {
+        Self {
+            variable: self.variable,
+            polarity: !self.polarity,
+        }
+    }
+}

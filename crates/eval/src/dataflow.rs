@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, hash::Hash};
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 
+use dashmap::DashMap;
+use derive_where::derive_where;
 use differential_dataflow::{
     input::Input,
     lattice::Lattice,
@@ -28,6 +30,7 @@ use differential_dataflow::{
     Data, ExchangeData, VecCollection,
 };
 use saturn_v_ir::*;
+use saturn_v_solve::{Bool, BoolBinaryOp, BoolUnaryOp, DataflowModel};
 use serde::{Deserialize, Serialize};
 use timely::{
     communication::Allocator,
@@ -40,16 +43,17 @@ use tracing::{event, Level};
 
 use crate::{
     types::{
-        get_load_mask, Condition, ConditionalLink, ConstraintGroup, Fact, FixedValues, Gate,
-        LoadHead, LoadMask, Node, NodeInput, NodeOutput, NodeSource, Relation, Tuple, Values,
+        get_load_mask, Fact, FixedValues, LoadHead, LoadMask, Node, NodeInput, NodeOutput,
+        NodeSource, Relation, Tuple, Values,
     },
     utils::*,
     DataflowRouters, InputEventKind,
 };
 
-pub fn backend(
+pub fn backend<M: DataflowModel>(
+    model: Arc<M>,
     worker: &mut Worker<Allocator>,
-    routers: &DataflowRouters,
+    routers: &DataflowRouters<M>,
 ) -> (impl PumpInput, impl PumpOutput) {
     worker.dataflow(|scope| {
         // enter input events into scope
@@ -58,23 +62,13 @@ pub fn backend(
 
         // build complete input
         let input = StratumInput {
-            relations: events_in.flat_map(InputEventKind::relation),
+            conditionals: ConditionalStore::new(model.clone()),
             facts: events_in.flat_map(InputEventKind::fact),
+            relations: events_in.flat_map(InputEventKind::relation),
             nodes: events_in.flat_map(InputEventKind::node),
             tuples: scope.new_collection().1,
+            model,
         };
-
-        // build lookup relations
-        let relations_by_key = input.relations.map(Key::pair).arrange_by_key();
-
-        // find base conditional facts to add to all outgoing conditionals
-        let base_conditional = input
-            .facts
-            .map(Fact::relation_pair)
-            .arrange_by_key()
-            .join_core(&relations_by_key, base_conditional)
-            .inspect(inspect("base conditional"))
-            .map(|fact| (fact, None));
 
         // evaluate to fixed-point
         let output = StratumOutput::evaluate_stratified(scope, &input);
@@ -93,78 +87,65 @@ pub fn backend(
             .join_core(&node_constraint_type, constraint_clause)
             .inspect(inspect("constraint"));
 
-        // conditional facts make gates out of their dependent conditions
-        let conditional = output
-            .implies
-            .concat(&base_conditional)
-            .reduce(conditional_gate)
-            .inspect(inspect("conditional gate"));
-
-        // extend gates with conditional gates
-        let gates = conditional
-            .flat_map(value)
-            .concat(&output.gates)
-            .inspect(inspect("gate"));
-
-        // extract conditions from conditional gates
-        let conditional = conditional.map(|((fact, is_decision), gate)| {
-            match (is_decision, gate) {
-                // unconditional decisions remain free
-                (true, None) => (fact, ConditionalLink::Free),
-                // unlinked non-decision conditions are unconditional
-                (false, None) => (fact, ConditionalLink::Unconditional),
-                // for either type of conditional, link gate
-                (_, Some(gate)) => (
-                    fact,
-                    ConditionalLink::Link(Condition::Gate(Key::new(&gate))),
-                ),
-            }
-        });
-
         // filter out output facts
         let outputs = input
             .relations
             .filter(|rel| rel.io == RelationIO::Output)
-            .map(|rel| (Key::new(&rel), ()))
-            .join_map(&output.facts.map(Fact::relation_pair), |_key, (), fact| {
-                fact.clone()
-            });
+            .map(|rel| (Key::new(&rel), rel.kind))
+            .join_map(
+                &output.facts.map(Fact::relation_pair),
+                |_key, kind, fact| {
+                    let cond = if kind.is_basic() {
+                        model.from_const(true)
+                    } else {
+                        input.conditionals.get_conditional(Key::new(&fact))
+                    };
+
+                    (fact.clone(), cond)
+                },
+            );
 
         // return inputs and outputs
         (
             events_in_sink,
             routers
-                .gates_out
-                .add_source(&gates)
-                .and(routers.conditional_out.add_source(&conditional))
-                .and(routers.constraints_out.add_source(&constraints))
+                .constraints_out
+                .add_source(&constraints)
                 .and(routers.outputs_out.add_source(&outputs)),
         )
     })
 }
 
 /// The inputs to the core per-stratum dataflow computation.
-pub struct StratumInput<G: Scope> {
+pub struct StratumInput<G: Scope, M: DataflowModel> {
+    /// The [ConditionalStore] for all facts.
+    pub conditionals: ConditionalStore<M>,
+
+    /// The model that encodes new symbolic logic expressions.
+    pub model: Arc<M>,
+
     /// All nodes in the dataflow at this stratum.
     pub nodes: VecCollection<G, Node>,
 
     /// All relations in the dataflow.
     pub relations: VecCollection<G, Relation>,
 
-    /// The current fact hypotheses.
+    /// All currently-known facts.
     pub facts: VecCollection<G, Fact>,
 
     /// The current collection of tuples in each node.
-    pub tuples: VecCollection<G, (Key<Node>, Tuple)>,
+    pub tuples: VecCollection<G, (Key<Node>, Tuple<M>)>,
 }
 
-impl<G: Scope + ScopeParent> StratumInput<G> {
+impl<M: DataflowModel, G: Scope + ScopeParent> StratumInput<G, M> {
     /// Enters this input into a child scope.
     pub fn enter<'a, T: Refines<G::Timestamp>>(
         &self,
         scope: &mut Child<'a, G, T>,
-    ) -> StratumInput<Child<'a, G, T>> {
+    ) -> StratumInput<Child<'a, G, T>, M> {
         StratumInput {
+            conditionals: self.conditionals.clone(),
+            model: self.model.clone(),
             nodes: self.nodes.enter(scope),
             relations: self.relations.enter(scope),
             facts: self.facts.enter(scope),
@@ -174,45 +155,39 @@ impl<G: Scope + ScopeParent> StratumInput<G> {
 }
 
 /// The results of the core dataflow computation, per-stratum.
-pub struct StratumOutput<G: Scope> {
-    /// Facts added to the dataflow.
-    ///
-    /// Note that facts may be conditional, so membership in this collection does not imply truthity.
+pub struct StratumOutput<G: Scope, M: DataflowModel> {
+    /// Unique facts added to the dataflow.
     pub facts: VecCollection<G, Fact>,
 
     /// Conditional fact implications.
-    pub implies: VecCollection<G, ((Key<Fact>, bool), Option<Condition>)>,
+    pub implies: VecCollection<G, (Key<Fact>, Bool<M>)>,
 
     /// New tuples computed in this stratum.
-    pub tuples: VecCollection<G, (Key<Node>, Tuple)>,
-
-    /// All gates built as a result of evaluating this stratum.
-    pub gates: VecCollection<G, Gate>,
+    pub tuples: VecCollection<G, (Key<Node>, Tuple<M>)>,
 
     /// New antijoin tuples: tuples who may be refuted by the presence of facts.
-    pub antijoins: VecCollection<G, (Fact, (Key<Node>, Tuple))>,
+    pub antijoins: VecCollection<G, (Fact, (Key<Node>, Tuple<M>))>,
 
     /// Constraint groups and their entries.
-    pub constraints: VecCollection<G, ((Key<Node>, FixedValues), Option<Condition>)>,
+    pub constraints: VecCollection<G, ((Key<Node>, FixedValues), Bool<M>)>,
 }
 
-impl<'a, G: Scope, T: Refines<G::Timestamp>> StratumOutput<Child<'a, G, T>> {
+impl<'a, G: Scope, M: DataflowModel, T: Refines<G::Timestamp>> StratumOutput<Child<'a, G, T>, M> {
     /// Leaves this child scope.
-    pub fn leave(self) -> StratumOutput<G> {
+    pub fn leave(self) -> StratumOutput<G, M> {
         StratumOutput {
             facts: self.facts.leave(),
             implies: self.implies.leave(),
             tuples: self.tuples.leave(),
-            gates: self.gates.leave(),
             antijoins: self.antijoins.leave(),
             constraints: self.constraints.leave(),
         }
     }
 }
 
-impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
+impl<G: Scope<Timestamp: Hash + Default + Lattice>, M: DataflowModel> StratumOutput<G, M> {
     /// Evaluates stratified input, using alternating fixedpoints per-stratum.
-    pub fn evaluate_stratified(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_stratified(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input into this scope
             let input = StratumInput {
@@ -226,7 +201,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Evaluates to fixedpoint using alternating fixedpoints with negation as failure.
-    pub fn evaluate_naf(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_naf(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input into this scope
             let mut input = input.enter(scope);
@@ -244,16 +219,47 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             // run this stratum to positive fixed-point
             let mut output = StratumOutput::evaluate_stratum(scope, &input);
 
-            // only track this stratum's antijoins
-            let antijoins = antijoins.set(&output.antijoins);
+            // arrange only this stratum's antijoins
+            let antijoins = antijoins.set(&output.antijoins).distinct().arrange_by_key();
 
-            // antijoin against this stratum's facts
-            let (antijoin_gates, antijoin_tuples) =
-                antijoin(&antijoins, &output.facts, &input.relations);
+            // unconditionally permit all antijoins with absent facts
+            let unconditional = antijoins.antijoin(&output.facts.distinct()).map(value);
 
-            // pass permitted values
+            // extract conditional relation keys
+            let conditional_relations = input
+                .relations
+                .filter(|rel| !rel.kind.is_basic())
+                .map(|rel| Key::new(&rel));
+
+            // extract conditional facts
+            let conditional_facts = output
+                .facts
+                .map(Fact::relation_pair)
+                .semijoin(&conditional_relations)
+                .map(value);
+
+            // conditionally antijoin with present facts
+            let conditional = antijoins.semijoin(&conditional_facts).map({
+                let model = input.model.clone();
+                let cond_store = input.conditionals.clone();
+                move |(fact, (node, mut tuple))| {
+                    let fact_cond = cond_store.get_conditional(Key::new(&fact));
+
+                    tuple.condition = model.binary_op(
+                        BoolBinaryOp::And,
+                        tuple.condition,
+                        model.unary_op(BoolUnaryOp::Not, fact_cond),
+                    );
+
+                    (node, tuple)
+                }
+            });
+
+            // collate all permitted tuples
+            let antijoin_tuples = unconditional.concat(&conditional);
+
+            // pass permitted tuples
             output.tuples = tuples.set_concat(&antijoin_tuples);
-            output.gates = output.gates.concat(&antijoin_gates);
 
             // return outputs of all extended collections
             output.leave()
@@ -261,7 +267,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Evaluates a single stratum to fixed-point using positive semi-naive evaluation.
-    pub fn evaluate_stratum(scope: &mut G, input: &StratumInput<G>) -> Self {
+    pub fn evaluate_stratum(scope: &mut G, input: &StratumInput<G, M>) -> Self {
         scope.iterative::<u32, _, _>(move |scope| {
             // enter input to this iteration
             let mut input = input.enter(scope);
@@ -288,7 +294,7 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
     }
 
     /// Calculates a single iteration of positive semi-naive inference.
-    pub fn evaluate_once(input: &StratumInput<G>) -> Self {
+    pub fn evaluate_once(input: &StratumInput<G, M>) -> Self {
         // arrange all inputs
         let tuples_arranged = input.tuples.arrange_by_key();
         let facts_arranged = input.facts.map(Fact::relation_pair).arrange_by_key();
@@ -324,6 +330,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
 
         // load each source's tuples
         let join_lhs = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -332,6 +340,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
         );
 
         let join_rhs = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -340,6 +350,8 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
         );
 
         let source = load_source(
+            input.model.clone(),
+            input.conditionals.clone(),
             &tuples_arranged,
             &load_mask,
             &relations_arranged,
@@ -348,31 +360,24 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
         );
 
         // select and merge sides of join source nodes
-        let joined = join_lhs.join_map(&join_rhs, join);
-
-        // extract the new tuples and gates from a join
-        let join = joined.map(key);
-        let join_gates = joined.flat_map(value);
+        let joined = join_lhs.join_map(&join_rhs, {
+            let model = input.model.clone();
+            move |key, lhs, rhs| join(model.as_ref(), key, lhs, rhs)
+        });
 
         // collect all node input tuples and do logic
-        let node_results = join
+        let node_results = joined
             .concat(&source)
             .join_core(&nodes_arranged, node_logic)
             .distinct();
 
-        // store tuples to corresponding relations
+        // store facts with implications to corresponding relations
         let stored = node_results.flat_map(NodeResult::store);
-
-        // collect implications to build conditional gates with
-        let implies = stored.flat_map(|(fact, (kind, cond))| {
-            kind.map(|is_decision| ((Key::new(&fact), is_decision), cond))
-        });
 
         // return outputs
         Self {
-            gates: join_gates,
-            implies,
             facts: stored.map(key),
+            implies: stored.map(|(fact, cond)| (Key::new(&fact), cond)),
             tuples: node_results.flat_map(NodeResult::node),
             antijoins: node_results.flat_map(NodeResult::antijoin),
             constraints: node_results.flat_map(NodeResult::constraint),
@@ -385,21 +390,23 @@ impl<G: Scope<Timestamp: Hash + Default + Lattice>> StratumOutput<G> {
             facts: self.facts.inspect(inspect("fact")),
             implies: self.implies.inspect(inspect("imply")),
             tuples: self.tuples.inspect(inspect("tuple")),
-            gates: self.gates.inspect(inspect("gate")),
             antijoins: self.antijoins.inspect(inspect("antijoin")),
             constraints: self.constraints.inspect(inspect("constraint")),
         }
     }
 }
 
-pub fn load_source<G, T, O, TupleTr, LoadMaskTr, RelationTr>(
+pub fn load_source<M, G, T, O, TupleTr, LoadMaskTr, RelationTr>(
+    model: Arc<M>,
+    cond_store: ConditionalStore<M>,
     tuples: &Arranged<G, TupleTr>,
     load_mask: &Arranged<G, LoadMaskTr>,
     relations: &Arranged<G, RelationTr>,
-    map: fn(&T, Tuple) -> O,
+    map: fn(&T, Tuple<M>) -> O,
     source: &VecCollection<G, (NodeSource, T)>,
 ) -> VecCollection<G, O>
 where
+    M: DataflowModel,
     G: Scope,
     G::Timestamp: Lattice,
     T: ExchangeData,
@@ -407,7 +414,7 @@ where
     TupleTr: Clone
         + for<'a> TraceReader<
             Key<'a> = &'a Key<Node>,
-            Val<'a> = &'a Tuple,
+            Val<'a> = &'a Tuple<M>,
             Diff = Diff,
             Time = G::Timestamp,
         > + 'static,
@@ -444,14 +451,28 @@ where
             )]
         })
         .join_core(load_mask, move |_head, (src, kind), (fact, tail)| {
-            [map(src, load(kind, fact, tail))]
+            let condition = if kind.is_basic() {
+                model.from_const(true)
+            } else {
+                cond_store.get_conditional(*fact)
+            };
+
+            let tuple = Tuple {
+                values: tail.clone(),
+                condition,
+            };
+
+            [map(src, tuple)]
         });
 
     // return both node source and relation source tuples
     node.concat(&relation)
 }
 
-pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>, Values), Tuple) {
+pub fn join_slice<M: DataflowModel>(
+    (dst, num): &(Key<Node>, usize),
+    tuple: Tuple<M>,
+) -> ((Key<Node>, Values), Tuple<M>) {
     let num = *num;
     let prefix = tuple.values[..num].into();
     (
@@ -463,11 +484,12 @@ pub fn join_slice((dst, num): &(Key<Node>, usize), tuple: Tuple) -> ((Key<Node>,
     )
 }
 
-pub fn join(
+pub fn join<M: DataflowModel>(
+    model: &M,
     (dst, prefix): &(Key<Node>, Values),
-    lhs: &Tuple,
-    rhs: &Tuple,
-) -> ((Key<Node>, Tuple), Option<Gate>) {
+    lhs: &Tuple<M>,
+    rhs: &Tuple<M>,
+) -> (Key<Node>, Tuple<M>) {
     let values: FixedValues = prefix
         .iter()
         .chain(lhs.values.iter())
@@ -475,18 +497,15 @@ pub fn join(
         .cloned()
         .collect();
 
-    let (condition, gate) = match (lhs.condition, rhs.condition) {
-        (None, None) => (None, None),
-        (Some(lhs), None) => (Some(lhs), None),
-        (None, Some(rhs)) => (Some(rhs), None),
-        (Some(lhs), Some(rhs)) => {
-            let (key, gate) = Key::pair(Gate::And { lhs, rhs });
-            (Some(Condition::Gate(key)), Some(gate))
-        }
-    };
+    let condition = model.binary_op(
+        BoolBinaryOp::And,
+        lhs.condition.clone(),
+        rhs.condition.clone(),
+    );
 
     let tuple = Tuple { values, condition };
-    ((*dst, tuple), gate)
+
+    (*dst, tuple)
 }
 
 pub fn load_mask(
@@ -516,57 +535,6 @@ pub fn load_mask(
     Some(((*relation, mask.clone(), head), (Key::new(fact), tail)))
 }
 
-pub fn load(kind: &RelationKind, fact: &Key<Fact>, tail: &FixedValues) -> Tuple {
-    let condition = match kind {
-        RelationKind::Conditional | RelationKind::Decision => Some(Condition::Fact(*fact)),
-        RelationKind::Basic => None,
-    };
-
-    Tuple {
-        values: tail.clone(),
-        condition,
-    }
-}
-
-pub fn base_conditional(
-    _key: &Key<Relation>,
-    fact: &Fact,
-    rel: &Relation,
-) -> Option<(Key<Fact>, bool)> {
-    let is_decision = match rel.kind {
-        RelationKind::Basic => return None,
-        RelationKind::Conditional => false,
-        RelationKind::Decision => true,
-    };
-
-    Some((Key::new(fact), is_decision))
-}
-
-pub fn conditional_gate(
-    (_fact, is_decision): &(Key<Fact>, bool),
-    input: &[(&Option<Condition>, Diff)],
-    output: &mut Vec<(Option<Gate>, Diff)>,
-) {
-    let terms = if input.iter().any(|(cond, _diff)| cond.is_none()) {
-        output.push((None, 1));
-        return;
-    } else {
-        input
-            .iter()
-            .cloned()
-            .map(|(cond, _diff)| cond.unwrap().to_owned())
-            .collect()
-    };
-
-    let gate = if *is_decision {
-        Gate::Decision { terms }
-    } else {
-        Gate::Or { terms }
-    };
-
-    output.push((Some(gate), 1));
-}
-
 #[allow(unused_variables)]
 pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, D, Diff)) {
     let collection = collection.to_string();
@@ -575,7 +543,11 @@ pub fn inspect<T: Debug, D: Debug>(collection: &str) -> impl for<'a> Fn(&'a (T, 
     }
 }
 
-pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeResult> {
+pub fn node_logic<M: DataflowModel>(
+    dst: &Key<Node>,
+    tuple: &Tuple<M>,
+    node: &Node,
+) -> Option<NodeResult<M>> {
     let mut values: Vec<_> = tuple.values.iter().cloned().collect();
     values.reserve(node.push.len());
 
@@ -622,12 +594,6 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
             }
         }
         NodeOutput::Relation { dst, head, kind } => {
-            let kind = match kind {
-                RelationKind::Basic => None,
-                RelationKind::Conditional => Some(false),
-                RelationKind::Decision => Some(true),
-            };
-
             let values = head
                 .iter()
                 .map(|term| match term {
@@ -641,7 +607,7 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
                 values,
             };
 
-            NodeResultKind::Store { fact, kind }
+            NodeResultKind::Store { fact }
         }
         NodeOutput::Constraint { head, .. } => NodeResultKind::Constraint {
             dst: *dst,
@@ -650,19 +616,29 @@ pub fn node_logic(dst: &Key<Node>, tuple: &Tuple, node: &Node) -> Option<NodeRes
     };
 
     Some(NodeResult {
-        cond: tuple.condition,
+        cond: tuple.condition.clone(),
         kind,
     })
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
-pub struct NodeResult {
-    pub cond: Option<Condition>,
+#[derive_where(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Deserialize,
+    Serialize
+)]
+pub struct NodeResult<M: DataflowModel> {
+    pub cond: Bool<M>,
     pub kind: NodeResultKind,
 }
 
-impl NodeResult {
-    pub fn node(self) -> Option<(Key<Node>, Tuple)> {
+impl<M: DataflowModel> NodeResult<M> {
+    pub fn node(self) -> Option<(Key<Node>, Tuple<M>)> {
         match self.kind {
             NodeResultKind::Node { dst, values } => {
                 let condition = self.cond;
@@ -673,7 +649,7 @@ impl NodeResult {
         }
     }
 
-    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple))> {
+    pub fn antijoin(self) -> Option<(Fact, (Key<Node>, Tuple<M>))> {
         match self.kind {
             NodeResultKind::Antijoin {
                 dst,
@@ -688,14 +664,14 @@ impl NodeResult {
         }
     }
 
-    pub fn store(self) -> Option<(Fact, (Option<bool>, Option<Condition>))> {
+    pub fn store(self) -> Option<(Fact, Bool<M>)> {
         match self.kind {
-            NodeResultKind::Store { fact, kind } => Some((fact, (kind, self.cond))),
+            NodeResultKind::Store { fact } => Some((fact, self.cond)),
             _ => None,
         }
     }
 
-    pub fn constraint(self) -> Option<((Key<Node>, FixedValues), Option<Condition>)> {
+    pub fn constraint(self) -> Option<((Key<Node>, FixedValues), Bool<M>)> {
         match self.kind {
             NodeResultKind::Constraint { dst, head } => Some(((dst, head), self.cond)),
             _ => None,
@@ -718,7 +694,6 @@ pub enum NodeResultKind {
 
     Store {
         fact: Fact,
-        kind: Option<bool>,
     },
 
     Constraint {
@@ -783,87 +758,22 @@ pub fn eval_expr(vals: &Values, expr: &Expr) -> Value {
     }
 }
 
-pub fn constraint_reduce(
-    _key: &(Key<Node>, FixedValues),
-    input: &[(&Option<Condition>, Diff)],
-    output: &mut Vec<(Vec<Condition>, Diff)>,
-) {
-    let mut terms = Vec::new();
+pub struct ConditionalStore<M: DataflowModel>(Arc<DashMap<Key<Fact>, Bool<M>>>, Arc<M>);
 
-    for (cond, _diff) in input {
-        if let Some(cond) = cond.as_ref().to_owned() {
-            terms.push(cond.to_owned());
-        }
-    }
-
-    if !terms.is_empty() {
-        output.push((terms, 1));
+impl<M: DataflowModel> Clone for ConditionalStore<M> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone())
     }
 }
 
-#[allow(clippy::ptr_arg)]
-pub fn constraint_clause(
-    _dst: &Key<Node>,
-    terms: &Vec<Condition>,
-    (weight, kind): &(ConstraintWeight, ConstraintKind),
-) -> Option<ConstraintGroup> {
-    Some(ConstraintGroup {
-        terms: terms.clone(),
-        weight: *weight,
-        kind: kind.clone(),
-    })
-}
+impl<M: DataflowModel> ConditionalStore<M> {
+    /// Creates an empty conditional store.
+    pub fn new(model: Arc<M>) -> Self {
+        Self(Default::default(), model)
+    }
 
-pub fn antijoin<G>(
-    antijoins: &VecCollection<G, (Fact, (Key<Node>, Tuple))>,
-    facts: &VecCollection<G, Fact>,
-    relations: &VecCollection<G, Relation>,
-) -> (VecCollection<G, Gate>, VecCollection<G, (Key<Node>, Tuple)>)
-where
-    G: Scope<Timestamp: Lattice>,
-{
-    // arrange antijoins
-    let antijoins = antijoins.distinct().arrange_by_key();
-
-    // unconditionally permit all antijoins with absent facts
-    let unconditional = antijoins.antijoin(&facts.distinct()).map(value);
-
-    // extract conditional relation keys
-    let relations = relations
-        .filter(|rel| !rel.kind.is_basic())
-        .map(|rel| Key::new(&rel));
-
-    // extract conditional facts
-    let facts = facts
-        .map(Fact::relation_pair)
-        .semijoin(&relations)
-        .map(value);
-
-    // conditionally permit antijoins with conditional facts
-    let conditional = antijoins.semijoin(&facts).map(|(fact, (node, mut tuple))| {
-        // create key for the refuting fact
-        let fact = Condition::NotFact(Key::new(&fact));
-
-        // optionally construct gate if tuple is conditional
-        if let Some(cond) = tuple.condition {
-            let gate = Gate::And {
-                lhs: cond,
-                rhs: fact,
-            };
-
-            tuple.condition = Some(Condition::Gate(Key::new(&gate)));
-
-            return ((node, tuple), Some(gate));
-        }
-
-        // otherwise, the tuple is negatively conditional on the fact
-        tuple.condition = Some(fact);
-        ((node, tuple), None)
-    });
-
-    // combine all permitted tuples
-    let tuples = unconditional.concat(&conditional.map(key));
-
-    // return all new tuples and all new gates
-    (conditional.flat_map(value), tuples)
+    /// Get the condition for a fact, or insert it if it doesn't exist.
+    pub fn get_conditional(&self, fact: Key<Fact>) -> Bool<M> {
+        todo!()
+    }
 }

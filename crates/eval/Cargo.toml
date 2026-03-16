@@ -8,27 +8,21 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+dashmap.workspace = true
+derive-where = { version = "1.6", features = ["serde"] }
 differential-dataflow.workspace = true
 flume.workspace = true
 futures-util.workspace = true
 indexmap.workspace = true
+rustsat.workspace = true
+rustsat-cadical.workspace = true
 saturn-v-ir.workspace = true
+saturn-v-solve.workspace = true
 serde.workspace = true
 tinyvec = { workspace = true, features = ["serde"] }
 timely.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
-
-# batsat = "0.6.0"
-# rustsat-batsat = "0.7.4"
-
-[dependencies.rustsat]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
-
-[dependencies.rustsat-cadical]
-git = "https://github.com/marceline-cramer/rustsat"
-branch = "saturn-v"
 
 [dev-dependencies]
 anyhow.workspace = true
