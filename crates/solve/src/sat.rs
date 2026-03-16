@@ -33,6 +33,7 @@ use rustsat::{
     types::{Lit, Var},
 };
 use smallvec::{smallvec, SmallVec};
+use tracing::error;
 
 use crate::{partial::*, *};
 
@@ -53,7 +54,7 @@ where
     type Model = SatModel;
 
     fn solve(&mut self, opts: SolveOptions<SatModel>) -> SolveResult {
-        use rustsat::encodings::pb::*;
+        use rustsat::{encodings::pb::*, solvers::SolverResult::*};
 
         // encode and collect all hard constraint assumptions
         let mut assumptions = Vec::with_capacity(opts.hard.len());
@@ -89,11 +90,15 @@ where
         // begin minimizing the cost upper bound
         loop {
             // check satisfiability with current assumptions
-            // TODO: replace unwrap with tracing error + return unknown
-            let result = self.solver.solve_assumps(&assumptions).unwrap();
+            let result = match self.solver.solve_assumps(&assumptions) {
+                Ok(result) => result,
+                Err(err) => {
+                    error!("solver failed: {err:?}");
+                    return SolveResult::Unknown;
+                }
+            };
 
             // handle non-sat solving results
-            use rustsat::solvers::SolverResult::*;
             match result {
                 Sat => {}
                 Interrupted => return SolveResult::Unknown,
