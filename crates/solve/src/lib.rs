@@ -102,7 +102,7 @@ impl SolveResult {
 pub type Bool<M> = <M as Encoder<bool>>::Repr;
 
 /// An incrementally-constructed logic model.
-pub trait Model: PbEncoder + Encoder<bool> {}
+pub trait Model: PbEncoder + Encoder<bool> + 'static {}
 
 /// An interface to encode pseudo-Boolean constraints.
 pub trait PbEncoder: Encoder<bool> {
@@ -132,7 +132,10 @@ pub enum PbKind {
 /// Operations for manipulated encoded values.
 pub trait Encoder<T: Ops> {
     /// The representation of this value in the solver.
-    type Repr: Clone + Debug + Send + 'static;
+    ///
+    /// The ordering and equality bounds can be arbitrary and unrelated to the
+    /// contents of the representation but must be total and consistent.
+    type Repr: Clone + Debug + Ord + Send + 'static;
 
     /// Creates a fresh, uninterpreted variable.
     fn fresh(&self) -> Self::Repr;

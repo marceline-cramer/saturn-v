@@ -728,7 +728,7 @@ impl Not for GateTerm {
 /// encodings. This conversion is deferred so that evaluation may add and
 /// remove constraints independently of an append-only SAT solver and support
 /// rebuilding a solver entirely from scratch.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SatLit {
     /// The unique variable identifier of this literal.
     pub variable: u64,

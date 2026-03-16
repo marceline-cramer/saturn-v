@@ -17,7 +17,7 @@
 use crate::*;
 
 /// A wrapper for types that can be partially-evaluated.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PartialValue<C, V> {
     Const(C),
     Variable(V),
@@ -227,7 +227,10 @@ impl<E: PartialEncoder<bool>> Encoder<bool> for E {
 /// An encoder that relies on partial evaluation for constant values.
 pub trait PartialEncoder<T: Ops> {
     /// The representation of variable values in the encoder.
-    type Repr: Clone + Debug + Send + 'static;
+    ///
+    /// The ordering and equality bounds can be arbitrary and unrelated to the
+    /// contents of the representation but must be total and consistent.
+    type Repr: Clone + Debug + Ord + Send + 'static;
 
     /// Creates a fresh, uninterpreted variable value.
     fn fresh_variable(&self) -> Self::Repr;
