@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 
 pub mod partial;
 
@@ -101,8 +101,18 @@ impl SolveResult {
 /// Type alias for the representation of Boolean values in an encoder.
 pub type Bool<M> = <M as Encoder<bool>>::Repr;
 
+/// A [Model] with additional type constraints for use in Differential Dataflow.
+pub trait DataflowModel: Model + DataflowEncoder<bool> + 'static {}
+
+impl<M: Model + DataflowEncoder<bool> + 'static> DataflowModel for M {}
+
+/// An [Encoder] with additional type constraints for use in Differential Dataflow.
+pub trait DataflowEncoder<T: Ops>: Encoder<T, Repr: Send + Ord + Hash> {}
+
+impl<T: Ops, M: Encoder<T, Repr: Send + Ord + Hash>> DataflowEncoder<T> for M {}
+
 /// An incrementally-constructed logic model.
-pub trait Model: PbEncoder + Encoder<bool> + 'static {}
+pub trait Model: PbEncoder + Encoder<bool> {}
 
 /// An interface to encode pseudo-Boolean constraints.
 pub trait PbEncoder: Encoder<bool> {
@@ -135,7 +145,7 @@ pub trait Encoder<T: Ops> {
     ///
     /// The ordering and equality bounds can be arbitrary and unrelated to the
     /// contents of the representation but must be total and consistent.
-    type Repr: Clone + Debug + Ord + Send + 'static;
+    type Repr: Clone + Debug + 'static;
 
     /// Creates a fresh, uninterpreted variable.
     fn fresh(&self) -> Self::Repr;
