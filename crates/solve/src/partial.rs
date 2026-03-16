@@ -227,7 +227,7 @@ impl<E: PartialEncoder<bool>> Encoder<bool> for E {
 /// An encoder that relies on partial evaluation for constant values.
 pub trait PartialEncoder<T: Ops> {
     /// The representation of variable values in the encoder.
-    type Repr: Clone + 'static;
+    type Repr: Clone + Debug + 'static;
 
     /// Creates a fresh, uninterpreted variable value.
     fn fresh_variable(&self) -> Self::Repr;

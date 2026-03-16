@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with Saturn V. If not, see <https://www.gnu.org/licenses/>.
 
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 pub mod partial;
 
@@ -132,7 +132,7 @@ pub enum PbKind {
 /// Operations for manipulated encoded values.
 pub trait Encoder<T: Ops> {
     /// The representation of this value in the solver.
-    type Repr: Clone + 'static;
+    type Repr: Clone + Debug + 'static;
 
     /// Creates a fresh, uninterpreted variable.
     fn fresh(&self) -> Self::Repr;
